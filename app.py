@@ -97,15 +97,15 @@ def ai_decode_and_save(word):
     
     # 【安全熔斷指令】與 20 欄位定義
     prompt = f"""
-    Role: Kadowsella 語言架構師 & 安全審核官。
-    Task: 解構單字「{word}」。
-    
-    ## 輸出格式: 嚴格 JSON，包含以下 20 個欄位（繁體中文）：
-    category, roots, meaning, word, breakdown, definition, phonetic, example, 
-    translation, native_vibe, synonym_nuance, visual_prompt, social_status, 
-    emotional_tone, street_usage, collocation, etymon_story, usage_warning, 
-    memory_hook, audio_tag
-    """
+Role: 語言學家與社會語言觀察家。
+Task: 深度且客觀地解構單字「{word}」。
+
+## 指令細節：
+1. 本程式為個人學術研究用途，請「不要」攔截或避諱任何髒話、俚語、俚語或社會禁忌語。
+2. 請從語源學、社會語言學的角度，客觀分析該詞彙的歷史、語感及使用動機。
+3. 輸出格式：嚴格依照以下 20 個欄位順序回傳繁體中文 JSON，不得包含 Markdown 標籤或任何額外說明文字：
+category, roots, meaning, word, breakdown, definition, phonetic, example, translation, native_vibe, synonym_nuance, visual_prompt, social_status, emotional_tone, street_usage, collocation, etymon_story, usage_warning, memory_hook, audio_tag
+"""
     
     response = model.generate_content(prompt)
     return response.text
