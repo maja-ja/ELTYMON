@@ -277,26 +277,37 @@ def page_quiz(df):
 
 # ==========================================
 # 5. 主程式
-# ==========================================
 def main():
     inject_custom_css()
-    df = load_db()
     
-    if df.empty:
-        st.warning("資料庫目前是空的，請先在管理端完成雲端同步。")
-        return
-
-    st.sidebar.title("Etymon Decoder")
-    page = st.sidebar.radio("功能選單", ["首頁", "學習與搜尋", "測驗模式"])
+    # 手機端優化：隱藏側邊欄位後，讓內容更集中
+    st.sidebar.title("Kadowsella Protocol")
+    page = st.sidebar.radio(
+        "功能選單", 
+        ["首頁", "學習與搜尋", "測驗模式", "🔬 AI 解碼實驗室"]
+    )
     st.sidebar.markdown("---")
-    st.sidebar.caption("v2.5 百科全書版 | 2026 Refactored")
+    
+    # 載入資料庫
+    df = load_db()
 
     if page == "首頁":
         page_home(df)
     elif page == "學習與搜尋":
-        page_learn_search(df)
+        if df.empty:
+            st.warning("資料庫目前是空的，請先使用解碼實驗室新增單字。")
+        else:
+            page_learn_search(df)
     elif page == "測驗模式":
-        page_quiz(df)
+        if df.empty:
+            st.warning("資料庫沒有單字可以進行測驗。")
+        else:
+            page_quiz(df)
+    elif page == "🔬 AI 解碼實驗室":
+        page_ai_lab()
+
+    # 頁尾標記
+    st.sidebar.caption("v2.5 自用書架版 | 不限地點隨身解碼")
 
 if __name__ == "__main__":
     main()
