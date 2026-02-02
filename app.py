@@ -13,11 +13,12 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 核心配置與視覺美化 (CSS)
 # ==========================================
 st.set_page_config(page_title="Etymon Decoder v2.5", page_icon="🧩", layout="wide")
-
 def inject_custom_css():
     st.markdown("""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
+            
+            /* 1. 拆解區塊樣式 */
             .breakdown-container {
                 font-family: 'Inter', 'Noto Sans TC', sans-serif; 
                 font-size: 1.8rem !important; 
@@ -36,7 +37,8 @@ def inject_custom_css():
                 color: #BBDEFB;
                 margin: 0 8px;
             }
-            /* 手機響應式調整 */
+
+            /* 2. 手機響應式調整 */
             @media (max-width: 600px) {
                 .breakdown-container {
                     font-size: 1.2rem !important;
@@ -44,9 +46,29 @@ def inject_custom_css():
                     text-align: center;
                 }
             }
+
+            /* 3. 單字與音標 */
             .hero-word { font-size: 2.5rem; font-weight: 800; color: #333; }
-            .hero-phonetic { font-size: 1.2rem; color: #666; font-family: monospace; margin-bottom: 10px; }
-            .vibe-box { background-color: #E3F2FD; padding: 15px; border-radius: 10px; border-left: 5px solid #2196F3; }
+            /* 如果在深色模式下，單字標題也要確保看得到 */
+            @media (prefers-color-scheme: dark) {
+                .hero-word { color: #FFF; }
+            }
+            .hero-phonetic { font-size: 1.2rem; color: #888; font-family: monospace; margin-bottom: 10px; }
+
+            /* 4. [修正點] 語感區塊：強制深色文字 */
+            .vibe-box { 
+                background-color: #E3F2FD; 
+                padding: 15px; 
+                border-radius: 10px; 
+                border-left: 5px solid #2196F3; 
+                
+                /* 這裡強制指定文字顏色為深灰，避免被深色模式反白 */
+                color: #333333 !important; 
+            }
+            /* 確保 box 裡面的標題也是深藍色 */
+            .vibe-box h4 {
+                color: #1565C0 !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
