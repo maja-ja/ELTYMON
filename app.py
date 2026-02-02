@@ -79,12 +79,22 @@ def inject_custom_css():
 def speak(text, key_suffix=""):
     try:
         if not text: return
-        tts = gTTS(text=text, lang='en')
+        
+        # --- [新增] 英語濾網 ---
+        # 只保留 A-Z, a-z, 0-9, 空格,連字號(-), 撇號(')
+        # 這樣 "Quantum Mechanics (量子力學)" 變成 "Quantum Mechanics"
+        # 而 "黑洞" 變成 "" (空字串)，就不會發出怪聲
+        english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", "", str(text)).strip()
+        
+        # 如果濾完沒東西（代表全是中文），就直接跳出，不播放
+        if not english_only:
+            return
+            
+        tts = gTTS(text=english_only, lang='en')
         fp = BytesIO()
         tts.write_to_fp(fp)
         audio_base64 = base64.b64encode(fp.getvalue()).decode()
         unique_id = f"audio_{int(time.time())}_{key_suffix}"
-        # 隱藏播放器，自動播放
         st.components.v1.html(f'<audio id="{unique_id}" autoplay="true" style="display:none;"><source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3"></audio><script>document.getElementById("{unique_id}").play();</script>', height=0)
     except Exception as e: st.error(f"語音錯誤: {e}")
 
@@ -380,10 +390,17 @@ def main():
     inject_custom_css()
     
     st.sidebar.title("Kadowsella")
+    
+    # --- [新增功能] 強制刷新資料庫按鈕 ---
+    if st.sidebar.button("🔄 強制同步雲端", help="清除快取，重新抓取 Google Sheets 最新資料"):
+        st.cache_data.clear()  # 清除所有 @st.cache_data 的快取
+        st.rerun()             # 重新執行 App
+    # ----------------------------------
+
     page = st.sidebar.radio("功能選單", ["首頁", "學習與搜尋", "測驗模式", "🔬 AI 解碼實驗室"])
     st.sidebar.markdown("---")
     
-    # 載入書架
+    # 載入書架 (因為上面有清除快取的功能，這裡就會重新抓取)
     df = load_db()
     
     if page == "首頁":
