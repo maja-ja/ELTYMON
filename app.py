@@ -142,17 +142,15 @@ def load_db():
 # ==========================================
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
-def ai_decode_and_save(input_text):
+def ai_decode_and_save(input_text, fixed_category):
     """
-    核心解碼函式：
-    1. 讀取密碼箱內的 SYSTEM_PROMPT。
-    2. 呼叫 Gemini 進行全領域知識解構。
-    3. 移除 Markdown 標籤並回傳純 JSON 字串。
+    進化版解碼函式：
+    1. 接收使用者選定的固定領域 (fixed_category)。
+    2. 注入強制指令，鎖定 AI 的專業視角。
+    3. 執行 JSON 提取與安全過濾。
     """
-    # 1. 配置 Gemini API
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    # 2. 安全設定：解除髒話、禁忌語攔截 (BLOCK_NONE)
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -161,37 +159,37 @@ def ai_decode_and_save(input_text):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    # 3. 初始化模型 (建議使用穩定的 1.5-flash)
     model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
     
-    # 4. 從「密碼箱」讀取基礎指令
-    # 確保你的 Streamlit Secrets 中有名為 "SYSTEM_PROMPT" 的 key
     try:
         base_prompt = st.secrets["SYSTEM_PROMPT"]
     except KeyError:
-        st.error("❌ 密碼箱中找不到 SYSTEM_PROMPT，請檢查 Secrets 設定。")
+        st.error("❌ 密碼箱中找不到 SYSTEM_PROMPT")
         return None
     
-    # 5. 組合最終指令
-    final_prompt = f"{base_prompt}\n\n現在，請開始為我解碼以下知識內容：「{input_text}」"
+    # --- 關鍵修正：注入領域鎖定指令 ---
+    lock_instruction = f"""
+    【領域鎖定指令】：
+    1. 你目前的身份是「{fixed_category}」專家。
+    2. JSON 中的 'category' 欄位必須精確填寫為：「{fixed_category}」。
+    3. 請務必從「{fixed_category}」的專業知識體系出發，提供深度的解構內容。
+    """
     
-    # 6. 呼叫 AI 生成內容
+    final_prompt = f"{base_prompt}\n\n{lock_instruction}\n\n解碼目標：「{input_text}」"
+    
     try:
         response = model.generate_content(final_prompt)
         raw_text = response.text
         
-        # 7. 強力解析：使用 Regex 抓取 { ... } 之間的內容
-        # 這是為了防止 AI 在 JSON 前後加廢話 (如 "Here is the JSON:")
+        # 提取 JSON 部分
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if match:
-            return match.group(0) # 只回傳 JSON 部分
-        else:
-            return raw_text # 沒抓到就回傳原圖，由後續 json.loads 報錯
+            return match.group(0)
+        return raw_text
             
     except Exception as e:
-        st.error(f"AI 生成過程發生錯誤: {e}")
+        st.error(f"AI 生成出錯: {e}")
         return None
-
 def show_encyclopedia_card(row):
     """美化顯示單一單字的百科卡片"""
     st.markdown(f"<div class='hero-word'>{row['word']}</div>", unsafe_allow_html=True)
@@ -242,76 +240,79 @@ def show_encyclopedia_card(row):
 # ==========================================
 def page_ai_lab():
     st.title("🔬 Kadowsella 解碼實驗室")
-    st.write("輸入新知識，AI 將自動填寫 20 欄位並存入你的 **MyDB** 書架。")
     
-    col_input, col_check = st.columns([3, 1])
+    # 1. 定義固定領域清單
+    FIXED_CATEGORIES = [
+        "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
+        "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
+        "商業商戰", "金融投資", "程式開發", "人工智慧", "產品設計", "數位行銷",
+        "藝術美學", "影視文學", "料理食觀", "運動健身", "流行文化", "雜類", "自定義"
+    ]
+    
+    col_input, col_cat = st.columns([2, 1])
+    
     with col_input:
-        new_word = st.text_input("輸入想解碼的單字或知識點：", placeholder="例如: 'Entropy' 或 '量子力學'...")
-    with col_check:
-        # 新增：強制刷新開關
-        st.write("") # 排版用
-        st.write("") 
-        force_refresh = st.checkbox("🔄 強制刷新\n(覆蓋舊資料)", value=False)
+        new_word = st.text_input("輸入解碼主題：", placeholder="例如: 'Entropy'...")
+        
+    with col_cat:
+        selected_category = st.selectbox("選定領域標籤", FIXED_CATEGORIES)
+        
+    # 處理自定義領域邏輯
+    if selected_category == "自定義":
+        custom_cat = st.text_input("請輸入自定義領域名稱：")
+        final_category = custom_cat if custom_cat else "未分類"
+    else:
+        final_category = selected_category
+
+    force_refresh = st.checkbox("🔄 強制刷新 (覆蓋舊資料)")
     
     if st.button("啟動三位一體解碼", type="primary"):
         if not new_word:
             st.warning("請先輸入內容。")
             return
 
-        # --- 步驟 1: 先檢查資料庫是否已有此字 ---
+        # --- 步驟 1: 檢查資料庫 ---
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
         existing_data = conn.read(spreadsheet=url, ttl=0)
         
-        # 檢查單字是否存在 (不分大小寫比較安全)
-        # 注意：這裡假設 'word' 欄位是索引鍵
         is_exist = False
         if not existing_data.empty:
-            # 轉小寫比對，避免 Apple 和 apple 重複
             match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
             is_exist = match_mask.any()
 
         if is_exist and not force_refresh:
-            st.warning(f"⚠️ 「{new_word}」已經在書架上了！若要重新解碼，請勾選右側的『強制刷新』。")
-            # 顯示現有卡片給使用者看
+            st.warning(f"⚠️ 「{new_word}」已在書架上！")
             existing_row = existing_data[match_mask].iloc[0].to_dict()
             st.markdown("---")
-            st.info("👇 這是目前的庫存版本：")
             show_encyclopedia_card(existing_row)
             return
 
-        # --- 步驟 2: AI 生成 ---
-        with st.spinner(f'正在為「{new_word}」進行深度解碼...'):
+        # --- 步驟 2: AI 生成 (關鍵修正：傳入 final_category) ---
+        with st.spinner(f'正在以【{final_category}】專業視角解碼「{new_word}」...'):
             try:
-                # 呼叫 AI
-                raw_res = ai_decode_and_save(new_word)
+                # 這裡呼叫我們優化過的函式
+                raw_res = ai_decode_and_save(new_word, final_category)
                 
-                # 正則解析
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
-                    st.error("AI 輸出格式錯誤，無法解析 JSON。")
-                    st.code(raw_res)
+                    st.error("AI 輸出解析失敗。")
                     return
                 
-                clean_json = match.group(0)
-                res_data = json.loads(clean_json)
+                res_data = json.loads(match.group(0))
 
-                # --- 步驟 3: 資料覆寫邏輯 ---
+                # --- 步驟 3: 資料覆寫與存檔 ---
                 if is_exist and force_refresh:
-                    # 刪除舊資料：保留 "不等於" 該單字的行
                     existing_data = existing_data[~match_mask]
-                    st.toast(f"🗑️ 已移除舊版「{new_word}」，正在寫入新版...", icon="Rg")
+                    st.toast(f"🗑️ 已替換舊版數據", icon="🔄")
 
-                # 合併新資料
                 new_row = pd.DataFrame([res_data])
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
                 
-                # 寫回 Google Sheets
                 conn.update(spreadsheet=url, data=updated_df)
                 
-                st.success(f"🎉 更新完成！「{new_word}」已刷新並存入書架。")
+                st.success(f"🎉 「{new_word}」解碼成功！")
                 st.balloons()
-                
                 st.markdown("---")
                 show_encyclopedia_card(res_data)
 
