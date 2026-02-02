@@ -143,14 +143,15 @@ def load_db():
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
 def ai_decode_and_save(input_text, fixed_category):
-    """
-    進化版解碼函式：
-    1. 接收使用者選定的固定領域 (fixed_category)。
-    2. 注入強制指令，鎖定 AI 的專業視角。
-    3. 執行 JSON 提取與安全過濾。
-    """
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    # 1. 確保 API Key 存在
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        st.error("❌ 密碼箱中找不到 GEMINI_API_KEY")
+        return None
+
+    genai.configure(api_key=api_key)
     
+    # 2. 安全設定 (BLOCK_NONE)
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -159,36 +160,27 @@ def ai_decode_and_save(input_text, fixed_category):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
-    
     try:
-        base_prompt = st.secrets["SYSTEM_PROMPT"]
-    except KeyError:
-        st.error("❌ 密碼箱中找不到 SYSTEM_PROMPT")
-        return None
-    
-    # --- 關鍵修正：注入領域鎖定指令 ---
-    lock_instruction = f"""
-    【領域鎖定指令】：
-    1. 你目前的身份是「{fixed_category}」專家。
-    2. JSON 中的 'category' 欄位必須精確填寫為：「{fixed_category}」。
-    3. 請務必從「{fixed_category}」的專業知識體系出發，提供深度的解構內容。
-    """
-    
-    final_prompt = f"{base_prompt}\n\n{lock_instruction}\n\n解碼目標：「{input_text}」"
-    
-    try:
-        response = model.generate_content(final_prompt)
-        raw_text = response.text
+        model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
         
-        # 提取 JSON 部分
-        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if match:
-            return match.group(0)
-        return raw_text
+        # 3. 讀取系統指令
+        base_prompt = st.secrets.get("SYSTEM_PROMPT", "你是一個知識解構專家，請以 JSON 格式回傳。")
+        
+        lock_instruction = f"\n【領域鎖定】：請務必以「{fixed_category}」的專業視角解構，並將 category 設為「{fixed_category}」。"
+        final_prompt = f"{base_prompt}\n{lock_instruction}\n\n目標內容：「{input_text}」"
+        
+        # 4. 呼叫 AI
+        response = model.generate_content(final_prompt)
+        
+        # 檢查 response 是否有效
+        if response and response.text:
+            return response.text
+        else:
+            st.error("❌ AI 回傳了空內容，可能是觸發了嚴格的安全過濾。")
+            return None
             
     except Exception as e:
-        st.error(f"AI 生成出錯: {e}")
+        st.error(f"❌ Gemini API 呼叫失敗: {e}")
         return None
 def show_encyclopedia_card(row):
     """美化顯示單一單字的百科卡片"""
