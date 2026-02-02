@@ -122,7 +122,7 @@ def ai_decode_and_save(input_text):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
+    model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
     
     prompt = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
