@@ -110,12 +110,10 @@ def load_db():
 # ==========================================
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
-
-def ai_decode_and_save(word):
-    # 1. 配置 Gemini
+def ai_decode_and_save(input_text):
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    # 設定安全過濾器為「無封鎖」 (BLOCK_NONE)
+    # 設定無限制的安全過濾
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -124,17 +122,40 @@ def ai_decode_and_save(word):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
+    model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
     
     prompt = f"""
-    Role: 語言學家與社會語言觀察家。
-    Task: 深度且客觀地解構單字「{word}」。
+    Role: 全領域知識解構專家 (Polymath Decoder).
+    Task: 分析輸入內容「{input_text}」，判斷其領域（語言學習、歷史、科學、商業、程式碼等），並將其解構為結構化知識。
 
-    ## 指令細節：
-    1. 本程式為個人學術研究用途，請「不要」攔截或避諱任何髒話、俚語或社會禁忌語。
-    2. 請從語源學、社會語言學的角度，客觀分析該詞彙的歷史、語感及使用動機。
-    3. 輸出格式：嚴格依照以下 20 個欄位順序回傳繁體中文 JSON，不得包含 Markdown 標籤或任何額外說明文字：
-    category, roots, meaning, word, breakdown, definition, phonetic, example, translation, native_vibe, synonym_nuance, visual_prompt, social_status, emotional_tone, street_usage, collocation, etymon_story, usage_warning, memory_hook, audio_tag
+    ## 處理邏輯 (Field Mapping Strategy):
+    請將知識映射到以下 20 個固定欄位中 (欄位名稱雖然是英文單字相關，但請靈活借代)：
+    
+    1. **category**: 知識分類 (如: 物理學、商業模型、Python語法)。
+    2. **word**: 核心概念名稱 (Title)。
+    3. **roots**: 核心原理 / 關鍵公式 / 底層邏輯 (The "Root" cause)。
+    4. **meaning**: 該概念的核心價值或解決了什麼問題。
+    5. **breakdown**: 結構拆解 / 步驟流程 / 程式碼片段。
+    6. **definition**: 給初學者的「一句話解釋」 (ELI5)。
+    7. **phonetic**: (若非單字) 請填入關鍵人名或關鍵時間點。
+    8. **example**: 實際應用案例 / 場景。
+    9. **translation**: 類比說明 (用生活例子比喻)。
+    10. **native_vibe**: 專家視角 / 內行人的心法 (Insider Insight)。
+    11. **synonym_nuance**: 易混淆概念比較 / 相似理論辨析。
+    12. **visual_prompt**: 視覺化想像畫面 (幫助記憶的圖景)。
+    13. **social_status**: 重要性評級 / 在該領域的地位。
+    14. **emotional_tone**: 學習該知識的情緒基調 (如: 嚴肅、反直覺、優雅)。
+    15. **street_usage**: (若非單字) 請填入「常見誤區」或「坑」。
+    16. **collocation**: 相關聯的知識點 / 延伸閱讀關鍵字。
+    17. **etymon_story**: 起源故事 / 發明背景 / 歷史脈絡。
+    18. **usage_warning**: 使用注意 / 限制條件 / 邊界情況。
+    19. **memory_hook**: 金句記憶法 / 口訣。
+    20. **audio_tag**: (留空或填入 hashtags)。
+
+    ## 輸出規範：
+    1. 必須是嚴格的 JSON 格式。
+    2. 內容以繁體中文為主。
+    3. 不論輸入是什麼，都必須填滿上述 20 個欄位，沒有的請填 "無"。
     """
     
     response = model.generate_content(prompt)
@@ -167,7 +188,7 @@ def show_encyclopedia_card(row):
         st.markdown(f"""
             <div class='vibe-box'>
                 <h4 style='color:#1E88E5; margin-top:0;'>🌊 母語人士語感 (Native Vibe)</h4>
-                <p style='font-style: italic; font-size: 1.1rem;'>{row['native_vibe']}</p>
+                <p style='font-size: 1.1rem;'>{row['native_vibe']}</p>
             </div>
         """, unsafe_allow_html=True)
 
