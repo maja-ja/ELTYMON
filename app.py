@@ -200,7 +200,7 @@ def ai_decode_and_save(input_text, fixed_category):
     """
 
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
+        model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
         final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
         
         response = model.generate_content(final_prompt)
