@@ -143,15 +143,18 @@ def load_db():
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
 def ai_decode_and_save(input_text, fixed_category):
-    # 1. 確保 API Key 存在
+    """
+    核心解碼函式：將 Prompt 直接寫入程式碼，確保執行穩定。
+    """
+    # 從 secrets 讀取 API Key
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
-        st.error("❌ 密碼箱中找不到 GEMINI_API_KEY")
+        st.error("❌ 找不到 GEMINI_API_KEY，請檢查 Streamlit Secrets 設定。")
         return None
 
     genai.configure(api_key=api_key)
     
-    # 2. 安全設定 (BLOCK_NONE)
+    # 安全設定：解除過濾
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -160,27 +163,53 @@ def ai_decode_and_save(input_text, fixed_category):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
+    # 定義硬編碼 Prompt
+    SYSTEM_PROMPT = f"""
+    Role: 全領域知識解構專家 (Polymath Decoder).
+    Task: 分析輸入內容，並將其解構為結構化知識。
+    
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構。
+
+    ## 處理邏輯 (Field Mapping Strategy):
+    請將知識映射到以下 20 個固定欄位中：
+    1. category: 必須填寫為「{fixed_category}」。
+    2. word: 核心概念名稱。
+    3. roots: 核心原理 / 關鍵公式 / 底層邏輯。
+    4. meaning: 核心價值或解決了什麼問題。
+    5. breakdown: 結構拆解 / 步驟流程 / 程式碼片段。
+    6. definition: 一句話解釋 (ELI5)。
+    7. phonetic: 關鍵人名或關鍵時間點。
+    8. example: 實際應用案例。
+    9. translation: 類比說明 (用生活例子比喻)。
+    10. native_vibe: 專家視角 / 內行人的心法。
+    11. synonym_nuance: 易混淆概念比較。
+    12. visual_prompt: 視覺化想像畫面。
+    13. social_status: 重要性評級。
+    14. emotional_tone: 學習該知識的情緒基調。
+    15. street_usage: 常見誤區或「坑」。
+    16. collocation: 相關聯的知識點。
+    17. etymon_story: 起源故事 / 發明背景。
+    18. usage_warning: 使用注意 / 限制條件。
+    19. memory_hook: 金句記憶法 / 口訣。
+    20. audio_tag: 相關標籤。
+
+    ## 輸出規範：
+    1. 必須是嚴格的 JSON 格式。
+    2. 內容以繁體中文為主。
+    3. 必須填滿 20 個欄位，沒有的請填 "無"。
+    """
+
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
+        model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
+        final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
         
-        # 3. 讀取系統指令
-        base_prompt = st.secrets.get("SYSTEM_PROMPT", "你是一個知識解構專家，請以 JSON 格式回傳。")
-        
-        lock_instruction = f"\n【領域鎖定】：請務必以「{fixed_category}」的專業視角解構，並將 category 設為「{fixed_category}」。"
-        final_prompt = f"{base_prompt}\n{lock_instruction}\n\n目標內容：「{input_text}」"
-        
-        # 4. 呼叫 AI
         response = model.generate_content(final_prompt)
         
-        # 檢查 response 是否有效
         if response and response.text:
             return response.text
-        else:
-            st.error("❌ AI 回傳了空內容，可能是觸發了嚴格的安全過濾。")
-            return None
-            
+        return None
     except Exception as e:
-        st.error(f"❌ Gemini API 呼叫失敗: {e}")
+        st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
     """美化顯示單一單字的百科卡片"""
@@ -233,7 +262,6 @@ def show_encyclopedia_card(row):
 def page_ai_lab():
     st.title("🔬 Kadowsella 解碼實驗室")
     
-    # 1. 定義固定領域清單
     FIXED_CATEGORIES = [
         "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
         "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
@@ -242,32 +270,29 @@ def page_ai_lab():
     ]
     
     col_input, col_cat = st.columns([2, 1])
-    
     with col_input:
         new_word = st.text_input("輸入解碼主題：", placeholder="例如: 'Entropy'...")
-        
     with col_cat:
         selected_category = st.selectbox("選定領域標籤", FIXED_CATEGORIES)
         
-    # 處理自定義領域邏輯
     if selected_category == "自定義":
-        custom_cat = st.text_input("請輸入自定義領域名稱：")
+        custom_cat = st.text_input("請輸入自定義領域：")
         final_category = custom_cat if custom_cat else "未分類"
     else:
         final_category = selected_category
 
     force_refresh = st.checkbox("🔄 強制刷新 (覆蓋舊資料)")
     
-    if st.button("啟動三位一體解碼", type="primary"):
+    if st.button("啟動解碼", type="primary"):
         if not new_word:
             st.warning("請先輸入內容。")
             return
 
-        # --- 步驟 1: 檢查資料庫 ---
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
         existing_data = conn.read(spreadsheet=url, ttl=0)
         
+        # 檢查是否存在
         is_exist = False
         if not existing_data.empty:
             match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
@@ -275,41 +300,40 @@ def page_ai_lab():
 
         if is_exist and not force_refresh:
             st.warning(f"⚠️ 「{new_word}」已在書架上！")
-            existing_row = existing_data[match_mask].iloc[0].to_dict()
-            st.markdown("---")
-            show_encyclopedia_card(existing_row)
+            show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
             return
 
-        # --- 步驟 2: AI 生成 (關鍵修正：傳入 final_category) ---
-        with st.spinner(f'正在以【{final_category}】專業視角解碼「{new_word}」...'):
+        # 核心解碼流程
+        with st.spinner(f'正在以【{final_category}】視角解碼中...'):
+            raw_res = ai_decode_and_save(new_word, final_category)
+            
+            # --- 防崩潰檢查：確保 raw_res 不是 None ---
+            if raw_res is None:
+                st.error("AI 無回應。請檢查 API Key 或稍後再試。")
+                return
+
             try:
-                # 這裡呼叫我們優化過的函式
-                raw_res = ai_decode_and_save(new_word, final_category)
-                
+                # 提取 JSON
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
-                    st.error("AI 輸出解析失敗。")
+                    st.error("AI 格式錯誤。")
                     return
                 
                 res_data = json.loads(match.group(0))
 
-                # --- 步驟 3: 資料覆寫與存檔 ---
+                # 資料更新邏輯
                 if is_exist and force_refresh:
                     existing_data = existing_data[~match_mask]
-                    st.toast(f"🗑️ 已替換舊版數據", icon="🔄")
-
+                
                 new_row = pd.DataFrame([res_data])
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
                 
                 conn.update(spreadsheet=url, data=updated_df)
-                
-                st.success(f"🎉 「{new_word}」解碼成功！")
-                st.balloons()
-                st.markdown("---")
+                st.success("🎉 解碼成功！")
                 show_encyclopedia_card(res_data)
 
             except Exception as e:
-                st.error(f"解碼過程出錯: {e}")
+                st.error(f"處理失敗: {e}")
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
