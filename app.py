@@ -143,9 +143,16 @@ def load_db():
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
 def ai_decode_and_save(input_text):
+    """
+    核心解碼函式：
+    1. 讀取密碼箱內的 SYSTEM_PROMPT。
+    2. 呼叫 Gemini 進行全領域知識解構。
+    3. 移除 Markdown 標籤並回傳純 JSON 字串。
+    """
+    # 1. 配置 Gemini API
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
     
-    # 設定無限制的安全過濾
+    # 2. 安全設定：解除髒話、禁忌語攔截 (BLOCK_NONE)
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -154,44 +161,36 @@ def ai_decode_and_save(input_text):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
+    # 3. 初始化模型 (建議使用穩定的 1.5-flash)
+    model = genai.GenerativeModel('gemini-1.5-flash', safety_settings=safety_settings)
     
-    prompt = f"""
-    Role: 全領域知識解構專家 (Polymath Decoder).
-    Task: 分析輸入內容「{input_text}」，判斷其領域（語言學習、歷史、科學、商業、程式碼等），並將其解構為結構化知識。
-
-    ## 處理邏輯 (Field Mapping Strategy):
-    請將知識映射到以下 20 個固定欄位中 (欄位名稱雖然是英文單字相關，但請靈活借代)：
+    # 4. 從「密碼箱」讀取基礎指令
+    # 確保你的 Streamlit Secrets 中有名為 "SYSTEM_PROMPT" 的 key
+    try:
+        base_prompt = st.secrets["SYSTEM_PROMPT"]
+    except KeyError:
+        st.error("❌ 密碼箱中找不到 SYSTEM_PROMPT，請檢查 Secrets 設定。")
+        return None
     
-    1. **category**: 知識分類 (如: 物理學、商業模型、Python語法)。
-    2. **word**: 核心概念名稱 (Title)。
-    3. **roots**: 核心原理 / 關鍵公式 / 底層邏輯 (The "Root" cause)。
-    4. **meaning**: 該概念的核心價值或解決了什麼問題。
-    5. **breakdown**: 結構拆解 / 步驟流程 / 程式碼片段。
-    6. **definition**: 給初學者的「一句話解釋」 (ELI5)。
-    7. **phonetic**: (若非單字) 請填入關鍵人名或關鍵時間點。
-    8. **example**: 實際應用案例 / 場景。
-    9. **translation**: 類比說明 (用生活例子比喻)。
-    10. **native_vibe**: 專家視角 / 內行人的心法 (Insider Insight)。
-    11. **synonym_nuance**: 易混淆概念比較 / 相似理論辨析。
-    12. **visual_prompt**: 視覺化想像畫面 (幫助記憶的圖景)。
-    13. **social_status**: 重要性評級 / 在該領域的地位。
-    14. **emotional_tone**: 學習該知識的情緒基調 (如: 嚴肅、反直覺、優雅)。
-    15. **street_usage**: (若非單字) 請填入「常見誤區」或「坑」。
-    16. **collocation**: 相關聯的知識點 / 延伸閱讀關鍵字。
-    17. **etymon_story**: 起源故事 / 發明背景 / 歷史脈絡。
-    18. **usage_warning**: 使用注意 / 限制條件 / 邊界情況。
-    19. **memory_hook**: 金句記憶法 / 口訣。
-    20. **audio_tag**: (留空或填入 hashtags)。
-
-    ## 輸出規範：
-    1. 必須是嚴格的 JSON 格式。
-    2. 內容以繁體中文為主。
-    3. 不論輸入是什麼，都必須填滿上述 20 個欄位，沒有的請填 "無"。
-    """
+    # 5. 組合最終指令
+    final_prompt = f"{base_prompt}\n\n現在，請開始為我解碼以下知識內容：「{input_text}」"
     
-    response = model.generate_content(prompt)
-    return response.text
+    # 6. 呼叫 AI 生成內容
+    try:
+        response = model.generate_content(final_prompt)
+        raw_text = response.text
+        
+        # 7. 強力解析：使用 Regex 抓取 { ... } 之間的內容
+        # 這是為了防止 AI 在 JSON 前後加廢話 (如 "Here is the JSON:")
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            return match.group(0) # 只回傳 JSON 部分
+        else:
+            return raw_text # 沒抓到就回傳原圖，由後續 json.loads 報錯
+            
+    except Exception as e:
+        st.error(f"AI 生成過程發生錯誤: {e}")
+        return None
 
 def show_encyclopedia_card(row):
     """美化顯示單一單字的百科卡片"""
@@ -321,11 +320,41 @@ def page_ai_lab():
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
+    
+    # 1. 數據儀表板
     c1, c2, c3 = st.columns(3)
     c1.metric("📚 總單字量", len(df))
     c2.metric("🏷️ 分類主題", df['category'].nunique() if not df.empty else 0)
     c3.metric("🧩 獨特字根", df['roots'].nunique() if not df.empty else 0)
-    st.info("👈 請從左側選單進入「解碼實驗室」擴充你的知識庫。")
+    
+    st.write("---")
+
+    # 2. [新增] 隨機推薦展示區
+    st.subheader("💡 今日隨機推薦")
+    
+    if not df.empty:
+        # 如果資料庫少於 3 筆，就全秀；否則隨機抽 3 筆
+        sample_count = min(3, len(df))
+        #每次重新整理頁面都會變動
+        sample = df.sample(sample_count) 
+        
+        # 使用 3 個欄位並排顯示，看起來更像卡片
+        cols = st.columns(3)
+        for i, (index, row) in enumerate(sample.iterrows()):
+            with cols[i % 3]: # 確保在 3 欄內循環
+                with st.container(border=True): # 加個邊框更有質感
+                    st.markdown(f"### {row['word']}")
+                    st.caption(f"🏷️ {row['category']}")
+                    st.write(f"**定義：** {row['definition']}")
+                    st.write(f"**核心：** {row['roots']}")
+                    # 這裡可以加一個小按鈕，點了朗讀該單字
+                    if st.button("🔊", key=f"home_spk_{row['word']}"):
+                        speak(row['word'], "home")
+    else:
+        st.info("👈 資料庫目前是空的，請從左側進入「解碼實驗室」新增第一筆知識！")
+
+    st.write("---")
+    st.info("👈 點擊左側選單進入「學習與搜尋」查看完整資料庫。")
 
 def page_learn_search(df):
     st.title("📖 學習與搜尋")
