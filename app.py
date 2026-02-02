@@ -391,56 +391,59 @@ def main():
     
     st.sidebar.title("Kadowsella")
     
-    # --- 🔐 管理員權限驗證區 ---
-    # 預設狀態是 False (訪客模式)
+    # --- [贊助區塊] 雙刀流 ---
+    st.sidebar.markdown("""
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
+            <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
+            <a href="https://www.buymeacoffee.com/kadowsella" target="_blank" style="text-decoration: none;">
+                <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
+                    ☕ Buy Me a Coffee
+                </div>
+            </a>
+            <a href="https://p.ecpay.com.tw/kadowsella20" target="_blank" style="text-decoration: none;">
+                <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
+                    贊助一碗米糕！
+                </div>
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # --- [管理員登入] ---
     is_admin = False
-    
-    # 在側邊欄底部放一個密碼輸入框
     with st.sidebar.expander("🔐 管理員登入", expanded=False):
-        input_pass = st.text_input("輸入密碼解鎖寫入功能", type="password")
-        if input_pass == st.secrets.get("ADMIN_PASSWORD", "0000"): # 如果沒設 secrets 預設為 0000
+        input_pass = st.text_input("輸入密碼", type="password")
+        if input_pass == st.secrets.get("ADMIN_PASSWORD", "0000"):
             is_admin = True
-            st.success("身分驗證成功：上帝模式已啟動")
-    
-    # -------------------------
+            st.success("🔓 上帝模式啟動")
 
-    # --- 根據權限決定選單內容 ---
+    # --- [選單邏輯] ---
     if is_admin:
-        # 管理員看得到的完整選單
-        menu_options = ["首頁", "學習與搜尋", "測驗模式", "🔬 AI 解碼實驗室"]
-        
-        # 管理員才有的強制刷新按鈕
-        if st.sidebar.button("🔄 強制同步雲端", help="清除快取，重新抓取 Google Sheets 最新資料"):
+        menu_options = ["首頁", "學習與搜尋", "測驗模式", "🔬 解碼實驗室"]
+        if st.sidebar.button("🔄 強制同步雲端", help="清除 App 快取"):
             st.cache_data.clear()
             st.rerun()
     else:
-        # 一般人只能看到的選單 (沒有解碼實驗室)
         menu_options = ["首頁", "學習與搜尋", "測驗模式"]
     
     page = st.sidebar.radio("功能選單", menu_options)
     st.sidebar.markdown("---")
     
-    # 載入書架 (大家共用同一個資料庫，所以讀取沒問題)
     df = load_db()
     
     if page == "首頁":
         page_home(df)
-        if not is_admin:
-            st.info("👋 歡迎來到公開閱覽模式。")
     elif page == "學習與搜尋":
         page_learn_search(df)
     elif page == "測驗模式":
         page_quiz(df)
-    elif page == "🔬 AI 解碼實驗室":
-        # 雙重保險：即使選單出現了，如果變數不對也不給進
+    elif page == "🔬 解碼實驗室":
         if is_admin:
             page_ai_lab()
         else:
-            st.error("⛔ 權限不足，請登入管理員密碼。")
+            st.error("⛔ 請先登入")
 
-    # 頁尾狀態顯示
-    status = "🔴 管理員模式" if is_admin else "🟢 訪客閱覽模式"
-    st.sidebar.caption(f"v2.5 Pro | {status}")
+    status = "🔴 管理員" if is_admin else "🟢 訪客"
+    st.sidebar.caption(f"v3.0 Ultimate | {status}")
 
 if __name__ == "__main__":
     main()
