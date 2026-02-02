@@ -93,7 +93,7 @@ def load_db():
 def ai_decode_and_save(word):
     # 從 secrets 讀取 API Key
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     # 【安全熔斷指令】與 20 欄位定義
     prompt = f"""
