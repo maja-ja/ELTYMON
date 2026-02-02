@@ -214,19 +214,49 @@ def page_ai_lab():
     st.title("🔬 Kadowsella 解碼實驗室")
     st.write("輸入新知識，AI 將自動填寫 20 欄位並存入你的 **MyDB** 書架。")
     
-    new_word = st.text_input("輸入想解碼的單字或知識點：", placeholder="例如: 'metabolism'...")
+    col_input, col_check = st.columns([3, 1])
+    with col_input:
+        new_word = st.text_input("輸入想解碼的單字或知識點：", placeholder="例如: 'Entropy' 或 '量子力學'...")
+    with col_check:
+        # 新增：強制刷新開關
+        st.write("") # 排版用
+        st.write("") 
+        force_refresh = st.checkbox("🔄 強制刷新\n(覆蓋舊資料)", value=False)
     
     if st.button("啟動三位一體解碼", type="primary"):
         if not new_word:
-            st.warning("請先輸入單字。")
+            st.warning("請先輸入內容。")
             return
 
+        # --- 步驟 1: 先檢查資料庫是否已有此字 ---
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        existing_data = conn.read(spreadsheet=url, ttl=0)
+        
+        # 檢查單字是否存在 (不分大小寫比較安全)
+        # 注意：這裡假設 'word' 欄位是索引鍵
+        is_exist = False
+        if not existing_data.empty:
+            # 轉小寫比對，避免 Apple 和 apple 重複
+            match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
+            is_exist = match_mask.any()
+
+        if is_exist and not force_refresh:
+            st.warning(f"⚠️ 「{new_word}」已經在書架上了！若要重新解碼，請勾選右側的『強制刷新』。")
+            # 顯示現有卡片給使用者看
+            existing_row = existing_data[match_mask].iloc[0].to_dict()
+            st.markdown("---")
+            st.info("👇 這是目前的庫存版本：")
+            show_encyclopedia_card(existing_row)
+            return
+
+        # --- 步驟 2: AI 生成 ---
         with st.spinner(f'正在為「{new_word}」進行深度解碼...'):
             try:
-                # 1. 呼叫 AI
+                # 呼叫 AI
                 raw_res = ai_decode_and_save(new_word)
                 
-                # 2. 強力正則解析 JSON (修正 Extra data 錯誤)
+                # 正則解析
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
                     st.error("AI 輸出格式錯誤，無法解析 JSON。")
@@ -236,19 +266,20 @@ def page_ai_lab():
                 clean_json = match.group(0)
                 res_data = json.loads(clean_json)
 
-                # 3. 寫入書架
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                url = get_spreadsheet_url()
-                
-                # 讀取現有資料
-                existing_data = conn.read(spreadsheet=url, ttl=0)
+                # --- 步驟 3: 資料覆寫邏輯 ---
+                if is_exist and force_refresh:
+                    # 刪除舊資料：保留 "不等於" 該單字的行
+                    existing_data = existing_data[~match_mask]
+                    st.toast(f"🗑️ 已移除舊版「{new_word}」，正在寫入新版...", icon="Rg")
+
+                # 合併新資料
                 new_row = pd.DataFrame([res_data])
-                
-                # 合併並更新
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+                
+                # 寫回 Google Sheets
                 conn.update(spreadsheet=url, data=updated_df)
                 
-                st.success(f"🎉 解碼完成！「{new_word}」已永久存入你的 MyDB 書架。")
+                st.success(f"🎉 更新完成！「{new_word}」已刷新並存入書架。")
                 st.balloons()
                 
                 st.markdown("---")
@@ -256,7 +287,6 @@ def page_ai_lab():
 
             except Exception as e:
                 st.error(f"解碼過程出錯: {e}")
-
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
