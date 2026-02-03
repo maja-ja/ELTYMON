@@ -281,11 +281,21 @@ def show_encyclopedia_card(row):
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
-            st.write(f"**⚖️ 相似對比：** {row.get('synonym_nuance', '無')}")
-            st.write(f"**🏛️ 歷史脈絡：** {row.get('etymon_story', '無')}")
+            # 🔴原本錯誤：直接讀取原始資料，導致 \n 和 LaTeX 顯示異常
+            # st.write(f"**⚖️ 相似對比：** {row.get('synonym_nuance', '無')}")
+            # st.write(f"**🏛️ 歷史脈絡：** {row.get('etymon_story', '無')}")
+
+            # 🟢修正後：加上 fix_content() 來處理換行與 LaTeX
+            st.markdown(f"**⚖️ 相似對比：**\n{fix_content(row.get('synonym_nuance', '無'))}")
+            st.markdown(f"**🏛️ 歷史脈絡：**\n{fix_content(row.get('etymon_story', '無'))}")
         with sub_c2:
-            st.write(f"**⚠️ 使用注意：** {row.get('usage_warning', '無')}")
-            st.write(f"**🏙️ 關聯圖譜：** {row.get('collocation', '無')}")
+            # 🔴原本錯誤
+            # st.write(f"**⚠️ 使用注意：** {row.get('usage_warning', '無')}")
+            # st.write(f"**🏙️ 關聯圖譜：** {row.get('collocation', '無')}")
+
+            # 🟢修正後
+            st.markdown(f"**⚠️ 使用注意：**\n{fix_content(row.get('usage_warning', '無'))}")
+            st.markdown(f"**🏙️ 關聯圖譜：**\n{fix_content(row.get('collocation', '無'))}")
 # ==========================================
 # 4. 頁面邏輯
 # ==========================================
