@@ -90,44 +90,31 @@ def fix_content(text):
     
     return text
 def speak(text, key_suffix=""):
+    if not text:
+        return
+    
+    # 1. English Filter
+    english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
+    english_only = " ".join(english_only.split()).strip()
+    
+    if not english_only:
+        return
+
     try:
-        if not text: return
-        
-        # English Filter
-        english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
-        english_only = " ".join(english_only.split()).strip()
-        
-        if not english_only: return
-            
+        # 2. Generate the Audio
         tts = gTTS(text=english_only, lang='en')
-        fp = BytesIO()
-        tts.write_to_fp(fp)
-        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
         
-        # Unique ID for this specific audio instance
-        unique_id = f"audio_{int(time.time() * 1000)}"
+        # 3. Display the native Streamlit audio player
+        # This is much more reliable than custom HTML
+        st.audio(audio_buffer, format="audio/mp3")
         
-        # The HTML includes a script to try and play immediately, 
-        # plus a hidden audio element.
-        audio_html = f"""
-            <audio id="{unique_id}">
-                <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
-            </audio>
-            <script>
-                var audio = document.getElementById("{unique_id}");
-                // We wrap it in a function to try multiple times or wait for user click
-                function playAudio() {{
-                    audio.play().catch(function(error) {{
-                        console.log("Autoplay prevented. Waiting for user interaction.");
-                    }});
-                }}
-                playAudio();
-            </script>
-        """
-        st.components.v1.html(audio_html, height=0)
-        
+        # Optional: Add a small caption so the user knows what is being read
+        st.caption(f"🔊 Pronouncing: {english_only}")
+
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Speech Error: {e}")
 
 def get_spreadsheet_url():
     """安全地獲取試算表網址，相容兩種 secrets 格式"""
