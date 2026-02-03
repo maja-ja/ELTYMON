@@ -59,17 +59,22 @@ def inject_custom_css():
 # ==========================================
 # 2. 工具函式
 # ==========================================
+# 👇 放在程式最上面的工具區
 def fix_content(text):
     """
-    全域字串清洗：
+    全域字串清洗 (終極版)：
     1. 處理空值
-    2. 將 JSON 的雙反斜線 \\ 轉回單反斜線 \ (讓 LaTeX 生效)
-    3. 將 \\n 轉回真正的換行
+    2. 處理 LaTeX 雙反斜線
+    3. 處理換行：將 \\n 轉為 '  \n' (Markdown 強制換行語法)
     """
     if text is None or str(text).strip() in ["無", "nan", ""]:
         return ""
-    # 這裡多做一個 replace 將 <br> 轉為換行，以防萬一
-    return str(text).replace('\\\\', '\\').replace('\\n', '\n')
+    text = str(text)
+    # 把 JSON 的雙反斜線轉回單反斜線 (給 LaTeX 用)
+    text = text.replace('\\\\', '\\')
+    # 把 \n 轉成 "兩格空白+換行" (這是 Markdown 的換行規矩)
+    text = text.replace('\\n', '  \n')
+    return text
 def speak(text, key_suffix=""):
     try:
         if not text: return
@@ -217,37 +222,36 @@ def ai_decode_and_save(input_text, fixed_category):
 def show_encyclopedia_card(row):
     import time
 
-    # 1. 變數取值與清洗 (全部都洗一遍！)
+    # 1. 變數取值與清洗 (使用新的清潔劑)
     r_word = str(row.get('word', '未命名主題'))
+    r_phonetic = fix_content(row.get('phonetic', "")) 
     r_breakdown = fix_content(row.get('breakdown', ""))
-    r_roots = fix_content(row.get('roots', ""))
     r_def = fix_content(row.get('definition', ""))
     r_ex = fix_content(row.get('example', ""))
-    r_vibe = fix_content(row.get('native_vibe', ""))
-    r_trans = str(row.get('translation', ""))
+    r_roots = fix_content(row.get('roots', ""))
     r_meaning = str(row.get('meaning', ""))
     r_hook = fix_content(row.get('memory_hook', ""))
-    r_phonetic = fix_content(row.get('phonetic', "")) # 👈 修正截圖 4 的問題
+    r_vibe = fix_content(row.get('native_vibe', ""))
+    r_trans = str(row.get('translation', ""))
 
-    # 2. 標題展示
+    # 2. 標題展示 (Hero Word)
+    # 確保只有這一行在印標題
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    # 👇 修正截圖 4：加上 pre-wrap 樣式，讓 \n 變成換行，並支援 LaTeX
-    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    
-    # 👇 修正重點：
-    # 1. 移除了 color: #666 (讓它自動變白)
-    # 2. 加上 opacity: 0.8 (讓它稍微暗一點點就好，不用全灰)
-    # 3. 確保 r_phonetic 有被 fix_content 處理過 (在函式開頭要檢查)
-    
+    # 3. 標題下方的描述 (三明治大法：HTML開頭 -> Markdown內容 -> HTML結尾)
     if r_phonetic and r_phonetic != "無":
-        st.markdown(f"""
-            <div style='font-size: 0.95rem; margin-bottom: 15px; white-space: pre-wrap; font-family: monospace; opacity: 0.8;'>
-{r_phonetic}
-            </div>
+        # (A) 開啟一個灰白色的容器
+        st.markdown("""
+            <div style='color: #E0E0E0; font-size: 0.95rem; margin-bottom: 20px; line-height: 1.6; opacity: 0.9;'>
         """, unsafe_allow_html=True)
-    
-    # 3. 動作列與藍色拆解區
+        
+        # (B) 渲染內容 (Markdown 負責把 LaTeX 變漂亮)
+        st.markdown(r_phonetic)
+        
+        # (C) 關閉容器
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # 4. 朗讀與拆解區
     col_a, col_b = st.columns([1, 4])
     with col_a:
         if st.button("🔊 朗讀", key=f"spk_{r_word}_{int(time.time())}", use_container_width=True):
@@ -255,17 +259,17 @@ def show_encyclopedia_card(row):
             
     with col_b:
         st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        st.markdown(r_breakdown) # 這裡本來就正確
+        st.markdown(r_breakdown)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 4. 雙欄解構區
+    # 5. 雙欄核心區
     st.write("---")
     c1, c2 = st.columns(2)
     
     with c1:
         st.info("### 🎯 定義與解釋")
         st.markdown(r_def) 
-        st.markdown(f"**📝 應用案例 / 推導步驟：**\n{r_ex}")
+        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
@@ -273,26 +277,26 @@ def show_encyclopedia_card(row):
         st.success("### 💡 核心原理")
         st.markdown(r_roots)
         st.write(f"**🔍 本質意義：** {r_meaning}")
-        st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
+        st.markdown(f"**🪝 記憶鉤子：** \n{r_hook}")
 
-    # 5. 語感心法區 (👇 修正截圖 1 & 2：拆開寫讓 LaTeX 生效)
+    # 6. 專家視角 (同樣使用三明治大法)
     if r_vibe:
         st.markdown("""
             <div class='vibe-box'>
                 <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
         """, unsafe_allow_html=True)
-        st.markdown(r_vibe) # 獨立渲染，數學公式才會出來
+        st.markdown(r_vibe)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # 6. 深度百科 (👇 修正截圖 1：加上 fix_content + st.markdown)
+    # 7. 深度百科 (使用 Expander 收納)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
-            st.markdown(f"**⚖️ 相似對比：**\n{fix_content(row.get('synonym_nuance', '無'))}")
-            st.markdown(f"**🏛️ 歷史脈絡：**\n{fix_content(row.get('etymon_story', '無'))}")
+            st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
+            st.markdown(f"**🏛️ 歷史脈絡：** \n{fix_content(row.get('etymon_story', '無'))}")
         with sub_c2:
-            st.markdown(f"**⚠️ 使用注意：**\n{fix_content(row.get('usage_warning', '無'))}")
-            st.markdown(f"**🏙️ 關聯圖譜：**\n{fix_content(row.get('collocation', '無'))}")
+            st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+            st.markdown(f"**🏙️ 關聯圖譜：** \n{fix_content(row.get('collocation', '無'))}")
 # ==========================================
 # 4. 頁面邏輯
 # ==========================================
