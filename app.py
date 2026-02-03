@@ -269,10 +269,8 @@ def show_encyclopedia_card(row):
             speak(r_word, "card")
             
     with col_b:
-        st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        st.markdown(r_breakdown)
-        st.markdown('</div>', unsafe_allow_html=True)
-
+    # 方案 A：直接使用 st.markdown 並確保沒有被 <div> 包裹
+    st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
     # 5. 雙欄核心區
     st.write("---")
     c1, c2 = st.columns(2)
