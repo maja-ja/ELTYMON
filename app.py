@@ -214,36 +214,71 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """美化顯示單一單字的百科卡片"""
-    st.markdown(f"<div class='hero-word'>{row['word']}</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='hero-phonetic'>/{row['phonetic']}/</div>", unsafe_allow_html=True)
+    """美化顯示單一知識的百科卡片，支援 LaTeX 公式渲染"""
     
+    # --- 1. 字串預處理 (核心修復) ---
+    # 將 AI 為了 JSON 安全生成的雙反斜線轉回單反斜線，並處理換行
+    def clean_latex(text):
+        if not text or text == "無": return text
+        return str(text).replace('\\\\', '\\').replace('\\n', '\n')
+
+    # 預先處理需要顯示公式的欄位
+    row_word = str(row['word'])
+    row_roots = clean_latex(row['roots'])
+    row_breakdown = clean_latex(row['breakdown'])
+    row_definition = clean_latex(row['definition'])
+    row_example = clean_latex(row['example'])
+
+    # --- 2. 標題與音標/年代 ---
+    st.markdown(f"<div class='hero-word'>{row_word}</div>", unsafe_allow_html=True)
+    
+    # 判斷是音標還是年代/人名
+    phonetic_val = str(row['phonetic'])
+    if any(c in phonetic_val for c in "əæɪʊ"):
+        st.markdown(f"<div class='hero-phonetic'>/{phonetic_val}/</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='hero-phonetic' style='color:#1E88E5;'>📌 {phonetic_val}</div>", unsafe_allow_html=True)
+    
+    # --- 3. 動作按鈕與拆解區 ---
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        if st.button("🔊 朗讀", key=f"spk_{row['word']}_{int(time.time())}", use_container_width=True):
-            speak(row['word'], "card")
+        if st.button("🔊 朗讀", key=f"spk_{row_word}_{int(time.time())}", use_container_width=True):
+            speak(row_word, "card")
     with col_b:
-        styled_breakdown = str(row['breakdown']).replace("+", "<span class='operator'>+</span>")
+        # 讓拆解區支援公式渲染，同時保留原本的運算子美化
+        styled_breakdown = row_breakdown.replace("+", "<span class='operator'>+</span>")
         st.markdown(f"<div class='breakdown-container'>{styled_breakdown}</div>", unsafe_allow_html=True)
 
+    # --- 4. 核心內容區 (使用 st.markdown 確保 LaTeX 觸發) ---
+    st.write("---")
     c1, c2 = st.columns(2)
     with c1:
-        st.info(f"**🎯 定義：**\n{row['definition']}")
-        st.write(f"**📝 例句：**\n{row['example']}")
+        st.info("### 🎯 定義與解釋")
+        st.markdown(row_definition) 
+        st.markdown(f"**📝 案例/推導：**\n{row_example}")
         st.caption(f"（{row['translation']}）")
+        
     with c2:
-        st.success(f"**💡 字根：** {row['roots']}\n\n**意義：** {row['meaning']}")
+        st.success("### 💡 核心原理")
+        st.markdown(row_roots)  # 這裡會漂亮地顯示 $E=mc^2$
+        st.write(f"**意義：** {row['meaning']}")
         st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
 
-    # 語感部分
-    if row['native_vibe']:
+    # --- 5. 專家語感區 ---
+    if row['native_vibe'] and row['native_vibe'] != "無":
         st.markdown(f"""
             <div class='vibe-box'>
-                <h4 style='color:#1E88E5; margin-top:0;'>🌊 母語人士語感 (Native Vibe)</h4>
-                <p style='font-size: 1.1rem;'>{row['native_vibe']}</p>
+                <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
+                <p style='font-size: 1.1rem; line-height: 1.6;'>{row['native_vibe']}</p>
             </div>
         """, unsafe_allow_html=True)
 
+    # --- 6. 更多細節 (隱藏選單) ---
+    with st.expander("🔍 查看深度百科與避坑指南"):
+        st.write(f"**⚖️ 辨析：** {row['synonym_nuance']}")
+        st.write(f"**🏛️ 起源故事：** {row['etymon_story']}")
+        st.write(f"**⚠️ 使用注意：** {row['usage_warning']}")
+        st.write(f"**🏙️ 關聯圖譜：** {row['collocation']}")
     with st.expander("📚 查看深度百科 (文化、社會、街頭實戰)"):
         t1, t2, t3 = st.tabs(["🏛️ 字源文化", "👔 社會地位", "😎 街頭實戰"])
         with t1:
