@@ -235,8 +235,8 @@ def show_encyclopedia_card(row):
 
     # 1. 變數取值與清洗 (使用新的清潔劑)
     r_word = str(row.get('word', '未命名主題'))
+    r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
-    r_breakdown = fix_content(row.get('breakdown', ""))
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_def = fix_content(row.get('definition', ""))
     r_roots = fix_content(row.get('roots', ""))
