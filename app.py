@@ -268,7 +268,7 @@ def show_encyclopedia_card(row):
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
 
-    # 5. 語感心法區 (👇 修正截圖 2：拆開寫讓 LaTeX 生效)
+    # 5. 語感心法區 (👇 修正截圖 1 & 2：拆開寫讓 LaTeX 生效)
     if r_vibe:
         st.markdown("""
             <div class='vibe-box'>
