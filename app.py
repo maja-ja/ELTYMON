@@ -127,7 +127,9 @@ def get_spreadsheet_url():
             return ""
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60) # 每 60 秒自動更新一次，兼顧速度與即時性
 def load_db():
+    # 定義我們需要的 20 個標準欄位名稱
     COL_NAMES = [
         'category', 'roots', 'meaning', 'word', 'breakdown', 
         'definition', 'phonetic', 'example', 'translation', 'native_vibe',
@@ -135,25 +137,30 @@ def load_db():
         'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag'
     ]
     
-    # 使用 GSheetsConnection 讀取 (比 pd.read_csv 更穩定且能利用快取)
     try:
+        # 連接 Google Sheets
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = get_spreadsheet_url()
-        df = conn.read(spreadsheet=url, ttl=60) # 加入 TTL 避免頻繁讀取
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
         
-        # 強制對齊 20 欄
+        # 讀取數據 (ttl=0 強制不使用 st.connection 內建快取，改用我們外層的 st.cache_data)
+        df = conn.read(spreadsheet=url, ttl=0)
+        
+        # 1. 自動補齊缺失欄位：如果試算表沒這欄，自動填入 "無"
         for col in COL_NAMES:
             if col not in df.columns:
-                df[col] = ""
+                df[col] = "無"
         
-        # 只保留這 20 個欄位並去除非單字行
-        df = df[COL_NAMES].dropna(subset=['word']).fillna("").reset_index(drop=True)
-        return df
+        # 2. 資料清洗：去除單字欄位為空的無效行，並填補 NaN
+        df = df.dropna(subset=['word'])
+        df = df.fillna("無")
+        
+        # 3. 欄位排序：確保 DataFrame 順序與我們定義的一致
+        return df[COL_NAMES].reset_index(drop=True)
+        
     except Exception as e:
-        # Fallback: 如果連線失敗，回傳空表以免 App 崩潰
-        st.error(f"資料庫連線失敗: {e}")
+        st.error(f"❌ 資料庫載入失敗: {e}")
+        # 失敗時回傳一個空的 DataFrame，避免主程式當掉
         return pd.DataFrame(columns=COL_NAMES)
-
 # ==========================================
 # 3. AI 解碼核心 (自用解鎖版)
 # ==========================================
