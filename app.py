@@ -210,58 +210,49 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """美化顯示百科卡片，修正 LaTeX 與換行渲染問題"""
+    """
+    完善版百科卡片：
+    支援在藍色區塊內正確渲染 LaTeX 公式與分行。
+    """
     import time
 
-    # --- 1. 關鍵修復：還原反斜線與換行 ---
-    def fix_content(text):
+    # --- 1. 字串清洗：處理 JSON 轉義導致的反斜線問題 ---
+    def fix_latex(text):
         if not text or text == "無": return ""
-        # 將 JSON 讀出的雙反斜線 \\ 轉回單反斜線 \ 
-        # 將 \\n 轉回真正的換行符號
+        # 將雙反斜線 \\ 轉回單反斜線 \，將 \\n 轉回換行
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    # 預處理所有欄位
     r_word = str(row['word'])
-    r_breakdown = fix_content(row['breakdown'])
-    r_roots = fix_content(row['roots'])
-    r_def = fix_content(row['definition'])
-    r_ex = fix_content(row['example'])
-    r_vibe = fix_content(row['native_vibe'])
+    r_breakdown = fix_latex(row['breakdown'])
+    r_roots = fix_latex(row['roots'])
+    r_def = fix_latex(row['definition'])
+    r_ex = fix_latex(row['example'])
 
-    # 顯示單字與音標
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    if row['phonetic'] and row['phonetic'] != "無":
-        st.markdown(f"<div class='hero-phonetic'>/{row['phonetic']}/</div>", unsafe_allow_html=True)
     
-    # 動作按鈕與拆解區
     col_a, col_b = st.columns([1, 4])
     with col_a:
         if st.button("🔊 朗讀", key=f"spk_{r_word}_{time.time()}"):
             speak(r_word)
+            
     with col_b:
-        # --- 核心優化：脫殼渲染 ---
-        # 先畫出漸層背景框的開頭
+        # --- 核心修復點：不要把內容塞進 f-string 的 HTML 標籤裡 ---
+        # 這樣 st.markdown 才能抓到 $ 符號進行渲染
         st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        # 在 HTML 標籤之外渲染內容，這能觸發 LaTeX 引擎
-        st.markdown(r_breakdown)
-        # 補上結尾
+        st.markdown(r_breakdown) # 在標籤內單獨渲染內容
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 核心解構區 (雙欄)
     st.write("---")
     c1, c2 = st.columns(2)
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) 
-        st.markdown(f"**📝 案例/推導：**\n{r_ex}")
-        if row['translation'] and row['translation'] != "無":
-            st.caption(f"（{row['translation']}）")
+        st.markdown(r_def)
+        st.markdown(f"**📝 應用案例：**\n{r_ex}")
     with c2:
         st.success("### 💡 核心原理")
         st.markdown(r_roots)
         st.write(f"**意義：** {row['meaning']}")
         st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
-
     # 專家語感區
     if r_vibe:
         st.markdown(f"""
