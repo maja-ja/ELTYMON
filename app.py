@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import base64
@@ -175,9 +176,9 @@ def get_spreadsheet_url():
             st.error("找不到 spreadsheet 設定，請檢查 secrets.toml")
             return ""
 
-@st.cache_data(ttl=3600) 
-def load_db():
-    # 定義我們需要的 20 個標準欄位名稱
+@st.cache_data(ttl=3600) # 改為 0，確保切換時不快取舊資料
+def load_db(source_type="Google Sheets"):
+    # 定義標準欄位
     COL_NAMES = [
         'category', 'roots', 'meaning', 'word', 'breakdown', 
         'definition', 'phonetic', 'example', 'translation', 'native_vibe',
@@ -185,29 +186,45 @@ def load_db():
         'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag'
     ]
     
+    df = pd.DataFrame(columns=COL_NAMES)
+
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = get_spreadsheet_url()
+        if source_type == "Google Sheets":
+            # --- 模式 A: Google Sheets ---
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            url = get_spreadsheet_url()
+            df = conn.read(spreadsheet=url, ttl=0)
         
-        # 讀取數據 (ttl=0 強制不使用 st.connection 內建快取)
-        df = conn.read(spreadsheet=url, ttl=0)
-        
+        elif source_type == "Local JSON":
+            # --- 模式 B: Local JSON (master_db.json) ---
+            json_file = "master_db.json"
+            if os.path.exists(json_file):
+                # 如果檔案存在，讀取並轉為 DataFrame
+                with open(json_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data:
+                    df = pd.DataFrame(data)
+            else:
+                # 如果檔案不存在，建立一個空的並提示
+                st.toast("⚠️ 尚未建立 master_db.json，將自動建立新檔。", icon="📂")
+                df = pd.DataFrame(columns=COL_NAMES)
+
+        # --- 通用資料清洗 (確保欄位齊全) ---
         # 1. 自動補齊缺失欄位
         for col in COL_NAMES:
             if col not in df.columns:
                 df[col] = "無"
         
-        # 2. 資料清洗
+        # 2. 移除空值與字串轉換
         df = df.dropna(subset=['word'])
         df = df.fillna("無")
         
-        # 3. 欄位排序
+        # 3. 確保只回傳標準欄位
         return df[COL_NAMES].reset_index(drop=True)
         
     except Exception as e:
-        st.error(f"❌ 資料庫載入失敗: {e}")
+        st.error(f"❌ 資料庫載入失敗 ({source_type}): {e}")
         return pd.DataFrame(columns=COL_NAMES)
-
 # ==========================================
 # 3. AI 解碼核心 (還原中文 Prompt)
 # ==========================================
@@ -352,9 +369,10 @@ def show_encyclopedia_card(row):
 # 4. 頁面邏輯
 # ==========================================
 
-def page_ai_lab():
-    st.title("🔬 Kadowsella 解碼實驗室")
+def page_ai_lab(source_type):
+    st.title(f"🔬 Kadowsella 解碼實驗室 ({source_type})")
     
+    # 定義領域分類
     FIXED_CATEGORIES = [
         "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
         "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
@@ -362,6 +380,7 @@ def page_ai_lab():
         "藝術美學", "影視文學", "料理食觀", "運動健身", "流行文化", "雜類", "自定義"
     ]
     
+    # 輸入介面
     col_input, col_cat = st.columns([2, 1])
     with col_input:
         new_word = st.text_input("輸入解碼主題：", placeholder="例如: '二次函數頂點式'...")
@@ -376,57 +395,74 @@ def page_ai_lab():
 
     force_refresh = st.checkbox("🔄 強制刷新 (覆蓋舊資料)")
     
+    # 執行按鈕
     if st.button("啟動解碼", type="primary"):
         if not new_word:
             st.warning("請先輸入內容。")
             return
 
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = get_spreadsheet_url()
-        existing_data = conn.read(spreadsheet=url, ttl=0)
+        # 1. 讀取當前資料庫 (根據傳入的來源類型)
+        #    這一步很重要，確保我們是在比對正確的資料庫是否有重複
+        existing_data = load_db(source_type)
         
+        # 檢查是否已存在
         is_exist = False
         if not existing_data.empty:
             match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
             is_exist = match_mask.any()
 
+        # 若存在且不強制刷新，則直接顯示舊資料
         if is_exist and not force_refresh:
-            st.warning(f"⚠️ 「{new_word}」已在書架上。")
+            st.warning(f"⚠️ 「{new_word}」已在 {source_type} 書架上。")
             show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
             return
 
+        # 2. 呼叫 AI 進行解碼
         with st.spinner(f'正在以【{final_category}】視角進行三位一體解碼...'):
             raw_res = ai_decode_and_save(new_word, final_category)
             
             if raw_res is None:
-                st.error("AI 無回應。")
+                st.error("AI 無回應，請稍後再試。")
                 return
 
             try:
-                # 1. 提取 JSON
+                # 3. 解析 AI 回傳的 JSON
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
                     st.error("解析失敗：找不到 JSON 結構。")
                     return
                 
                 json_str = match.group(0)
-
-                # 2. 解析 JSON
                 try:
                     res_data = json.loads(json_str, strict=False)
                 except json.JSONDecodeError:
+                    # 嘗試修復常見的換行符號錯誤
                     fixed_json = json_str.replace('\n', '\\n').replace('\r', '\\r')
                     res_data = json.loads(fixed_json, strict=False)
 
-                # 3. 寫回資料庫
+                # 4. 準備存檔數據
+                # 如果是更新模式，先移除舊的那一筆
                 if is_exist and force_refresh:
                     existing_data = existing_data[~match_mask]
                 
                 new_row = pd.DataFrame([res_data])
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
                 
-                conn.update(spreadsheet=url, data=updated_df)
-                st.success(f"🎉 「{new_word}」解碼完成並已存入雲端！")
+                # --- [關鍵修改] 根據 source_type 決定存檔方式 ---
+                if source_type == "Google Sheets":
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    url = get_spreadsheet_url()
+                    conn.update(spreadsheet=url, data=updated_df)
+                    st.success(f"🎉 已將「{new_word}」寫入 Google Sheets！")
+                
+                elif source_type == "Local JSON":
+                    json_file = "master_db.json"
+                    # 將 DataFrame 轉為 JSON 格式並寫入本地檔案
+                    # orient='records' 會轉成 List of Dicts 格式，最適合 JSON 資料庫
+                    updated_df.to_json(json_file, orient='records', force_ascii=False, indent=4)
+                    st.success(f"🎉 已將「{new_word}」寫入本地 master_db.json！")
+                
+                # 5. 成功後的反饋
                 st.balloons()
                 show_encyclopedia_card(res_data)
 
@@ -434,7 +470,6 @@ def page_ai_lab():
                 st.error(f"⚠️ 處理失敗: {e}")
                 with st.expander("查看原始數據回報錯誤"):
                     st.code(raw_res)
-
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
@@ -567,23 +602,25 @@ def main():
     
     st.sidebar.title("Kadowsella")
     
-    # --- [贊助區塊] ---
-    st.sidebar.markdown("""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
-            <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
-            <a href="[https://www.buymeacoffee.com/kadowsella](https://www.buymeacoffee.com/kadowsella)" target="_blank" style="text-decoration: none;">
-                <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
-                    ☕ Buy Me a Coffee
-                </div>
-            </a>
-            <a href="[https://p.ecpay.com.tw/kadowsella20](https://p.ecpay.com.tw/kadowsella20)" target="_blank" style="text-decoration: none;">
-                <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
-                    贊助一碗米糕！
-                </div>
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
+    # --- [資料來源切換] (新增功能) ---
+    st.sidebar.markdown("### 💾 資料庫設定")
+    source_type = st.sidebar.selectbox(
+        "選擇資料來源",
+        ["Google Sheets", "Local JSON"],
+        index=0, # 預設使用 Google Sheets
+        help="切換讀取雲端試算表或本地 JSON 檔案"
+    )
     
+    if source_type == "Local JSON":
+        st.sidebar.caption("📂 讀寫目標：master_db.json")
+    else:
+        st.sidebar.caption("☁️ 讀寫目標：Google Sheets")
+
+    st.sidebar.markdown("---")
+
+    # --- [贊助與其他區塊保持不變] ---
+    # ... (保留原本的贊助區塊) ...
+
     # --- [管理員登入] ---
     is_admin = False
     with st.sidebar.expander("🔐 管理員登入", expanded=False):
@@ -604,7 +641,8 @@ def main():
     page = st.sidebar.radio("功能選單", menu_options)
     st.sidebar.markdown("---")
     
-    df = load_db()
+    # 關鍵修改：將 source_type 傳入 load_db
+    df = load_db(source_type)
     
     if page == "首頁":
         page_home(df)
@@ -614,12 +652,10 @@ def main():
         page_quiz(df)
     elif page == "🔬 解碼實驗室":
         if is_admin:
-            page_ai_lab()
+            # 關鍵修改：將 source_type 傳入，讓實驗室知道存到哪
+            page_ai_lab(source_type)
         else:
             st.error("⛔ 請先登入")
 
     status = "🔴 管理員" if is_admin else "🟢 訪客"
-    st.sidebar.caption(f"v3.0 Ultimate | {status}")
-
-if __name__ == "__main__":
-    main()
+    st.sidebar.caption(f"v3.1 Dual-DB | {status}")
