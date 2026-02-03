@@ -92,32 +92,77 @@ def fix_content(text):
     return text
 
 def speak(text, key_suffix=""):
-    """
-    生成語音並使用 Streamlit 原生播放器顯示。
-    這是解決瀏覽器阻擋自動播放最穩定的方案。
-    """
-    if not text:
-        return
+    if not text: return
     
-    # 1. 英語濾網 (只保留英數、空格、連字號)
+    # 1. 英語濾網
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
     english_only = " ".join(english_only.split()).strip()
-    
-    if not english_only:
-        return
+    if not english_only: return
 
     try:
-        # 2. 生成音訊
+        # 2. 用 Google 轉出高品質 MP3
         tts = gTTS(text=english_only, lang='en')
-        audio_buffer = BytesIO()
-        tts.write_to_fp(audio_buffer)
+        fp = BytesIO()
+        tts.write_to_fp(fp)
         
-        # 3. 顯示原生播放器 (確保有聲音)
-        # 使用 start_time=0 確保每次載入都從頭準備好
-        st.audio(audio_buffer, format="audio/mp3", start_time=0)
+        # 3. 把 MP3 變成一串文字 (Base64)，直接塞進 HTML 裡
+        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
+
+        # 4. 建立一個獨立的 HTML 按鈕組件
+        # 這裡面包含完整的 MP3 資料，不依賴外部連結，點擊瞬間直接播放
+        html_code = f"""
+        <html>
+        <style>
+            .btn {{
+                background: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 5px 10px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                font-family: sans-serif;
+                font-size: 14px;
+                color: #333;
+                transition: 0.2s;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }}
+            .btn:hover {{
+                background: #f8f9fa;
+                border-color: #ccc;
+            }}
+            .btn:active {{
+                background: #eef;
+                transform: scale(0.98);
+            }}
+        </style>
+        <body>
+            <button class="btn" onclick="playAudio()">
+                🔊 聽發音
+            </button>
+            
+            <audio id="{unique_id}" style="display:none">
+                <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
+            </audio>
+
+            <script>
+                function playAudio() {{
+                    var audio = document.getElementById("{unique_id}");
+                    audio.currentTime = 0; // 每次點擊都從頭播放
+                    audio.play().catch(e => console.log(e));
+                }}
+            </script>
+        </body>
+        </html>
+        """
+        
+        # 5. 渲染這個獨立組件 (設定高度避免留白太大)
+        st.components.v1.html(html_code, height=40)
         
     except Exception as e:
-        st.error(f"語音錯誤: {e}")
+        st.error(f"語音生成失敗: {e}")
 
 def get_spreadsheet_url():
     """安全地獲取試算表網址，相容兩種 secrets 格式"""
