@@ -174,7 +174,7 @@ def ai_decode_and_save(input_text, fixed_category):
     Role: 全領域知識解構專家 (Polymath Decoder).
     Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
     
-    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。注音和拼音一起用
 
     ## 處理邏輯 (Field Mapping Strategy):
     1. category: 必須固定填寫為「{fixed_category}」。
