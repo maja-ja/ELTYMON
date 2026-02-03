@@ -19,46 +19,41 @@ def inject_custom_css():
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
             /* 1. 拆解區塊 (漸層外框) */
-            .breakdown-container {
+            .breakdown-wrapper {
                 background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
-                padding: 20px 30px;
+                padding: 25px 30px;
                 border-radius: 15px;
                 box-shadow: 0 4px 15px rgba(30, 136, 229, 0.3);
                 margin: 20px 0;
                 color: white !important;
             }
             
-            /* 強制讓裡面產生的所有文字、公式變白、換行 */
-            .breakdown-container p, .breakdown-container span, .breakdown-container li {
-                color: white !important;
-                font-weight: 700 !important;
-                line-height: 1.6;
-                white-space: pre-wrap !important;
+            /* 2. LaTeX 引擎修正：徹底移除黑塊、文字變白 */
+            .breakdown-wrapper .katex {
+                color: #FFFFFF !important;
+                background: transparent !important;
+                font-size: 1.15em;
             }
-
-            /* 2. LaTeX 引擎修補：移除黑塊、變更顏色 */
-            .breakdown-container .katex {
-                color: white !important;
-                background: transparent !important; /* 徹底移除黑塊 */
-            }
-            .breakdown-container .katex-display {
+            .breakdown-wrapper .katex-display {
                 background: transparent !important;
                 margin: 1em 0;
             }
 
-            /* 3. 標題與語感區 */
-            .hero-word { font-size: 2.8rem; font-weight: 800; }
-            @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
-            
-            .vibe-box { 
-                background-color: #F0F7FF; 
-                padding: 20px; 
-                border-radius: 12px; 
-                border-left: 6px solid #2196F3; 
-                color: #2C3E50 !important; 
-                margin: 15px 0;
+            /* 3. 強制讓內容文字與列表變白、換行 */
+            .breakdown-wrapper p, .breakdown-wrapper li, .breakdown-wrapper span {
+                color: white !important;
+                font-weight: 700 !important;
+                line-height: 1.7;
+                white-space: pre-wrap !important;
             }
-            .vibe-box h4 { color: #1565C0 !important; margin-bottom: 8px; }
+
+            /* 4. 語感與標題樣式 */
+            .hero-word { font-size: 2.8rem; font-weight: 800; color: #1A237E; }
+            @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
+            .vibe-box { 
+                background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
+                border-left: 6px solid #2196F3; color: #2C3E50 !important; margin: 15px 0;
+            }
         </style>
     """, unsafe_allow_html=True)
 # ==========================================
@@ -212,21 +207,21 @@ def ai_decode_and_save(input_text, fixed_category):
 def show_encyclopedia_card(row):
     """
     Kadowsella 百科卡片顯示核心
-    修復：UnboundLocalError、LaTeX 渲染失敗、換行失效問題
+    解決方案：變數預賦值、LaTeX 脫殼渲染、雙反斜線修復
     """
     import time
 
-    # --- 1. 核心字串清洗與還原 ---
+    # --- 1. 核心字串清洗 (還原 LaTeX 指令與換行) ---
     def fix_content(text):
-        if text is None or str(text).strip() == "無" or str(text).strip() == "":
+        if text is None or str(text).strip() in ["無", "nan", ""]:
             return ""
         # 將 JSON 轉義的雙反斜線 \\ 轉回 LaTeX 用的單反斜線 \
         # 將 \\n 轉回真正的換行
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    # --- 2. 變數賦值 (防止 UnboundLocalError) ---
-    # 使用 .get 確保從 session_state 或 dataframe 讀取時不報錯
-    r_word = str(row.get('word', '未知主題'))
+    # --- 2. 變數賦值 (徹底防止 UnboundLocalError) ---
+    # 使用 .get 確保即使資料庫缺欄位也能安全執行
+    r_word = str(row.get('word', '未命名主題'))
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_roots = fix_content(row.get('roots', ""))
     r_def = fix_content(row.get('definition', ""))
@@ -242,19 +237,18 @@ def show_encyclopedia_card(row):
     if r_phonetic and r_phonetic != "無":
         st.markdown(f"<div class='hero-phonetic'>/{r_phonetic}/</div>", unsafe_allow_html=True)
     
-    # --- 4. 動作列與藍色拆解區 (脫殼渲染模式) ---
+    # --- 4. 動作列與藍色拆解區 (關鍵渲染修正) ---
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        # 朗讀按鈕
         if st.button("🔊 朗讀", key=f"spk_{r_word}_{int(time.time())}", use_container_width=True):
             speak(r_word, "card")
             
     with col_b:
-        # 先畫外框標籤
+        # 【重要】這裡先輸出 HTML 開頭標籤
         st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        # 關鍵：在 HTML 標籤外部渲染 Markdown (含 LaTeX)
+        # 【重要】在標籤外單獨渲染內容，這能讓 Streamlit 成功解析 LaTeX $...$ 符號
         st.markdown(r_breakdown)
-        # 補上結尾標籤
+        # 最後補上 HTML 結尾標籤
         st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 5. 雙欄解構區 ---
@@ -263,14 +257,14 @@ def show_encyclopedia_card(row):
     
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) # 支援 LaTeX
-        st.markdown(f"**📝 應用案例 / 推導：**\n{r_ex}")
+        st.markdown(r_def) # 支援 LaTeX 公式
+        st.markdown(f"**📝 應用案例 / 推導步驟：**\n{r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(r_roots) # 支援 LaTeX
+        st.markdown(r_roots) # 支援 LaTeX 公式
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
 
@@ -278,21 +272,20 @@ def show_encyclopedia_card(row):
     if r_vibe:
         st.markdown(f"""
             <div class='vibe-box'>
-                <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
-                <p style='font-size: 1.1rem; line-height: 1.6;'>{r_vibe}</p>
+                <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
+                <p style='font-size: 1.1rem; line-height: 1.6; color:#2C3E50 !important;'>{r_vibe}</p>
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 7. 更多細節 (Expander) ---
-    with st.expander("🔍 更多百科細節 (辨析、起源、預警)"):
+    # --- 7. 更多百科細節 (收納區) ---
+    with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
             st.write(f"**⚖️ 相似對比：** {row.get('synonym_nuance', '無')}")
             st.write(f"**🏛️ 歷史脈絡：** {row.get('etymon_story', '無')}")
         with sub_c2:
-            st.write(f"**⚠️ 邊界條件：** {row.get('usage_warning', '無')}")
+            st.write(f"**⚠️ 使用注意：** {row.get('usage_warning', '無')}")
             st.write(f"**🏙️ 關聯圖譜：** {row.get('collocation', '無')}")
-
 # ==========================================
 # 4. 頁面邏輯
 # ==========================================
