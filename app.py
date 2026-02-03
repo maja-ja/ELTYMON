@@ -166,25 +166,25 @@ def ai_decode_and_save(input_text, fixed_category):
     # 定義硬編碼 Prompt
     SYSTEM_PROMPT = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
-    Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識。
+    Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
     
-    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構與評論。
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。
 
     ## 處理邏輯 (Field Mapping Strategy):
     1. category: 必須固定填寫為「{fixed_category}」。
     2. word: 核心概念名稱 (標題)。
-    3. roots: 底層邏輯 / 核心原理 / 支撐該概念的關鍵公式或理論。
+    3. roots: 底層邏輯 / 核心原理 / 關鍵公式。**【重要】**：若有數學公式，請使用 LaTeX 格式並用 $ 包圍，例如：$E=mc^2$。
     4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
-    5. breakdown: 結構拆解。如果是技術請寫步驟，如果是物質請寫組成，如果是理論請寫支柱。
+    5. breakdown: 結構拆解。步驟流程或組成要素。涉及推導時請逐步條列。
     6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
-    7. phonetic: 關鍵年代、發明人名、或該領域的關鍵術語。
+    7. phonetic: 關鍵年代、發明人名、或該領域的專有名詞。
     8. example: 兩個以上最具代表性的實際應用場景。
     9. translation: 生活類比。用一個日常生活的場景來比喻這個複雜概念。
-    10. native_vibe: 內行人的心法。該領域專家才會知道的微妙差異或直覺判斷。
+    10. native_vibe: 專家視角 / 內行人的心法。
     11. synonym_nuance: 相似概念對比。區分它與最容易混淆的概念有何不同。
     12. visual_prompt: 視覺化圖景。描述一張能代表該概念的構圖或意象。
-    13. social_status: 在該領域的重要性評級 (如：基礎基石、前沿趨勢、必考重點)。
-    14. emotional_tone: 學習此知識的心理感受 (如：反直覺的震撼、邏輯優美的簡潔)。
+    13. social_status: 在該領域的重要性評級。
+    14. emotional_tone: 學習此知識的心理感受。
     15. street_usage: 避坑指南。初學者最容易犯的錯誤或常見的認知誤區。
     16. collocation: 關聯圖譜。三個與此概念緊密相關的延伸知識點。
     17. etymon_story: 歷史脈絡。該概念是如何被發現或演變而來的關鍵瞬間。
@@ -192,12 +192,13 @@ def ai_decode_and_save(input_text, fixed_category):
     19. memory_hook: 記憶金句。一句話讓你永遠記住這個概念。
     20. audio_tag: 相關標籤 (以 # 開頭)。
 
-    ## 輸出規範 (JSON 安全性要求):
-    1. 必須輸出嚴格合法的 JSON 格式。
-    2. 內容全部使用「繁體中文」。
-    3. 嚴禁在字串中使用單一反斜線 `\`。若遇到路徑、程式碼或數學符號，必須使用雙反斜線 `\\` 進行轉義。
-    4. 字串內嚴禁直接換行。若需換行，請使用 `\\n` 轉義字元。
-    5. 必須填滿 20 個欄位，內容需詳盡，不得敷衍填寫 "無"。
+    ## 輸出規範 (JSON 安全性與轉義要求):
+    1. 必須輸出嚴格合法的 JSON 格式，內容使用「繁體中文」。
+    2. **【反斜線轉義】**：JSON 內部的反斜線 `\\` 必須經過轉義。
+       - 所有的 LaTeX 符號（如 `\\frac`）必須寫成 `\\\\frac` (四個反斜線)。
+       - 所有的路徑或普通反斜線必須寫成 `\\\\`。
+    3. **【換行處理】**：字串內嚴禁直接換行。請使用 `\\\\n` 代替換行符號。
+    4. 必須填滿 20 個欄位，內容需詳盡且專業，嚴禁敷衍。
     """
 
     try:
@@ -263,6 +264,7 @@ def show_encyclopedia_card(row):
 def page_ai_lab():
     st.title("🔬 Kadowsella 解碼實驗室")
     
+    # 24 個精選固定領域
     FIXED_CATEGORIES = [
         "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
         "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
@@ -272,12 +274,12 @@ def page_ai_lab():
     
     col_input, col_cat = st.columns([2, 1])
     with col_input:
-        new_word = st.text_input("輸入解碼主題：", placeholder="例如: 'Entropy'...")
+        new_word = st.text_input("輸入解碼主題：", placeholder="例如: '二次函數頂點式'...")
     with col_cat:
         selected_category = st.selectbox("選定領域標籤", FIXED_CATEGORIES)
         
     if selected_category == "自定義":
-        custom_cat = st.text_input("請輸入自定義領域：")
+        custom_cat = st.text_input("請輸入自定義領域名稱：")
         final_category = custom_cat if custom_cat else "未分類"
     else:
         final_category = selected_category
@@ -293,36 +295,42 @@ def page_ai_lab():
         url = get_spreadsheet_url()
         existing_data = conn.read(spreadsheet=url, ttl=0)
         
-        # 檢查是否存在
         is_exist = False
         if not existing_data.empty:
             match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
             is_exist = match_mask.any()
 
         if is_exist and not force_refresh:
-            st.warning(f"⚠️ 「{new_word}」已在書架上！")
+            st.warning(f"⚠️ 「{new_word}」已在書架上。")
             show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
             return
 
-        # 核心解碼流程
-        with st.spinner(f'正在以【{final_category}】視角解碼中...'):
+        with st.spinner(f'正在以【{final_category}】視角進行三位一體解碼...'):
             raw_res = ai_decode_and_save(new_word, final_category)
             
-            # --- 防崩潰檢查：確保 raw_res 不是 None ---
             if raw_res is None:
-                st.error("AI 無回應。請檢查 API Key 或稍後再試。")
+                st.error("AI 無回應。")
                 return
 
             try:
-                # 提取 JSON
+                # 1. 提取 JSON 區塊
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
-                    st.error("AI 格式錯誤。")
+                    st.error("解析失敗：找不到 JSON 結構。")
                     return
                 
-                res_data = json.loads(match.group(0))
+                json_str = match.group(0)
 
-                # 資料更新邏輯
+                # 2. [關鍵防禦] 修復潛在的非法轉義字元
+                # 使用 strict=False 允許解析器處理一些不合規的控制字元
+                try:
+                    res_data = json.loads(json_str, strict=False)
+                except json.JSONDecodeError:
+                    # 如果 strict=False 還是失敗，進行暴力字串修復
+                    fixed_json = json_str.replace('\n', '\\n').replace('\r', '\\r')
+                    res_data = json.loads(fixed_json, strict=False)
+
+                # 3. 更新 Google Sheets
                 if is_exist and force_refresh:
                     existing_data = existing_data[~match_mask]
                 
@@ -330,11 +338,14 @@ def page_ai_lab():
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
                 
                 conn.update(spreadsheet=url, data=updated_df)
-                st.success("🎉 解碼成功！")
+                st.success(f"🎉 「{new_word}」解碼完成並已存入雲端！")
+                st.balloons()
                 show_encyclopedia_card(res_data)
 
             except Exception as e:
-                st.error(f"處理失敗: {e}")
+                st.error(f"⚠️ 處理失敗: {e}")
+                with st.expander("查看原始數據回報錯誤"):
+                    st.code(raw_res)
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
