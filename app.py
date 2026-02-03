@@ -273,10 +273,19 @@ def show_encyclopedia_card(row):
         if st.button("🔊 朗讀", key=btn_key, use_container_width=True):
             speak(word, "card")
             
-    with col_b:
-        # 在藍色框框內顯示拆解過程，並確保 LaTeX 公式能變色
-        st.markdown(f"<div class='breakdown-container'>{breakdown}</div>", unsafe_allow_html=True)
-
+  with col_b:
+        # 1. 字串清洗：將雙反斜線 \\ 轉回單反斜線 \，並處理換行
+        # 注意：這裡要連同資料中的 \\frac 修正回 \frac
+        raw_content = str(row['breakdown'])
+        clean_breakdown = raw_content.replace('\\\\', '\\').replace('\\n', '\n')
+        
+        # 2. 顯示容器：不要在 HTML 裡面放內容，改用 st.markdown 直接渲染
+        st.markdown('<div class="breakdown-wrapper">', unsafe_allow_html=True)
+        
+        # 關鍵：這裡要把內容放在標籤外部，或使用 st.container 確保渲染
+        st.markdown(clean_breakdown) 
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     # --- 4. 雙欄位深度解構 ---
     st.write("---")
     c1, c2 = st.columns(2)
