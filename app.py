@@ -211,65 +211,87 @@ def ai_decode_and_save(input_text, fixed_category):
         return None
 def show_encyclopedia_card(row):
     """
-    完善版百科卡片：
-    支援在藍色區塊內正確渲染 LaTeX 公式與分行。
+    Kadowsella 百科卡片顯示核心
+    修復：UnboundLocalError、LaTeX 渲染失敗、換行失效問題
     """
     import time
 
-    # --- 1. 字串清洗：處理 JSON 轉義導致的反斜線問題 ---
-    def fix_latex(text):
-        if not text or text == "無": return ""
-        # 將雙反斜線 \\ 轉回單反斜線 \，將 \\n 轉回換行
+    # --- 1. 核心字串清洗與還原 ---
+    def fix_content(text):
+        if text is None or str(text).strip() == "無" or str(text).strip() == "":
+            return ""
+        # 將 JSON 轉義的雙反斜線 \\ 轉回 LaTeX 用的單反斜線 \
+        # 將 \\n 轉回真正的換行
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    r_word = str(row['word'])
-    r_breakdown = fix_latex(row['breakdown'])
-    r_roots = fix_latex(row['roots'])
-    r_def = fix_latex(row['definition'])
-    r_ex = fix_latex(row['example'])
+    # --- 2. 變數賦值 (防止 UnboundLocalError) ---
+    # 使用 .get 確保從 session_state 或 dataframe 讀取時不報錯
+    r_word = str(row.get('word', '未知主題'))
+    r_breakdown = fix_content(row.get('breakdown', ""))
+    r_roots = fix_content(row.get('roots', ""))
+    r_def = fix_content(row.get('definition', ""))
+    r_ex = fix_content(row.get('example', ""))
+    r_vibe = fix_content(row.get('native_vibe', ""))
+    r_trans = str(row.get('translation', ""))
+    r_meaning = str(row.get('meaning', ""))
+    r_hook = str(row.get('memory_hook', ""))
+    r_phonetic = str(row.get('phonetic', ""))
 
+    # --- 3. 標題與音標展示 ---
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    if r_phonetic and r_phonetic != "無":
+        st.markdown(f"<div class='hero-phonetic'>/{r_phonetic}/</div>", unsafe_allow_html=True)
     
+    # --- 4. 動作列與藍色拆解區 (脫殼渲染模式) ---
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        if st.button("🔊 朗讀", key=f"spk_{r_word}_{time.time()}"):
-            speak(r_word)
+        # 朗讀按鈕
+        if st.button("🔊 朗讀", key=f"spk_{r_word}_{int(time.time())}", use_container_width=True):
+            speak(r_word, "card")
             
     with col_b:
-        # --- 核心修復點：不要把內容塞進 f-string 的 HTML 標籤裡 ---
-        # 這樣 st.markdown 才能抓到 $ 符號進行渲染
+        # 先畫外框標籤
         st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        st.markdown(r_breakdown) # 在標籤內單獨渲染內容
+        # 關鍵：在 HTML 標籤外部渲染 Markdown (含 LaTeX)
+        st.markdown(r_breakdown)
+        # 補上結尾標籤
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # --- 5. 雙欄解構區 ---
     st.write("---")
     c1, c2 = st.columns(2)
+    
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def)
-        st.markdown(f"**📝 應用案例：**\n{r_ex}")
+        st.markdown(r_def) # 支援 LaTeX
+        st.markdown(f"**📝 應用案例 / 推導：**\n{r_ex}")
+        if r_trans and r_trans != "無":
+            st.caption(f"（{r_trans}）")
+        
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(r_roots)
-        st.write(f"**意義：** {row['meaning']}")
-        st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
-    # 專家語感區
+        st.markdown(r_roots) # 支援 LaTeX
+        st.write(f"**🔍 本質意義：** {r_meaning}")
+        st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
+
+    # --- 6. 語感心法區 ---
     if r_vibe:
         st.markdown(f"""
             <div class='vibe-box'>
                 <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
-                <p>{r_vibe}</p>
+                <p style='font-size: 1.1rem; line-height: 1.6;'>{r_vibe}</p>
             </div>
         """, unsafe_allow_html=True)
-    # --- 6. 底部隱藏細節 (保持頁面整潔) ---
+
+    # --- 7. 更多細節 (Expander) ---
     with st.expander("🔍 更多百科細節 (辨析、起源、預警)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
-            st.write(f"**⚖️ 相似對比：** {row['synonym_nuance']}")
-            st.write(f"**🏛️ 歷史脈絡：** {row['etymon_story']}")
+            st.write(f"**⚖️ 相似對比：** {row.get('synonym_nuance', '無')}")
+            st.write(f"**🏛️ 歷史脈絡：** {row.get('etymon_story', '無')}")
         with sub_c2:
-            st.write(f"**⚠️ 邊界條件：** {row['usage_warning']}")
-            st.write(f"**🏙️ 關聯圖譜：** {row['collocation']}")
+            st.write(f"**⚠️ 邊界條件：** {row.get('usage_warning', '無')}")
+            st.write(f"**🏙️ 關聯圖譜：** {row.get('collocation', '無')}")
 
 # ==========================================
 # 4. 頁面邏輯
