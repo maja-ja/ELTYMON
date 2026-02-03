@@ -197,7 +197,7 @@ def ai_decode_and_save(input_text, fixed_category):
     18. usage_warning: 邊界條件。在什麼情況下此概念不適用或會失效。
     19. memory_hook: 記憶金句。一句話讓你永遠記住這個概念。
     20. audio_tag: 相關標籤 (以 # 開頭)。
-
+    
     ## 格式與安全性嚴格指令 (Anti-Frustration Rules):
     1. **單引號替代制**：為了防止 JSON 解析崩潰，內容中若需使用引號，請一律使用「」或單引號 '，嚴禁在 Value 中使用雙引號 "。
     2. **LaTeX 強制格式**：
@@ -206,8 +206,7 @@ def ai_decode_and_save(input_text, fixed_category):
        - 範例：`"roots": "根據 $E = mc^2$ 推導"` 或 `"breakdown": "$\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$"`。
     3. **條列標準化**：`breakdown` 與 `example` 欄位必須使用數字編號開頭（1., 2.），且步驟間強制以 `\n` 分隔。
     4. **語氣一致性**：`native_vibe` 必須以「🌊 專家心法：」開頭；`translation` 必須以「🍎 生活比喻：」開頭。
-    5. **嚴禁廢話**：禁止輸出任何 JSON 標記區塊（```json）或結尾文字。只輸出從 { 開始到 } 結束的純原始碼。
-    """
+    5. **嚴禁廢話**：禁止輸出任何 JSON 標記區塊（```json）或結尾文字。只輸出從 { 開始到 } 結束的純原始碼。"""
 
     try:
         model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
