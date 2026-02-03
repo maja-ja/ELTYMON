@@ -166,37 +166,38 @@ def ai_decode_and_save(input_text, fixed_category):
     # 定義硬編碼 Prompt
     SYSTEM_PROMPT = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
-    Task: 分析輸入內容，並將其解構為結構化知識。
+    Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識。
     
-    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構。
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構與評論。
 
     ## 處理邏輯 (Field Mapping Strategy):
-    請將知識映射到以下 20 個固定欄位中：
-    1. category: 必須填寫為「{fixed_category}」。
-    2. word: 核心概念名稱。
-    3. roots: 核心原理 / 關鍵公式 / 底層邏輯。
-    4. meaning: 核心價值或解決了什麼問題。
-    5. breakdown: 結構拆解 / 步驟流程 / 程式碼片段。
-    6. definition: 一句話解釋 (ELI5)。
-    7. phonetic: 關鍵人名或關鍵時間點。
-    8. example: 實際應用案例。
-    9. translation: 類比說明 (用生活例子比喻)。
-    10. native_vibe: 專家視角 / 內行人的心法。
-    11. synonym_nuance: 易混淆概念比較。
-    12. visual_prompt: 視覺化想像畫面。
-    13. social_status: 重要性評級。
-    14. emotional_tone: 學習該知識的情緒基調。
-    15. street_usage: 常見誤區或「坑」。
-    16. collocation: 相關聯的知識點。
-    17. etymon_story: 起源故事 / 發明背景。
-    18. usage_warning: 使用注意 / 限制條件。
-    19. memory_hook: 金句記憶法 / 口訣。
-    20. audio_tag: 相關標籤。
+    1. category: 必須固定填寫為「{fixed_category}」。
+    2. word: 核心概念名稱 (標題)。
+    3. roots: 底層邏輯 / 核心原理 / 支撐該概念的關鍵公式或理論。
+    4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
+    5. breakdown: 結構拆解。如果是技術請寫步驟，如果是物質請寫組成，如果是理論請寫支柱。
+    6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
+    7. phonetic: 關鍵年代、發明人名、或該領域的關鍵術語。
+    8. example: 兩個以上最具代表性的實際應用場景。
+    9. translation: 生活類比。用一個日常生活的場景來比喻這個複雜概念。
+    10. native_vibe: 內行人的心法。該領域專家才會知道的微妙差異或直覺判斷。
+    11. synonym_nuance: 相似概念對比。區分它與最容易混淆的概念有何不同。
+    12. visual_prompt: 視覺化圖景。描述一張能代表該概念的構圖或意象。
+    13. social_status: 在該領域的重要性評級 (如：基礎基石、前沿趨勢、必考重點)。
+    14. emotional_tone: 學習此知識的心理感受 (如：反直覺的震撼、邏輯優美的簡潔)。
+    15. street_usage: 避坑指南。初學者最容易犯的錯誤或常見的認知誤區。
+    16. collocation: 關聯圖譜。三個與此概念緊密相關的延伸知識點。
+    17. etymon_story: 歷史脈絡。該概念是如何被發現或演變而來的關鍵瞬間。
+    18. usage_warning: 邊界條件。在什麼情況下此概念不適用或會失效。
+    19. memory_hook: 記憶金句。一句話讓你永遠記住這個概念。
+    20. audio_tag: 相關標籤 (以 # 開頭)。
 
-    ## 輸出規範：
-    1. 必須是嚴格的 JSON 格式。
-    2. 內容以繁體中文為主。
-    3. 必須填滿 20 個欄位，沒有的請填 "無"。
+    ## 輸出規範 (JSON 安全性要求):
+    1. 必須輸出嚴格合法的 JSON 格式。
+    2. 內容全部使用「繁體中文」。
+    3. 嚴禁在字串中使用單一反斜線 `\`。若遇到路徑、程式碼或數學符號，必須使用雙反斜線 `\\` 進行轉義。
+    4. 字串內嚴禁直接換行。若需換行，請使用 `\\n` 轉義字元。
+    5. 必須填滿 20 個欄位，內容需詳盡，不得敷衍填寫 "無"。
     """
 
     try:
