@@ -221,13 +221,7 @@ def show_encyclopedia_card(row):
     import time
 
     # --- 1. 核心字串清洗 (還原 LaTeX 指令與換行) ---
-    '''def fix_content(text):
-        if text is None or str(text).strip() in ["無", "nan", ""]:
-            return ""
-        # 將 JSON 轉義的雙反斜線 \\ 轉回 LaTeX 用的單反斜線 \
-        # 將 \\n 轉回真正的換行
-        return str(text).replace('\\\\', '\\').replace('\\n', '\n')
-'''
+    # 沒了在上面
     # --- 2. 變數賦值 (徹底防止 UnboundLocalError) ---
     # 使用 .get 確保即使資料庫缺欄位也能安全執行
     r_word = str(row.get('word', '未命名主題'))
