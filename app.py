@@ -89,63 +89,33 @@ def fix_content(text):
     text = text.strip('"').strip("'")
     
     return text
-def generate_audio_html(text):
-    # 英語濾網
+def speak(text, key_suffix=""):
+    if not text:
+        return
+    
+    # 1. English Filter
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
     english_only = " ".join(english_only.split()).strip()
     
     if not english_only:
-        return None
+        return
 
     try:
+        # 2. Generate the Audio
         tts = gTTS(text=english_only, lang='en')
-        fp = BytesIO()
-        tts.write_to_fp(fp)
-        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        audio_buffer = BytesIO()
+        tts.write_to_fp(audio_buffer)
         
-        # 這裡加入 autoplay 並透過 JavaScript 確保在點擊後執行
-        return f"""
-            <audio autoplay>
-                <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
-            </audio>
-        """
+        # 3. Display the native Streamlit audio player
+        # This is much more reliable than custom HTML
+        st.audio(audio_buffer, format="audio/mp3")
+        
+        # Optional: Add a small caption so the user knows what is being read
+        st.caption(f"🔊 Pronouncing: {english_only}")
+
     except Exception as e:
-        return None
+        st.error(f"Speech Error: {e}")
 
-# --- 2. 初始化 Session State ---
-if "current_item" not in st.session_state:
-    st.session_state.current_item = None  # 存放目前的單字/句子
-if "play_audio" not in st.session_state:
-    st.session_state.play_audio = False  # 控制是否播放
-
-# 假設這是你從 Google Sheets 抓取的範例資料
-mock_data = ["Quantum Mechanics (量子力學)", "Artificial Intelligence (人工智慧)", "Black Hole (黑洞)"]
-
-# --- 3. UI 界面 ---
-st.title("TTS 學習小幫手")
-
-# 按鈕：隨機抽取下一組
-if st.button("🎲 隨機下一組"):
-    st.session_state.current_item = random.choice(mock_data)
-    st.session_state.play_audio = False # 換題時先不要播放，等使用者看清楚
-
-# 顯示目前的內容
-if st.session_state.current_item:
-    st.subheader(f"當前挑戰：{st.session_state.current_item}")
-    
-    # 按鈕：播放語音
-    if st.button("🔊 聽發音"):
-        st.session_state.play_audio = True
-
-# --- 4. 語音觸發邏輯 ---
-if st.session_state.play_audio and st.session_state.current_item:
-    html_code = generate_audio_html(st.session_state.current_item)
-    if html_code:
-        st.components.v1.html(html_code, height=0)
-        # 播放完後重置，避免下次刷新頁面又自動播放
-        st.session_state.play_audio = False 
-    else:
-        st.warning("這組內容沒有可辨識的英文發音")
 def get_spreadsheet_url():
     """安全地獲取試算表網址，相容兩種 secrets 格式"""
     try:
@@ -531,59 +501,63 @@ def page_quiz(df):
 # 5. 主程式入口
 # ==========================================
 def main():
-    st.title("英文隨機抽測系統")
+    inject_custom_css()
+    
+    st.sidebar.title("Kadowsella")
+    
+    # --- [贊助區塊] 雙刀流 ---
+    st.sidebar.markdown("""
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
+            <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
+            <a href="https://www.buymeacoffee.com/kadowsella" target="_blank" style="text-decoration: none;">
+                <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
+                    ☕ Buy Me a Coffee
+                </div>
+            </a>
+            <a href="https://p.ecpay.com.tw/kadowsella20" target="_blank" style="text-decoration: none;">
+                <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
+                    贊助一碗米糕！
+                </div>
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # --- [管理員登入] ---
+    is_admin = False
+    with st.sidebar.expander("🔐 管理員登入", expanded=False):
+        input_pass = st.text_input("輸入密碼", type="password")
+        if input_pass == st.secrets.get("ADMIN_PASSWORD", "0000"):
+            is_admin = True
+            st.success("🔓 上帝模式啟動")
 
-    # --- 1. 初始化資料庫 (Session State) ---
-    # 確保資料只在第一次執行時載入，才不會每次點按鈕都重新連線
-    if "df" not in st.session_state:
-        try:
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            st.session_state.df = conn.read()
-        except Exception as e:
-            st.error(f"資料庫連線失敗: {e}")
-            return
-
-    # --- 2. 初始化當前題目與播放狀態 ---
-    if "current_question" not in st.session_state:
-        st.session_state.current_question = None
-    if "play_now" not in st.session_state:
-        st.session_state.play_now = False
-
-    # --- 3. UI 按鈕區 ---
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("🎲 隨機抽一題"):
-            # 從資料表隨機選一列
-            if not st.session_state.df.empty:
-                random_row = st.session_state.df.sample(n=1).iloc[0]
-                # 假設你的欄位名稱是 'English'
-                st.session_state.current_question = random_row['English']
-                st.session_state.play_now = False # 換題時先不播放
-            else:
-                st.warning("資料表是空的！")
-
-    with col2:
-        # 只有在有題目的情況下，才顯示播放按鈕
-        if st.session_state.current_question:
-            if st.button("🔊 聽發音"):
-                st.session_state.play_now = True
-
-    # --- 4. 顯示與語音執行區 ---
-    st.divider()
-
-    if st.session_state.current_question:
-        st.subheader("目前題目：")
-        st.info(st.session_state.current_question)
-
-        # 當 play_now 為 True 時，才執行你寫好的 speak 函式
-        if st.session_state.play_now:
-            speak(st.session_state.current_question)
-            # 執行完立刻重置，避免頁面因其他動作重整時重複播放
-            st.session_state.play_now = False
+    # --- [選單邏輯] ---
+    if is_admin:
+        menu_options = ["首頁", "學習與搜尋", "測驗模式", "🔬 解碼實驗室"]
+        if st.sidebar.button("🔄 強制同步雲端", help="清除 App 快取"):
+            st.cache_data.clear()
+            st.rerun()
     else:
-        st.write("請點擊「隨機抽一題」開始練習")
+        menu_options = ["首頁", "學習與搜尋", "測驗模式"]
+    
+    page = st.sidebar.radio("功能選單", menu_options)
+    st.sidebar.markdown("---")
+    
+    df = load_db()
+    
+    if page == "首頁":
+        page_home(df)
+    elif page == "學習與搜尋":
+        page_learn_search(df)
+    elif page == "測驗模式":
+        page_quiz(df)
+    elif page == "🔬 解碼實驗室":
+        if is_admin:
+            page_ai_lab()
+        else:
+            st.error("⛔ 請先登入")
 
-# 這裡記得呼叫 main
+    status = "🔴 管理員" if is_admin else "🟢 訪客"
+    st.sidebar.caption(f"v3.0 Ultimate | {status}")
+
 if __name__ == "__main__":
     main()
