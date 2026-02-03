@@ -276,11 +276,13 @@ def show_encyclopedia_card(row):
     # 5. 雙欄核心區
     st.write("---")
     c1, c2 = st.columns(2)
+    r_ex = fix_content(row.get('example', ""))
     
+    # 在 c1 欄位顯示區確保正確引用
     with c1:
         st.info("### 🎯 定義與解釋")
         st.markdown(r_def) 
-        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}")
+        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}") # 確保 r_ex 已被定義
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
