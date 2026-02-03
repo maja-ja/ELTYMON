@@ -62,18 +62,32 @@ def inject_custom_css():
 # 👇 放在程式最上面的工具區
 def fix_content(text):
     """
-    全域字串清洗 (終極版)：
-    1. 處理空值
-    2. 處理 LaTeX 雙反斜線
-    3. 處理換行：將 \\n 轉為 '  \n' (Markdown 強制換行語法)
+    全域字串清洗 (解決 LaTeX 與 換行失效)：
+    1. 處理空值與 nan。
+    2. 先處理換行，再處理 LaTeX 轉義，避免衝突。
+    3. 針對 Markdown 換行需求優化。
     """
     if text is None or str(text).strip() in ["無", "nan", ""]:
         return ""
+    
+    # 確保是字串類型
     text = str(text)
-    # 把 JSON 的雙反斜線轉回單反斜線 (給 LaTeX 用)
-    text = text.replace('\\\\', '\\')
-    # 把 \n 轉成 "兩格空白+換行" (這是 Markdown 的換行規矩)
-    text = text.replace('\\n', '  \n')
+    
+    # --- 關鍵修正 1：處理換行 ---
+    # AI 有時輸出 \\n 有時輸出 \n。
+    # 我們統一將其轉為 Markdown 的「兩格空白 + 換行」，這樣條列式才會漂亮。
+    text = text.replace('\\n', '  \n').replace('\n', '  \n')
+    
+    # --- 關鍵修正 2：處理 LaTeX 反斜線 ---
+    # 如果資料裡有 \\frac，代表被轉義過，我們要還原成 \frac 讓 st.markdown 認得
+    # 但要注意不要把已經是單反斜線的又弄壞
+    if '\\\\' in text:
+        text = text.replace('\\\\', '\\')
+    
+    # --- 關鍵修正 3：清理 JSON 解析殘留的引號 ---
+    # 有時 AI 會在字串前後留下多餘的引號，這會讓 UI 看起來很躁
+    text = text.strip('"').strip("'")
+    
     return text
 def speak(text, key_suffix=""):
     try:
@@ -223,8 +237,8 @@ def show_encyclopedia_card(row):
     r_word = str(row.get('word', '未命名主題'))
     r_phonetic = fix_content(row.get('phonetic', "")) 
     r_breakdown = fix_content(row.get('breakdown', ""))
+    r_breakdown = fix_content(row.get('breakdown', ""))
     r_def = fix_content(row.get('definition', ""))
-    r_ex = fix_content(row.get('example', ""))
     r_roots = fix_content(row.get('roots', ""))
     r_meaning = str(row.get('meaning', ""))
     r_hook = fix_content(row.get('memory_hook', ""))
