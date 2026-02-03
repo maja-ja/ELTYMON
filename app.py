@@ -188,7 +188,7 @@ def ai_decode_and_save(input_text, fixed_category):
     Role: 全領域知識解構專家 (Polymath Decoder).
     Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
     
-    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。注音和拼音一起用
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。
 
     ## 處理邏輯 (Field Mapping Strategy):
     1. category: 必須固定填寫為「{fixed_category}」。
@@ -197,7 +197,7 @@ def ai_decode_and_save(input_text, fixed_category):
     4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
     5. breakdown: 結構拆解。步驟流程或組成要素，逐步條列並使用 \\n 換行。
     6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
-    7. phonetic: 關鍵年代、發明人名、或該領域的專門術語。
+    7. phonetic: 關鍵年代、發明人名、或該領域的專門術語。標註正確發音與背景。若是外語詞彙，請先提供國際音標 (IPA) 或通用音譯，再針對其中的「專有名詞人名」或「關鍵術語」提供「注音+拼音」對照。
     8. example: 兩個以上最具代表性的實際應用場景。
     9. translation: 生活類比。以「🍎 生活比喻：」開頭。
     10. native_vibe: 專家視角。以「🌊 專家心法：」開頭。
