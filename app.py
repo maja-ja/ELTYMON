@@ -233,10 +233,17 @@ def show_encyclopedia_card(row):
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
     # 👇 修正截圖 4：加上 pre-wrap 樣式，讓 \n 變成換行，並支援 LaTeX
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    
+    # 👇 修正重點：
+    # 1. 移除了 color: #666 (讓它自動變白)
+    # 2. 加上 opacity: 0.8 (讓它稍微暗一點點就好，不用全灰)
+    # 3. 確保 r_phonetic 有被 fix_content 處理過 (在函式開頭要檢查)
+    
     if r_phonetic and r_phonetic != "無":
         st.markdown(f"""
-            <div style='color: #666; font-size: 0.95rem; margin-bottom: 15px; white-space: pre-wrap; font-family: monospace;'>
-                /{r_phonetic}/
+            <div style='font-size: 0.95rem; margin-bottom: 15px; white-space: pre-wrap; font-family: monospace; opacity: 0.8;'>
+{r_phonetic}
             </div>
         """, unsafe_allow_html=True)
     
