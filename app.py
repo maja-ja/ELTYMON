@@ -59,7 +59,16 @@ def inject_custom_css():
 # ==========================================
 # 2. 工具函式
 # ==========================================
-
+def fix_content(text):
+    """
+    全域字串清洗：
+    1. 處理空值
+    2. 將 JSON 的雙反斜線 \\ 轉回單反斜線 \ (讓 LaTeX 生效)
+    3. 將 \\n 轉回真正的換行
+    """
+    if text is None or str(text).strip() in ["無", "nan", ""]:
+        return ""
+    return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 def speak(text, key_suffix=""):
     try:
         if not text: return
@@ -212,13 +221,13 @@ def show_encyclopedia_card(row):
     import time
 
     # --- 1. 核心字串清洗 (還原 LaTeX 指令與換行) ---
-    def fix_content(text):
+    '''def fix_content(text):
         if text is None or str(text).strip() in ["無", "nan", ""]:
             return ""
         # 將 JSON 轉義的雙反斜線 \\ 轉回 LaTeX 用的單反斜線 \
         # 將 \\n 轉回真正的換行
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
-
+'''
     # --- 2. 變數賦值 (徹底防止 UnboundLocalError) ---
     # 使用 .get 確保即使資料庫缺欄位也能安全執行
     r_word = str(row.get('word', '未命名主題'))
@@ -413,21 +422,27 @@ def page_home(df):
     st.subheader("💡 今日隨機推薦")
     
     if not df.empty:
-        # 如果資料庫少於 3 筆，就全秀；否則隨機抽 3 筆
         sample_count = min(3, len(df))
-        #每次重新整理頁面都會變動
-        sample = df.sample(sample_count) 
+        sample = df.sample(sample_count)
         
-        # 使用 3 個欄位並排顯示，看起來更像卡片
         cols = st.columns(3)
         for i, (index, row) in enumerate(sample.iterrows()):
-            with cols[i % 3]: # 確保在 3 欄內循環
-                with st.container(border=True): # 加個邊框更有質感
+            with cols[i % 3]:
+                with st.container(border=True):
                     st.markdown(f"### {row['word']}")
                     st.caption(f"🏷️ {row['category']}")
-                    st.write(f"**定義：** {row['definition']}")
-                    st.write(f"**核心：** {row['roots']}")
-                    # 這裡可以加一個小按鈕，點了朗讀該單字
+                    
+                    # 🔴 原本錯誤：st.write 不支援複雜 LaTeX 且沒清洗
+                    # st.write(f"**定義：** {row['definition']}")
+                    # st.write(f"**核心：** {row['roots']}")
+
+                    # 🟢 修正後：使用 fix_content 清洗 + st.markdown 渲染
+                    cleaned_def = fix_content(row['definition'])
+                    cleaned_roots = fix_content(row['roots'])
+                    
+                    st.markdown(f"**定義：** {cleaned_def}")
+                    st.markdown(f"**核心：** {cleaned_roots}")
+
                     if st.button("🔊", key=f"home_spk_{row['word']}"):
                         speak(row['word'], "home")
     else:
