@@ -659,3 +659,5 @@ def main():
 
     status = "🔴 管理員" if is_admin else "🟢 訪客"
     st.sidebar.caption(f"v3.1 Dual-DB | {status}")
+if __name__ == "__main__":
+    main()
