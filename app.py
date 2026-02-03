@@ -179,35 +179,31 @@ def ai_decode_and_save(input_text, fixed_category):
     ## 處理邏輯 (Field Mapping Strategy):
     1. category: 必須固定填寫為「{fixed_category}」。
     2. word: 核心概念名稱 (標題)。
-    3. roots: 底層邏輯 / 核心原理 / 關鍵公式。**【重要】**：若有數學公式，請使用 LaTeX 格式並用 $ 包圍，例如：$E=mc^2$。
+    3. roots: 底層邏輯 / 核心原理 / 關鍵公式。使用 LaTeX 格式並用 $ 包圍。
     4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
-    5. breakdown: 結構拆解。步驟流程或組成要素。涉及推導時請逐步條列。
+    5. breakdown: 結構拆解。步驟流程或組成要素，逐步條列並使用 \\n 換行。
     6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
-    7. phonetic: 關鍵年代、發明人名、或該領域的專有名詞。
+    7. phonetic: 關鍵年代、發明人名、或該領域的專門術語。
     8. example: 兩個以上最具代表性的實際應用場景。
-    9. translation: 生活類比。用一個日常生活的場景來比喻這個複雜概念。
-    10. native_vibe: 專家視角 / 內行人的心法。
-    11. synonym_nuance: 相似概念對比。區分它與最容易混淆的概念有何不同。
-    12. visual_prompt: 視覺化圖景。描述一張能代表該概念的構圖或意象。
+    9. translation: 生活類比。以「🍎 生活比喻：」開頭。
+    10. native_vibe: 專家視角。以「🌊 專家心法：」開頭。
+    11. synonym_nuance: 相似概念對比與辨析。
+    12. visual_prompt: 視覺化圖景描述。
     13. social_status: 在該領域的重要性評級。
     14. emotional_tone: 學習此知識的心理感受。
-    15. street_usage: 避坑指南。初學者最容易犯的錯誤或常見的認知誤區。
-    16. collocation: 關聯圖譜。三個與此概念緊密相關的延伸知識點。
-    17. etymon_story: 歷史脈絡。該概念是如何被發現或演變而來的關鍵瞬間。
-    18. usage_warning: 邊界條件。在什麼情況下此概念不適用或會失效。
-    19. memory_hook: 記憶金句。一句話讓你永遠記住這個概念。
+    15. street_usage: 避坑指南。常見認知誤區。
+    16. collocation: 關聯圖譜。三個延伸知識點。
+    17. etymon_story: 歷史脈絡或發現瞬間。
+    18. usage_warning: 邊界條件與失效場景。
+    19. memory_hook: 記憶金句。
     20. audio_tag: 相關標籤 (以 # 開頭)。
-    
-    ## 格式與安全性嚴格指令 (Anti-Frustration Rules):
-    1. **單引號替代制**：為了防止 JSON 解析崩潰，內容中若需使用引號，請一律使用「」或單引號 '，嚴禁在 Value 中使用雙引號 "。
-    2. **LaTeX 強制格式**：
-       - 所有公式必須以 $ 包圍。
-       - 為配合 Streamlit 渲染，LaTeX 指令請使用單反斜線，但在 JSON 傳輸時需轉義。
-       - 範例：`"roots": "根據 $E = mc^2$ 推導"` 或 `"breakdown": "$\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}$"`。
-    3. **條列標準化**：`breakdown` 與 `example` 欄位必須使用數字編號開頭（1., 2.），且步驟間強制以 `\n` 分隔。
-    4. **語氣一致性**：`native_vibe` 必須以「🌊 專家心法：」開頭；`translation` 必須以「🍎 生活比喻：」開頭。
-    5. **嚴禁廢話**：禁止輸出任何 JSON 標記區塊（```json）或結尾文字。只輸出從 { 開始到 } 結束的純原始碼。"""
 
+    ## 輸出規範 (Strict JSON Rules):
+    1. 必須輸出純 JSON 格式，不含任何 Markdown 標記 (如 ```json)。
+    2. 內容嚴禁使用雙引號 "，若需引號請用單引號 ' 或「」。
+    3. LaTeX 公式請使用單個反斜線格式，但在 JSON 內需雙重轉義。
+    4. 換行統一使用 \\\\n。
+    """
     try:
         model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
         final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
