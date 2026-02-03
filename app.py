@@ -110,8 +110,8 @@ def get_spreadsheet_url():
             st.error("找不到 spreadsheet 設定，請檢查 secrets.toml")
             return ""
 
-@st.cache_data(ttl=60)
-@st.cache_data(ttl=60) # 每 60 秒自動更新一次，兼顧速度與即時性
+
+@st.cache_data(ttl=3600) # 每 60 秒自動更新一次，兼顧速度與即時性
 def load_db():
     # 定義我們需要的 20 個標準欄位名稱
     COL_NAMES = [
