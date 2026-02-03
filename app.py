@@ -3,7 +3,7 @@ import pandas as pd
 import base64
 import time
 import json
-import re  # 新增：用於精準提取 JSON
+import re  # 用於精準提取 JSON 和文字清洗
 from io import BytesIO
 from gtts import gTTS
 import google.generativeai as genai
@@ -12,7 +12,8 @@ from streamlit_gsheets import GSheetsConnection
 # ==========================================
 # 1. 核心配置與視覺美化 (CSS)
 # ==========================================
-st.set_page_config(page_title="Etymon Decoder v2.5", page_icon="🧩", layout="wide")
+st.set_page_config(page_title="Etymon Decoder v3.0", page_icon="🧩", layout="wide")
+
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -50,16 +51,18 @@ def inject_custom_css():
             /* 4. 語感與標題樣式 */
             .hero-word { font-size: 2.8rem; font-weight: 800; color: #1A237E; }
             @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
+            
             .vibe-box { 
                 background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
                 border-left: 6px solid #2196F3; color: #2C3E50 !important; margin: 15px 0;
             }
         </style>
     """, unsafe_allow_html=True)
+
 # ==========================================
 # 2. 工具函式
 # ==========================================
-# 👇 放在程式最上面的工具區
+
 def fix_content(text):
     """
     全域字串清洗 (解決 LaTeX 與 換行失效)：
@@ -80,20 +83,23 @@ def fix_content(text):
     
     # --- 關鍵修正 2：處理 LaTeX 反斜線 ---
     # 如果資料裡有 \\frac，代表被轉義過，我們要還原成 \frac 讓 st.markdown 認得
-    # 但要注意不要把已經是單反斜線的又弄壞
     if '\\\\' in text:
         text = text.replace('\\\\', '\\')
     
     # --- 關鍵修正 3：清理 JSON 解析殘留的引號 ---
-    # 有時 AI 會在字串前後留下多餘的引號，這會讓 UI 看起來很躁
     text = text.strip('"').strip("'")
     
     return text
+
 def speak(text, key_suffix=""):
+    """
+    生成語音並使用 Streamlit 原生播放器顯示。
+    這是解決瀏覽器阻擋自動播放最穩定的方案。
+    """
     if not text:
         return
     
-    # 1. English Filter
+    # 1. 英語濾網 (只保留英數、空格、連字號)
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
     english_only = " ".join(english_only.split()).strip()
     
@@ -101,36 +107,30 @@ def speak(text, key_suffix=""):
         return
 
     try:
-        # 2. Generate the Audio
+        # 2. 生成音訊
         tts = gTTS(text=english_only, lang='en')
         audio_buffer = BytesIO()
         tts.write_to_fp(audio_buffer)
         
-        # 3. Display the native Streamlit audio player
-        # This is much more reliable than custom HTML
-        st.audio(audio_buffer, format="audio/mp3")
+        # 3. 顯示原生播放器 (確保有聲音)
+        # 使用 start_time=0 確保每次載入都從頭準備好
+        st.audio(audio_buffer, format="audio/mp3", start_time=0)
         
-        # Optional: Add a small caption so the user knows what is being read
-        st.caption(f"🔊 Pronouncing: {english_only}")
-
     except Exception as e:
-        st.error(f"Speech Error: {e}")
+        st.error(f"語音錯誤: {e}")
 
 def get_spreadsheet_url():
     """安全地獲取試算表網址，相容兩種 secrets 格式"""
     try:
-        # 優先嘗試 connections 結構
         return st.secrets["connections"]["gsheets"]["spreadsheet"]
     except:
         try:
-            # 備用：直接結構
             return st.secrets["gsheets"]["spreadsheet"]
         except:
             st.error("找不到 spreadsheet 設定，請檢查 secrets.toml")
             return ""
 
-
-@st.cache_data(ttl=3600) # 每 60 秒自動更新一次，兼顧速度與即時性
+@st.cache_data(ttl=3600) 
 def load_db():
     # 定義我們需要的 20 個標準欄位名稱
     COL_NAMES = [
@@ -141,37 +141,35 @@ def load_db():
     ]
     
     try:
-        # 連接 Google Sheets
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        url = get_spreadsheet_url()
         
-        # 讀取數據 (ttl=0 強制不使用 st.connection 內建快取，改用我們外層的 st.cache_data)
+        # 讀取數據 (ttl=0 強制不使用 st.connection 內建快取)
         df = conn.read(spreadsheet=url, ttl=0)
         
-        # 1. 自動補齊缺失欄位：如果試算表沒這欄，自動填入 "無"
+        # 1. 自動補齊缺失欄位
         for col in COL_NAMES:
             if col not in df.columns:
                 df[col] = "無"
         
-        # 2. 資料清洗：去除單字欄位為空的無效行，並填補 NaN
+        # 2. 資料清洗
         df = df.dropna(subset=['word'])
         df = df.fillna("無")
         
-        # 3. 欄位排序：確保 DataFrame 順序與我們定義的一致
+        # 3. 欄位排序
         return df[COL_NAMES].reset_index(drop=True)
         
     except Exception as e:
         st.error(f"❌ 資料庫載入失敗: {e}")
-        # 失敗時回傳一個空的 DataFrame，避免主程式當掉
         return pd.DataFrame(columns=COL_NAMES)
+
 # ==========================================
-# 3. AI 解碼核心 (自用解鎖版)
+# 3. AI 解碼核心 (還原中文 Prompt)
 # ==========================================
 def ai_decode_and_save(input_text, fixed_category):
     """
     核心解碼函式：將 Prompt 直接寫入程式碼，確保執行穩定。
     """
-    # 從 secrets 讀取 API Key
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
         st.error("❌ 找不到 GEMINI_API_KEY，請檢查 Streamlit Secrets 設定。")
@@ -179,7 +177,6 @@ def ai_decode_and_save(input_text, fixed_category):
 
     genai.configure(api_key=api_key)
     
-    # 安全設定：解除過濾
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -188,7 +185,7 @@ def ai_decode_and_save(input_text, fixed_category):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
 
-    # 定義硬編碼 Prompt
+    # 還原原本的中文 Prompt
     SYSTEM_PROMPT = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
     Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
@@ -235,57 +232,49 @@ def ai_decode_and_save(input_text, fixed_category):
     except Exception as e:
         st.error(f"Gemini API 錯誤: {e}")
         return None
-def show_encyclopedia_card(row):
-    import time
 
-    # 1. 變數取值與清洗 (使用新的清潔劑)
+def show_encyclopedia_card(row):
+    # 1. 變數取值與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_def = fix_content(row.get('definition', ""))
-    r_roots = fix_content(row.get('roots', ""))
     r_meaning = str(row.get('meaning', ""))
     r_hook = fix_content(row.get('memory_hook', ""))
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
 
     # 2. 標題展示 (Hero Word)
-    # 確保只有這一行在印標題
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    # 3. 標題下方的描述 (三明治大法：HTML開頭 -> Markdown內容 -> HTML結尾)
+    # 3. 標題下方的描述
     if r_phonetic and r_phonetic != "無":
-        # (A) 開啟一個灰白色的容器
-        st.markdown("""
+        st.markdown(f"""
             <div style='color: #E0E0E0; font-size: 0.95rem; margin-bottom: 20px; line-height: 1.6; opacity: 0.9;'>
+            {r_phonetic}
+            </div>
         """, unsafe_allow_html=True)
-        
-        # (B) 渲染內容 (Markdown 負責把 LaTeX 變漂亮)
-        st.markdown(r_phonetic)
-        
-        # (C) 關閉容器
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    # 4. 朗讀與拆解區
+    # 4. 朗讀與拆解區 (整合修正版 speak)
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        if st.button("🔊 朗讀", key=f"spk_{r_word}_{int(time.time())}", use_container_width=True):
-            speak(r_word, "card")
+        st.caption("🔊 點擊播放")
+        # 這裡直接呼叫 speak，會在介面上顯示一個播放器
+        speak(r_word, key_suffix="card_main")
             
     with col_b:
-    # 方案 A：直接使用 st.markdown 並確保沒有被 <div> 包裹
         st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
+
     # 5. 雙欄核心區
     st.write("---")
     c1, c2 = st.columns(2)
     r_ex = fix_content(row.get('example', ""))
     
-    # 在 c1 欄位顯示區確保正確引用
     with c1:
         st.info("### 🎯 定義與解釋")
         st.markdown(r_def) 
-        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}") # 確保 r_ex 已被定義
+        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
@@ -295,7 +284,7 @@ def show_encyclopedia_card(row):
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.markdown(f"**🪝 記憶鉤子：** \n{r_hook}")
 
-    # 6. 專家視角 (同樣使用三明治大法)
+    # 6. 專家視角
     if r_vibe:
         st.markdown("""
             <div class='vibe-box'>
@@ -304,7 +293,7 @@ def show_encyclopedia_card(row):
         st.markdown(r_vibe)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # 7. 深度百科 (使用 Expander 收納)
+    # 7. 深度百科
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -313,13 +302,14 @@ def show_encyclopedia_card(row):
         with sub_c2:
             st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
             st.markdown(f"**🏙️ 關聯圖譜：** \n{fix_content(row.get('collocation', '無'))}")
+
 # ==========================================
 # 4. 頁面邏輯
 # ==========================================
+
 def page_ai_lab():
     st.title("🔬 Kadowsella 解碼實驗室")
     
-    # 24 個精選固定領域
     FIXED_CATEGORIES = [
         "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
         "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
@@ -368,7 +358,7 @@ def page_ai_lab():
                 return
 
             try:
-                # 1. 提取 JSON 區塊
+                # 1. 提取 JSON
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
                     st.error("解析失敗：找不到 JSON 結構。")
@@ -376,16 +366,14 @@ def page_ai_lab():
                 
                 json_str = match.group(0)
 
-                # 2. [關鍵防禦] 修復潛在的非法轉義字元
-                # 使用 strict=False 允許解析器處理一些不合規的控制字元
+                # 2. 解析 JSON
                 try:
                     res_data = json.loads(json_str, strict=False)
                 except json.JSONDecodeError:
-                    # 如果 strict=False 還是失敗，進行暴力字串修復
                     fixed_json = json_str.replace('\n', '\\n').replace('\r', '\\r')
                     res_data = json.loads(fixed_json, strict=False)
 
-                # 3. 更新 Google Sheets
+                # 3. 寫回資料庫
                 if is_exist and force_refresh:
                     existing_data = existing_data[~match_mask]
                 
@@ -401,6 +389,7 @@ def page_ai_lab():
                 st.error(f"⚠️ 處理失敗: {e}")
                 with st.expander("查看原始數據回報錯誤"):
                     st.code(raw_res)
+
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
@@ -413,10 +402,17 @@ def page_home(df):
     
     st.write("---")
 
-    # 2. [新增] 隨機推薦展示區
-    st.subheader("💡 今日隨機推薦")
+    # 2. [新增功能] 隨機推薦區 + 換一批按鈕
+    col_header, col_btn = st.columns([4, 1])
+    with col_header:
+        st.subheader("💡 今日隨機推薦")
+    with col_btn:
+        # 👇 這裡就是你要的新增隨機按鈕
+        if st.button("🔄 換一批", use_container_width=True):
+            st.rerun() # 點擊後重新執行頁面，就會重新隨機抽樣
     
     if not df.empty:
+        # 這裡的邏輯：每次頁面執行時 (包含點擊按鈕)，都會重新 sample
         sample_count = min(3, len(df))
         sample = df.sample(sample_count)
         
@@ -424,19 +420,19 @@ def page_home(df):
         for i, (index, row) in enumerate(sample.iterrows()):
             with cols[i % 3]:
                 with st.container(border=True):
+                    # 標題
                     st.markdown(f"### {row['word']}")
                     st.caption(f"🏷️ {row['category']}")
                     
-                    # 👇 修正截圖 3：使用 fix_content 清洗 + st.markdown 渲染
+                    # 內容清洗與顯示
                     cleaned_def = fix_content(row['definition'])
                     cleaned_roots = fix_content(row['roots'])
                     
-                    # 使用 markdown 才能正確顯示 LaTeX 公式
                     st.markdown(f"**定義：** {cleaned_def}")
                     st.markdown(f"**核心：** {cleaned_roots}")
 
-                    if st.button("🔊", key=f"home_spk_{row['word']}"):
-                        speak(row['word'], "home")
+                    # 發音按鈕 (使用 unique key 避免衝突)
+                    speak(row['word'], key_suffix=f"home_{i}_{int(time.time())}")
 
     st.write("---")
     st.info("👈 點擊左側選單進入「學習與搜尋」查看完整資料庫。")
@@ -454,14 +450,25 @@ def page_learn_search(df):
         sel_cat = st.selectbox("選擇學習分類", cats)
         f_df = df if sel_cat == "全部" else df[df['category'] == sel_cat]
 
-        if st.button("下一個單字 (Next Word) ➔", use_container_width=True, type="primary"):
-            st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
-            st.rerun()
+        # --- [關鍵修正] Session State 鎖定邏輯 ---
+        # 1. 初始化 State
+        if 'curr_w' not in st.session_state:
+            st.session_state.curr_w = None
 
-        if 'curr_w' not in st.session_state and not f_df.empty:
+        # 2. 只有按鈕點擊時才更新 State (換題)
+        if st.button("🎲 隨機探索下一字 (Next Word)", use_container_width=True, type="primary"):
+            if not f_df.empty:
+                st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
+                st.rerun() # 強制刷新以顯示新卡片
+            else:
+                st.warning("此分類目前沒有資料。")
+
+        # 3. 初始載入 (如果原本是空的)
+        if st.session_state.curr_w is None and not f_df.empty:
             st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
 
-        if 'curr_w' in st.session_state:
+        # 4. 顯示卡片 (speak 函式已內建在 show_encyclopedia_card 中)
+        if st.session_state.curr_w:
             show_encyclopedia_card(st.session_state.curr_w)
 
     with tab_list:
@@ -480,20 +487,30 @@ def page_quiz(df):
     cat = st.selectbox("選擇測驗範圍", df['category'].unique())
     pool = df[df['category'] == cat]
     
+    # 初始化測驗 State
+    if 'q' not in st.session_state:
+        st.session_state.q = None
+    if 'show_ans' not in st.session_state:
+        st.session_state.show_ans = False
+
+    # 按鈕只更新題目
     if st.button("🎲 抽一題", use_container_width=True):
         st.session_state.q = pool.sample(1).iloc[0].to_dict()
         st.session_state.show_ans = False
+        st.rerun()
 
-    if 'q' in st.session_state:
+    if st.session_state.q:
         st.markdown(f"### ❓ 請問這對應哪個單字？")
         st.info(st.session_state.q['definition'])
         st.write(f"**提示 (字根):** {st.session_state.q['roots']} ({st.session_state.q['meaning']})")
         
         if st.button("揭曉答案"):
             st.session_state.show_ans = True
+            st.rerun()
         
         if st.session_state.show_ans:
             st.success(f"💡 答案是：**{st.session_state.q['word']}**")
+            # 顯示原生播放器
             speak(st.session_state.q['word'], "quiz")
             st.write(f"結構拆解：`{st.session_state.q['breakdown']}`")
 
@@ -505,16 +522,16 @@ def main():
     
     st.sidebar.title("Kadowsella")
     
-    # --- [贊助區塊] 雙刀流 ---
+    # --- [贊助區塊] ---
     st.sidebar.markdown("""
         <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
             <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
-            <a href="https://www.buymeacoffee.com/kadowsella" target="_blank" style="text-decoration: none;">
+            <a href="[https://www.buymeacoffee.com/kadowsella](https://www.buymeacoffee.com/kadowsella)" target="_blank" style="text-decoration: none;">
                 <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
                     ☕ Buy Me a Coffee
                 </div>
             </a>
-            <a href="https://p.ecpay.com.tw/kadowsella20" target="_blank" style="text-decoration: none;">
+            <a href="[https://p.ecpay.com.tw/kadowsella20](https://p.ecpay.com.tw/kadowsella20)" target="_blank" style="text-decoration: none;">
                 <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
                     贊助一碗米糕！
                 </div>
