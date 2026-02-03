@@ -236,56 +236,43 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """美化顯示單一知識的百科卡片，支援 LaTeX 公式渲染"""
+    """美化顯示百科卡片，修正 LaTeX 渲染問題"""
     
-    # --- 1. 字串預處理 (核心修復) ---
-    # 將 AI 為了 JSON 安全生成的雙反斜線轉回單反斜線，並處理換行
-    def clean_latex(text):
-        if not text or text == "無": return text
+    # --- 關鍵修復：還原反斜線與換行 ---
+    def fix_latex_rendering(text):
+        if not text or text == "無": return ""
+        # 1. 將雙反斜線 \\ 轉回單反斜線 \ 
+        # 2. 將 \\n 轉回真正的換行
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    # 預先處理需要顯示公式的欄位
-    row_word = str(row['word'])
-    row_roots = clean_latex(row['roots'])
-    row_breakdown = clean_latex(row['breakdown'])
-    row_definition = clean_latex(row['definition'])
-    row_example = clean_latex(row['example'])
+    # 預處理關鍵欄位
+    r_word = str(row['word'])
+    r_roots = fix_latex_rendering(row['roots'])
+    r_breakdown = fix_latex_rendering(row['breakdown'])
+    r_def = fix_latex_rendering(row['definition'])
+    r_ex = fix_latex_rendering(row['example'])
 
-    # --- 2. 標題與音標/年代 ---
-    st.markdown(f"<div class='hero-word'>{row_word}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    # 判斷是音標還是年代/人名
-    phonetic_val = str(row['phonetic'])
-    if any(c in phonetic_val for c in "əæɪʊ"):
-        st.markdown(f"<div class='hero-phonetic'>/{phonetic_val}/</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='hero-phonetic' style='color:#1E88E5;'>📌 {phonetic_val}</div>", unsafe_allow_html=True)
-    
-    # --- 3. 動作按鈕與拆解區 ---
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        if st.button("🔊 朗讀", key=f"spk_{row_word}_{int(time.time())}", use_container_width=True):
-            speak(row_word, "card")
+        if st.button("🔊 朗讀", key=f"spk_{r_word}_{time.time()}"):
+            speak(r_word)
     with col_b:
-        # 讓拆解區支援公式渲染，同時保留原本的運算子美化
-        styled_breakdown = row_breakdown.replace("+", "<span class='operator'>+</span>")
-        st.markdown(f"<div class='breakdown-container'>{styled_breakdown}</div>", unsafe_allow_html=True)
+        # 在藍色框框內顯示拆解，並支援渲染
+        st.markdown(f"<div class='breakdown-container'>{r_breakdown}</div>", unsafe_allow_html=True)
 
-    # --- 4. 核心內容區 (使用 st.markdown 確保 LaTeX 觸發) ---
-    st.write("---")
     c1, c2 = st.columns(2)
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(row_definition) 
-        st.markdown(f"**📝 案例/推導：**\n{row_example}")
+        st.markdown(r_def) # 使用 markdown 渲染可能含有的公式
+        st.markdown(f"**📝 案例/推導：**\n{r_ex}")
         st.caption(f"（{row['translation']}）")
-        
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(row_roots)  # 這裡會漂亮地顯示 $E=mc^2$
+        st.markdown(r_roots) # 這裡會把 $...$ 轉成漂亮公式
         st.write(f"**意義：** {row['meaning']}")
         st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
-
     # --- 5. 專家語感區 ---
     if row['native_vibe'] and row['native_vibe'] != "無":
         st.markdown(f"""
