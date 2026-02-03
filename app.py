@@ -274,19 +274,15 @@ def show_encyclopedia_card(row):
             speak(word, "card")
             
   with col_b:
-        # 1. 字串清洗：將雙反斜線 \\ 轉回單反斜線 \，並處理換行
-        # 注意：這裡要連同資料中的 \\frac 修正回 \frac
-        raw_content = str(row['breakdown'])
-        clean_breakdown = raw_content.replace('\\\\', '\\').replace('\\n', '\n')
+        # 1. 字串清洗：還原反斜線與換行
+        clean_breakdown = str(row['breakdown']).replace('\\\\', '\\').replace('\\n', '\n')
         
-        # 2. 顯示容器：不要在 HTML 裡面放內容，改用 st.markdown 直接渲染
-        st.markdown('<div class="breakdown-wrapper">', unsafe_allow_html=True)
-        
-        # 關鍵：這裡要把內容放在標籤外部，或使用 st.container 確保渲染
-        st.markdown(clean_breakdown) 
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    # --- 4. 雙欄位深度解構 ---
+        # 2. 顯示容器：改用 st.container 並配合 CSS
+        with st.container():
+            st.markdown(f'<div class="breakdown-wrapper">', unsafe_allow_html=True)
+            # 關鍵：在 HTML 標籤之外使用 st.latex 或 st.markdown 渲染公式
+            st.markdown(clean_breakdown) 
+            st.markdown(f'</div>', unsafe_allow_html=True)
     st.write("---")
     c1, c2 = st.columns(2)
     
