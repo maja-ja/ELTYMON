@@ -214,7 +214,7 @@ def ai_decode_and_save(input_text, fixed_category):
 
     ## 輸出規範 (Strict JSON Rules):
     1. 必須輸出純 JSON 格式，不含任何 Markdown 標記 (如 ```json)。
-    2. 內容嚴禁使用雙引號 "，若需引號請用單引號 ' 或「」。
+    2. 必須遵循標準 JSON 格式，所有的鍵名 (Keys) 與字串值 (Values) 必須使用雙引號 (") 包裹。若內容中需要表示引號，請一律使用中文引號「」或單引號 '，嚴禁在字串內容中使用原始的雙引號。
     3. LaTeX 公式請使用單個反斜線格式，但在 JSON 內需雙重轉義。
     4. 換行統一使用 \\\\n。
     """
