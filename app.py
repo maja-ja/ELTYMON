@@ -68,6 +68,7 @@ def fix_content(text):
     """
     if text is None or str(text).strip() in ["無", "nan", ""]:
         return ""
+    # 這裡多做一個 replace 將 <br> 轉為換行，以防萬一
     return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 def speak(text, key_suffix=""):
     try:
@@ -214,16 +215,9 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """
-    Kadowsella 百科卡片顯示核心
-    解決方案：變數預賦值、LaTeX 脫殼渲染、雙反斜線修復
-    """
     import time
 
-    # --- 1. 核心字串清洗 (還原 LaTeX 指令與換行) ---
-    # 沒了在上面
-    # --- 2. 變數賦值 (徹底防止 UnboundLocalError) ---
-    # 使用 .get 確保即使資料庫缺欄位也能安全執行
+    # 1. 變數取值與清洗 (全部都洗一遍！)
     r_word = str(row.get('word', '未命名主題'))
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_roots = fix_content(row.get('roots', ""))
@@ -232,84 +226,64 @@ def show_encyclopedia_card(row):
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
     r_meaning = str(row.get('meaning', ""))
-    r_hook = str(row.get('memory_hook', ""))
-    r_phonetic = str(row.get('phonetic', ""))
+    r_hook = fix_content(row.get('memory_hook', ""))
+    r_phonetic = fix_content(row.get('phonetic', "")) # 👈 修正截圖 4 的問題
 
-    # --- 3. 標題與音標展示 ---
+    # 2. 標題展示
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    if r_phonetic and r_phonetic != "無":
-        st.markdown(f"<div class='hero-phonetic'>/{r_phonetic}/</div>", unsafe_allow_html=True)
     
-    # --- 4. 動作列與藍色拆解區 (關鍵渲染修正) ---
+    # 👇 修正截圖 4：加上 pre-wrap 樣式，讓 \n 變成換行，並支援 LaTeX
+    if r_phonetic and r_phonetic != "無":
+        st.markdown(f"""
+            <div style='color: #666; font-size: 0.95rem; margin-bottom: 15px; white-space: pre-wrap; font-family: monospace;'>
+                /{r_phonetic}/
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # 3. 動作列與藍色拆解區
     col_a, col_b = st.columns([1, 4])
     with col_a:
         if st.button("🔊 朗讀", key=f"spk_{r_word}_{int(time.time())}", use_container_width=True):
             speak(r_word, "card")
             
     with col_b:
-        # 【重要】這裡先輸出 HTML 開頭標籤
         st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
-        # 【重要】在標籤外單獨渲染內容，這能讓 Streamlit 成功解析 LaTeX $...$ 符號
-        st.markdown(r_breakdown)
-        # 最後補上 HTML 結尾標籤
+        st.markdown(r_breakdown) # 這裡本來就正確
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 5. 雙欄解構區 ---
+    # 4. 雙欄解構區
     st.write("---")
     c1, c2 = st.columns(2)
     
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) # 支援 LaTeX 公式
+        st.markdown(r_def) 
         st.markdown(f"**📝 應用案例 / 推導步驟：**\n{r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(r_roots) # 支援 LaTeX 公式
+        st.markdown(r_roots)
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
 
-    # --- 6. 語感心法區 ---
-    # --- 6. 語感心法區 ---
+    # 5. 語感心法區 (👇 修正截圖 2：拆開寫讓 LaTeX 生效)
     if r_vibe:
-        # 🔴 原本錯誤：內容被包在 HTML string 內，導致 LaTeX 失效
-        # st.markdown(f"""
-        #     <div class='vibe-box'>
-        #         <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
-        #         <p style='font-size: 1.1rem; line-height: 1.6; color:#2C3E50 !important;'>{r_vibe}</p>
-        #     </div>
-        # """, unsafe_allow_html=True)
-
-        # 🟢 修正後：拆成三段，讓 Streamlit 處理中間的文字與公式
-        st.markdown(f"""
+        st.markdown("""
             <div class='vibe-box'>
                 <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
         """, unsafe_allow_html=True)
-        
-        # 這裡直接渲染 r_vibe，Streamlit 就能識別 $...$ 中的數學公式了
-        st.markdown(r_vibe)
-        
+        st.markdown(r_vibe) # 獨立渲染，數學公式才會出來
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- 7. 更多百科細節 (收納區) ---
+    # 6. 深度百科 (👇 修正截圖 1：加上 fix_content + st.markdown)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
-            # 🔴原本錯誤：直接讀取原始資料，導致 \n 和 LaTeX 顯示異常
-            # st.write(f"**⚖️ 相似對比：** {row.get('synonym_nuance', '無')}")
-            # st.write(f"**🏛️ 歷史脈絡：** {row.get('etymon_story', '無')}")
-
-            # 🟢修正後：加上 fix_content() 來處理換行與 LaTeX
             st.markdown(f"**⚖️ 相似對比：**\n{fix_content(row.get('synonym_nuance', '無'))}")
             st.markdown(f"**🏛️ 歷史脈絡：**\n{fix_content(row.get('etymon_story', '無'))}")
         with sub_c2:
-            # 🔴原本錯誤
-            # st.write(f"**⚠️ 使用注意：** {row.get('usage_warning', '無')}")
-            # st.write(f"**🏙️ 關聯圖譜：** {row.get('collocation', '無')}")
-
-            # 🟢修正後
             st.markdown(f"**⚠️ 使用注意：**\n{fix_content(row.get('usage_warning', '無'))}")
             st.markdown(f"**🏙️ 關聯圖譜：**\n{fix_content(row.get('collocation', '無'))}")
 # ==========================================
@@ -426,14 +400,11 @@ def page_home(df):
                     st.markdown(f"### {row['word']}")
                     st.caption(f"🏷️ {row['category']}")
                     
-                    # 🔴 原本錯誤：st.write 不支援複雜 LaTeX 且沒清洗
-                    # st.write(f"**定義：** {row['definition']}")
-                    # st.write(f"**核心：** {row['roots']}")
-
-                    # 🟢 修正後：使用 fix_content 清洗 + st.markdown 渲染
+                    # 👇 修正截圖 3：使用 fix_content 清洗 + st.markdown 渲染
                     cleaned_def = fix_content(row['definition'])
                     cleaned_roots = fix_content(row['roots'])
                     
+                    # 使用 markdown 才能正確顯示 LaTeX 公式
                     st.markdown(f"**定義：** {cleaned_def}")
                     st.markdown(f"**核心：** {cleaned_roots}")
 
