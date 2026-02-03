@@ -18,73 +18,47 @@ def inject_custom_css():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
-            /* 1. 拆解區塊樣式 (強化數學相容) */
+            /* 1. 拆解區塊 (漸層外框) */
             .breakdown-container {
-                font-family: 'Inter', 'Noto Sans TC', sans-serif; 
-                font-size: 1.8rem !important; 
-                font-weight: 700;
-                letter-spacing: 1px;
                 background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
-                color: #FFFFFF;
-                padding: 15px 30px;
+                padding: 20px 30px;
                 border-radius: 15px;
-                display: inline-block;
-                margin: 20px 0;
                 box-shadow: 0 4px 15px rgba(30, 136, 229, 0.3);
-                border: 1px solid rgba(255, 255, 255, 0.2);
-                line-height: 1.4; /* 增加行高，避免根號或分式太擠 */
-                white-space: pre-wrap; /* 支援 AI 輸出的換行符號 */
+                margin: 20px 0;
+                color: white !important;
             }
             
-            /* 讓內嵌在容器裡的 LaTeX 公式也變白色 */
+            /* 強制讓裡面產生的所有文字、公式變白、換行 */
+            .breakdown-container p, .breakdown-container span, .breakdown-container li {
+                color: white !important;
+                font-weight: 700 !important;
+                line-height: 1.6;
+                white-space: pre-wrap !important;
+            }
+
+            /* 2. LaTeX 引擎修補：移除黑塊、變更顏色 */
             .breakdown-container .katex {
-                color: #FFFFFF !important;
-                font-size: 1.1em;
+                color: white !important;
+                background: transparent !important; /* 徹底移除黑塊 */
+            }
+            .breakdown-container .katex-display {
+                background: transparent !important;
+                margin: 1em 0;
             }
 
-            .breakdown-container span.operator {
-                color: #BBDEFB;
-                margin: 0 8px;
-            }
-
-            /* 2. 手機響應式調整 */
-            @media (max-width: 600px) {
-                .breakdown-container {
-                    font-size: 1.2rem !important;
-                    display: block;
-                    text-align: center;
-                    padding: 12px 15px;
-                }
-            }
-
-            /* 3. 單字與音標 */
-            .hero-word { 
-                font-size: 2.8rem; 
-                font-weight: 800; 
-                color: #1A237E; 
-                margin-top: 10px;
-                line-height: 1.1;
-            }
-            @media (prefers-color-scheme: dark) {
-                .hero-word { color: #90CAF9; } /* 深色模式下用淺藍，比全白更有質感 */
-            }
-            .hero-phonetic { font-size: 1.2rem; color: #78909C; font-family: monospace; margin-bottom: 15px; }
-
-            /* 4. 語感區塊：修復 Dark Mode 閱讀問題 */
+            /* 3. 標題與語感區 */
+            .hero-word { font-size: 2.8rem; font-weight: 800; }
+            @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
+            
             .vibe-box { 
                 background-color: #F0F7FF; 
                 padding: 20px; 
                 border-radius: 12px; 
                 border-left: 6px solid #2196F3; 
                 color: #2C3E50 !important; 
-                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
                 margin: 15px 0;
             }
-            .vibe-box h4 {
-                color: #1565C0 !important;
-                margin-bottom: 8px;
-                font-size: 1.1rem;
-            }
+            .vibe-box h4 { color: #1565C0 !important; margin-bottom: 8px; }
         </style>
     """, unsafe_allow_html=True)
 # ==========================================
@@ -236,79 +210,66 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """
-    完善版百科卡片：
-    1. 自動修復 JSON 轉義導致的 LaTeX 渲染失敗。
-    2. 支援 Markdown 公式渲染 ($...$)。
-    3. 針對不同領域（如數學、程式、語言）自動調整佈局。
-    """
+    """美化顯示百科卡片，修正 LaTeX 與換行渲染問題"""
     import time
 
-    # --- 1. 核心字串清洗 (解決公式與換行問題) ---
-    def clean_content(text):
-        if not text or text == "無":
-            return ""
-        # 將 JSON 轉義的雙反斜線 \\ 轉回單反斜線 \
+    # --- 1. 關鍵修復：還原反斜線與換行 ---
+    def fix_content(text):
+        if not text or text == "無": return ""
+        # 將 JSON 讀出的雙反斜線 \\ 轉回單反斜線 \ 
         # 將 \\n 轉回真正的換行符號
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    # 預處理關鍵顯示欄位
-    word = str(row['word'])
-    roots = clean_content(row['roots'])
-    breakdown = clean_content(row['breakdown'])
-    definition = clean_content(row['definition'])
-    example = clean_content(row['example'])
-    vibe = clean_content(row['native_vibe'])
+    # 預處理所有欄位
+    r_word = str(row['word'])
+    r_breakdown = fix_content(row['breakdown'])
+    r_roots = fix_content(row['roots'])
+    r_def = fix_content(row['definition'])
+    r_ex = fix_content(row['example'])
+    r_vibe = fix_content(row['native_vibe'])
 
-    # --- 2. 標題與音標 ---
-    st.markdown(f"<div class='hero-word'>{word}</div>", unsafe_allow_html=True)
+    # 顯示單字與音標
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     if row['phonetic'] and row['phonetic'] != "無":
         st.markdown(f"<div class='hero-phonetic'>/{row['phonetic']}/</div>", unsafe_allow_html=True)
     
-    # --- 3. 動作列與拆解區 (藍色漸層框) ---
+    # 動作按鈕與拆解區
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        # 使用時間戳記避免按鈕 Key 重複
-        btn_key = f"spk_{word}_{int(time.time())}"
-        if st.button("🔊 朗讀", key=btn_key, use_container_width=True):
-            speak(word, "card")
-            
-  with col_b:
-        # 1. 字串清洗：還原反斜線與換行
-        clean_breakdown = str(row['breakdown']).replace('\\\\', '\\').replace('\\n', '\n')
-        
-        # 2. 顯示容器：改用 st.container 並配合 CSS
-        with st.container():
-            st.markdown(f'<div class="breakdown-wrapper">', unsafe_allow_html=True)
-            # 關鍵：在 HTML 標籤之外使用 st.latex 或 st.markdown 渲染公式
-            st.markdown(clean_breakdown) 
-            st.markdown(f'</div>', unsafe_allow_html=True)
+        if st.button("🔊 朗讀", key=f"spk_{r_word}_{time.time()}"):
+            speak(r_word)
+    with col_b:
+        # --- 核心優化：脫殼渲染 ---
+        # 先畫出漸層背景框的開頭
+        st.markdown('<div class="breakdown-container">', unsafe_allow_html=True)
+        # 在 HTML 標籤之外渲染內容，這能觸發 LaTeX 引擎
+        st.markdown(r_breakdown)
+        # 補上結尾
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # 核心解構區 (雙欄)
     st.write("---")
     c1, c2 = st.columns(2)
-    
     with c1:
         st.info("### 🎯 定義與解釋")
-        # 使用 st.markdown 確保 $...$ 公式被渲染
-        st.markdown(definition)
-        st.markdown(f"**📝 應用案例 / 推導：**\n{example}")
+        st.markdown(r_def) 
+        st.markdown(f"**📝 案例/推導：**\n{r_ex}")
         if row['translation'] and row['translation'] != "無":
             st.caption(f"（{row['translation']}）")
-        
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(roots)
-        st.write(f"**🔍 本質意義：** {row['meaning']}")
+        st.markdown(r_roots)
+        st.write(f"**意義：** {row['meaning']}")
         st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
 
-    # --- 5. 專家語感與百科細節 ---
-    if vibe:
+    # 專家語感區
+    if r_vibe:
         st.markdown(f"""
             <div class='vibe-box'>
                 <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
-                <p style='font-size: 1.1rem; line-height: 1.6;'>{vibe}</p>
+                <p>{r_vibe}</p>
             </div>
         """, unsafe_allow_html=True)
-
     # --- 6. 底部隱藏細節 (保持頁面整潔) ---
     with st.expander("🔍 更多百科細節 (辨析、起源、預警)"):
         sub_c1, sub_c2 = st.columns(2)
