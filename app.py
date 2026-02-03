@@ -236,71 +236,83 @@ def ai_decode_and_save(input_text, fixed_category):
         st.error(f"Gemini API 錯誤: {e}")
         return None
 def show_encyclopedia_card(row):
-    """美化顯示百科卡片，修正 LaTeX 渲染問題"""
-    
-    # --- 關鍵修復：還原反斜線與換行 ---
-    def fix_latex_rendering(text):
-        if not text or text == "無": return ""
-        # 1. 將雙反斜線 \\ 轉回單反斜線 \ 
-        # 2. 將 \\n 轉回真正的換行
+    """
+    完善版百科卡片：
+    1. 自動修復 JSON 轉義導致的 LaTeX 渲染失敗。
+    2. 支援 Markdown 公式渲染 ($...$)。
+    3. 針對不同領域（如數學、程式、語言）自動調整佈局。
+    """
+    import time
+
+    # --- 1. 核心字串清洗 (解決公式與換行問題) ---
+    def clean_content(text):
+        if not text or text == "無":
+            return ""
+        # 將 JSON 轉義的雙反斜線 \\ 轉回單反斜線 \
+        # 將 \\n 轉回真正的換行符號
         return str(text).replace('\\\\', '\\').replace('\\n', '\n')
 
-    # 預處理關鍵欄位
-    r_word = str(row['word'])
-    r_roots = fix_latex_rendering(row['roots'])
-    r_breakdown = fix_latex_rendering(row['breakdown'])
-    r_def = fix_latex_rendering(row['definition'])
-    r_ex = fix_latex_rendering(row['example'])
+    # 預處理關鍵顯示欄位
+    word = str(row['word'])
+    roots = clean_content(row['roots'])
+    breakdown = clean_content(row['breakdown'])
+    definition = clean_content(row['definition'])
+    example = clean_content(row['example'])
+    vibe = clean_content(row['native_vibe'])
 
-    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    # --- 2. 標題與音標 ---
+    st.markdown(f"<div class='hero-word'>{word}</div>", unsafe_allow_html=True)
+    if row['phonetic'] and row['phonetic'] != "無":
+        st.markdown(f"<div class='hero-phonetic'>/{row['phonetic']}/</div>", unsafe_allow_html=True)
     
+    # --- 3. 動作列與拆解區 (藍色漸層框) ---
     col_a, col_b = st.columns([1, 4])
     with col_a:
-        if st.button("🔊 朗讀", key=f"spk_{r_word}_{time.time()}"):
-            speak(r_word)
+        # 使用時間戳記避免按鈕 Key 重複
+        btn_key = f"spk_{word}_{int(time.time())}"
+        if st.button("🔊 朗讀", key=btn_key, use_container_width=True):
+            speak(word, "card")
+            
     with col_b:
-        # 在藍色框框內顯示拆解，並支援渲染
-        st.markdown(f"<div class='breakdown-container'>{r_breakdown}</div>", unsafe_allow_html=True)
+        # 在藍色框框內顯示拆解過程，並確保 LaTeX 公式能變色
+        st.markdown(f"<div class='breakdown-container'>{breakdown}</div>", unsafe_allow_html=True)
 
+    # --- 4. 雙欄位深度解構 ---
+    st.write("---")
     c1, c2 = st.columns(2)
+    
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) # 使用 markdown 渲染可能含有的公式
-        st.markdown(f"**📝 案例/推導：**\n{r_ex}")
-        st.caption(f"（{row['translation']}）")
+        # 使用 st.markdown 確保 $...$ 公式被渲染
+        st.markdown(definition)
+        st.markdown(f"**📝 應用案例 / 推導：**\n{example}")
+        if row['translation'] and row['translation'] != "無":
+            st.caption(f"（{row['translation']}）")
+        
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(r_roots) # 這裡會把 $...$ 轉成漂亮公式
-        st.write(f"**意義：** {row['meaning']}")
+        st.markdown(roots)
+        st.write(f"**🔍 本質意義：** {row['meaning']}")
         st.markdown(f"**🪝 記憶鉤子：**\n{row['memory_hook']}")
-    # --- 5. 專家語感區 ---
-    if row['native_vibe'] and row['native_vibe'] != "無":
+
+    # --- 5. 專家語感與百科細節 ---
+    if vibe:
         st.markdown(f"""
             <div class='vibe-box'>
                 <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
-                <p style='font-size: 1.1rem; line-height: 1.6;'>{row['native_vibe']}</p>
+                <p style='font-size: 1.1rem; line-height: 1.6;'>{vibe}</p>
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 6. 更多細節 (隱藏選單) ---
-    with st.expander("🔍 查看深度百科與避坑指南"):
-        st.write(f"**⚖️ 辨析：** {row['synonym_nuance']}")
-        st.write(f"**🏛️ 起源故事：** {row['etymon_story']}")
-        st.write(f"**⚠️ 使用注意：** {row['usage_warning']}")
-        st.write(f"**🏙️ 關聯圖譜：** {row['collocation']}")
-    with st.expander("📚 查看深度百科 (文化、社會、街頭實戰)"):
-        t1, t2, t3 = st.tabs(["🏛️ 字源文化", "👔 社會地位", "😎 街頭實戰"])
-        with t1:
-            st.write(f"**📜 字源故事：** {row['etymon_story']}")
-            st.write(f"**⚖️ 同義詞辨析：** {row['synonym_nuance']}")
-        with t2:
-            st.write(f"**🎨 視覺提示：** {row['visual_prompt']}")
-            st.write(f"**👔 社會感：** {row['social_status']} | **🌡️ 情緒值：** {row['emotional_tone']}")
-        with t3:
-            st.write(f"**🏙️ 街頭用法：** {row['street_usage']}")
-            st.write(f"**🔗 常用搭配：** {row['collocation']}")
-            if row['usage_warning']:
-                st.error(f"⚠️ 使用警告：{row['usage_warning']}")
+    # --- 6. 底部隱藏細節 (保持頁面整潔) ---
+    with st.expander("🔍 更多百科細節 (辨析、起源、預警)"):
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            st.write(f"**⚖️ 相似對比：** {row['synonym_nuance']}")
+            st.write(f"**🏛️ 歷史脈絡：** {row['etymon_story']}")
+        with sub_c2:
+            st.write(f"**⚠️ 邊界條件：** {row['usage_warning']}")
+            st.write(f"**🏙️ 關聯圖譜：** {row['collocation']}")
 
 # ==========================================
 # 4. 頁面邏輯
