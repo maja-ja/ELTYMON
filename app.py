@@ -269,13 +269,26 @@ def show_encyclopedia_card(row):
         st.markdown(f"**🪝 記憶鉤子：**\n{r_hook}")
 
     # --- 6. 語感心法區 ---
+    # --- 6. 語感心法區 ---
     if r_vibe:
+        # 🔴 原本錯誤：內容被包在 HTML string 內，導致 LaTeX 失效
+        # st.markdown(f"""
+        #     <div class='vibe-box'>
+        #         <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
+        #         <p style='font-size: 1.1rem; line-height: 1.6; color:#2C3E50 !important;'>{r_vibe}</p>
+        #     </div>
+        # """, unsafe_allow_html=True)
+
+        # 🟢 修正後：拆成三段，讓 Streamlit 處理中間的文字與公式
         st.markdown(f"""
             <div class='vibe-box'>
                 <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
-                <p style='font-size: 1.1rem; line-height: 1.6; color:#2C3E50 !important;'>{r_vibe}</p>
-            </div>
         """, unsafe_allow_html=True)
+        
+        # 這裡直接渲染 r_vibe，Streamlit 就能識別 $...$ 中的數學公式了
+        st.markdown(r_vibe)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # --- 7. 更多百科細節 (收納區) ---
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
