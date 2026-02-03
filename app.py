@@ -18,7 +18,7 @@ def inject_custom_css():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
-            /* 1. 拆解區塊樣式 */
+            /* 1. 拆解區塊樣式 (強化數學相容) */
             .breakdown-container {
                 font-family: 'Inter', 'Noto Sans TC', sans-serif; 
                 font-size: 1.8rem !important; 
@@ -26,13 +26,22 @@ def inject_custom_css():
                 letter-spacing: 1px;
                 background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
                 color: #FFFFFF;
-                padding: 12px 30px;
+                padding: 15px 30px;
                 border-radius: 15px;
                 display: inline-block;
                 margin: 20px 0;
                 box-shadow: 0 4px 15px rgba(30, 136, 229, 0.3);
                 border: 1px solid rgba(255, 255, 255, 0.2);
+                line-height: 1.4; /* 增加行高，避免根號或分式太擠 */
+                white-space: pre-wrap; /* 支援 AI 輸出的換行符號 */
             }
+            
+            /* 讓內嵌在容器裡的 LaTeX 公式也變白色 */
+            .breakdown-container .katex {
+                color: #FFFFFF !important;
+                font-size: 1.1em;
+            }
+
             .breakdown-container span.operator {
                 color: #BBDEFB;
                 margin: 0 8px;
@@ -44,34 +53,40 @@ def inject_custom_css():
                     font-size: 1.2rem !important;
                     display: block;
                     text-align: center;
+                    padding: 12px 15px;
                 }
             }
 
             /* 3. 單字與音標 */
-            .hero-word { font-size: 2.5rem; font-weight: 800; color: #333; }
-            /* 如果在深色模式下，單字標題也要確保看得到 */
+            .hero-word { 
+                font-size: 2.8rem; 
+                font-weight: 800; 
+                color: #1A237E; 
+                margin-top: 10px;
+                line-height: 1.1;
+            }
             @media (prefers-color-scheme: dark) {
-                .hero-word { color: #FFF; }
+                .hero-word { color: #90CAF9; } /* 深色模式下用淺藍，比全白更有質感 */
             }
-            .hero-phonetic { font-size: 1.2rem; color: #888; font-family: monospace; margin-bottom: 10px; }
+            .hero-phonetic { font-size: 1.2rem; color: #78909C; font-family: monospace; margin-bottom: 15px; }
 
-            /* 4. [修正點] 語感區塊：強制深色文字 */
+            /* 4. 語感區塊：修復 Dark Mode 閱讀問題 */
             .vibe-box { 
-                background-color: #E3F2FD; 
-                padding: 15px; 
-                border-radius: 10px; 
-                border-left: 5px solid #2196F3; 
-                
-                /* 這裡強制指定文字顏色為深灰，避免被深色模式反白 */
-                color: #333333 !important; 
+                background-color: #F0F7FF; 
+                padding: 20px; 
+                border-radius: 12px; 
+                border-left: 6px solid #2196F3; 
+                color: #2C3E50 !important; 
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                margin: 15px 0;
             }
-            /* 確保 box 裡面的標題也是深藍色 */
             .vibe-box h4 {
                 color: #1565C0 !important;
+                margin-bottom: 8px;
+                font-size: 1.1rem;
             }
         </style>
     """, unsafe_allow_html=True)
-
 # ==========================================
 # 2. 工具函式
 # ==========================================
