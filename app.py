@@ -443,7 +443,7 @@ def page_ai_lab(source_type):
                 # 4. 準備存檔數據
                 # 如果是更新模式，先移除舊的那一筆
                 if is_exist and force_refresh:
-                    existing_data = existing_data[~match_mask]
+                    existing_data = existing_data[match_mask]
                 
                 new_row = pd.DataFrame([res_data])
                 updated_df = pd.concat([existing_data, new_row], ignore_index=True)
