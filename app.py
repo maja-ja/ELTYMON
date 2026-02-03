@@ -270,7 +270,7 @@ def show_encyclopedia_card(row):
             
     with col_b:
     # 方案 A：直接使用 st.markdown 並確保沒有被 <div> 包裹
-    st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
+        st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
     # 5. 雙欄核心區
     st.write("---")
     c1, c2 = st.columns(2)
