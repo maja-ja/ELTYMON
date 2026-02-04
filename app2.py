@@ -114,15 +114,18 @@ def ai_decode(input_text, subject):
 def inject_custom_css():
     st.markdown("""
         <style>
-            .hero-word { font-size: 2.8rem; font-weight: 800; color: #1E293B; }
-            .subject-tag { background: #3B82F6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; }
-            .cycle-badge { 
-                background: #0F172A; color: #38BDF8; padding: 5px; 
-                border-radius: 10px; text-align: center; border: 1px solid #38BDF8; font-weight: bold;
+            .breakdown-wrapper { 
+                background: #F8FAFC; 
+                color: #1E293B !important; /* 強制使用深色字，避免在黑魂模式下變白色 */
+                padding: 20px; 
+                border-radius: 12px; 
+                border-left: 5px solid #3B82F6; 
+                line-height: 1.6;
             }
-            .breakdown-wrapper { background: #F8FAFC; padding: 20px; border-radius: 12px; border-left: 5px solid #3B82F6; }
-            #MainMenu {visibility: hidden;} footer {visibility: hidden;}
-            .peek-blur { filter: blur(4px); opacity: 0.5; user-select: none; }
+            /* 讓定義區的文字也清晰可見 */
+            .stInfo, .stSuccess, .stWarning {
+                color: #1E293B !important;
+            }
         </style>
     """, unsafe_allow_html=True)
 
