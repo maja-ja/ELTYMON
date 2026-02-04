@@ -19,7 +19,7 @@ def inject_custom_css():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
-            /* 1. 拆解區塊 (漸層外框) */
+            /* 1. 內容區塊樣式 */
             .breakdown-wrapper {
                 background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
                 padding: 25px 30px;
@@ -28,37 +28,63 @@ def inject_custom_css():
                 margin: 20px 0;
                 color: white !important;
             }
-            
-            /* 2. LaTeX 引擎修正：徹底移除黑塊、文字變白 */
-            .breakdown-wrapper .katex {
-                color: #FFFFFF !important;
-                background: transparent !important;
-                font-size: 1.15em;
-            }
-            .breakdown-wrapper .katex-display {
-                background: transparent !important;
-                margin: 1em 0;
-            }
-
-            /* 3. 強制讓內容文字與列表變白、換行 */
+            .breakdown-wrapper .katex { color: #FFFFFF !important; background: transparent !important; }
             .breakdown-wrapper p, .breakdown-wrapper li, .breakdown-wrapper span {
-                color: white !important;
-                font-weight: 700 !important;
-                line-height: 1.7;
-                white-space: pre-wrap !important;
+                color: white !important; font-weight: 700 !important; line-height: 1.7; white-space: pre-wrap !important;
             }
-
-            /* 4. 語感與標題樣式 */
             .hero-word { font-size: 2.8rem; font-weight: 800; color: #1A237E; }
-            @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
-            
             .vibe-box { 
                 background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
                 border-left: 6px solid #2196F3; color: #2C3E50 !important; margin: 15px 0;
             }
+
+            /* 2. 側邊欄贊助框外殼 */
+            .sponsor-box {
+                background-color: #f8f9fa;
+                padding: 20px;
+                border-radius: 18px;
+                border: 1px solid #e9ecef;
+                text-align: center;
+                margin-top: 10px;
+            }
+            .sponsor-title {
+                font-weight: 800;
+                color: #444;
+                font-size: 1.1rem;
+                margin-bottom: 0px;
+                display: block;
+            }
+
+            /* 3. 側邊欄原生按鈕整容 */
+            section[data-testid="stSidebar"] .stButton button {
+                border: none !important;
+                font-weight: 700 !important;
+                padding: 10px 0 !important;
+                border-radius: 10px !important;
+                width: 100% !important;
+                font-size: 0.95rem !important;
+                transition: transform 0.1s !important;
+            }
+
+            /* 咖啡按鈕 - 側邊欄第1個按鈕 */
+            section[data-testid="stSidebar"] .stButton:nth-of-type(1) button {
+                background-color: #FFDD00 !important;
+                color: #000000 !important;
+                margin-top: 15px !important;
+            }
+
+            /* 米糕按鈕 - 側邊欄第2個按鈕 */
+            section[data-testid="stSidebar"] .stButton:nth-of-type(2) button {
+                background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%) !important;
+                color: white !important;
+                margin-top: 5px !important;
+            }
+
+            section[data-testid="stSidebar"] .stButton button:active {
+                transform: scale(0.96) !important;
+            }
         </style>
     """, unsafe_allow_html=True)
-
 # ==========================================
 # 2. 工具函式
 # ==========================================
@@ -174,7 +200,29 @@ def get_spreadsheet_url():
         except:
             st.error("找不到 spreadsheet 設定，請檢查 secrets.toml")
             return ""
-
+def track_intent(label):
+    """紀錄用戶意願 (點擊次數) 到 Google Sheets 的 metrics 分頁"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        # 讀取 metrics 分頁 (建議你在 Sheet 裡先建好這一頁，欄位為 feature_name, count)
+        try:
+            m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
+        except:
+            # 如果沒這一頁，建立初始資料
+            m_df = pd.DataFrame(columns=['feature_name', 'count'])
+        
+        if label in m_df['feature_name'].values:
+            m_df.loc[m_df['feature_name'] == label, 'count'] += 1
+        else:
+            new_row = pd.DataFrame([{'feature_name': label, 'count': 1}])
+            m_df = pd.concat([m_df, new_row], ignore_index=True)
+        
+        # 寫回雲端 (注意：這會更新整頁)
+        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
+    except Exception as e:
+        # 靜默處理，不干擾用戶
+        pass
 @st.cache_data(ttl=3600) 
 def load_db():
     # 定義我們需要的 20 個標準欄位名稱
@@ -434,7 +482,38 @@ def page_ai_lab():
                 st.error(f"⚠️ 處理失敗: {e}")
                 with st.expander("查看原始數據回報錯誤"):
                     st.code(raw_res)
-
+def log_user_intent(label):
+    """將用戶點擊意願寫入 Google Sheets 的 metrics 分頁"""
+    try:
+        # 1. 建立連線
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        
+        # 2. 嘗試讀取名為 'metrics' 的工作表
+        try:
+            # ttl=0 確保我們拿到的是最即時的計數
+            m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
+        except Exception:
+            # 如果找不到 metrics 工作表，就建立一個初始的 DataFrame
+            m_df = pd.DataFrame(columns=['label', 'count'])
+        
+        # 3. 更新計數邏輯
+        if label in m_df['label'].values:
+            # 如果這個標籤（如 click_coffee）已存在，次數 +1
+            m_df.loc[m_df['label'] == label, 'count'] = m_df.loc[m_df['label'] == label, 'count'].astype(int) + 1
+        else:
+            # 如果是第一次點擊，新增一行紀錄
+            new_record = pd.DataFrame([{'label': label, 'count': 1}])
+            m_df = pd.concat([m_df, new_record], ignore_index=True)
+        
+        # 4. 寫回雲端 (覆蓋 metrics 分頁)
+        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
+        
+    except Exception as e:
+        # 為了不干擾用戶體驗，後台紀錄失敗時我們靜默處理
+        # 測試時可以把下面這行註解拿掉來除錯
+        # st.write(f"DEBUG: Metrics Error - {e}")
+        pass
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
@@ -567,23 +646,25 @@ def main():
     
     st.sidebar.title("Kadowsella")
     
-    # --- [贊助區塊] ---
-    st.sidebar.markdown("""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
-            <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
-            <a href="[https://www.buymeacoffee.com/kadowsella](https://www.buymeacoffee.com/kadowsella)" target="_blank" style="text-decoration: none;">
-                <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
-                    ☕ Buy Me a Coffee
-                </div>
-            </a>
-            <a href="[https://p.ecpay.com.tw/kadowsella20](https://p.ecpay.com.tw/kadowsella20)" target="_blank" style="text-decoration: none;">
-                <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
-                    贊助一碗米糕！
-                </div>
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
-    
+    # --- [贊助區塊：視覺複刻與意願追蹤] ---
+    with st.sidebar:
+        # 渲染外框與標題
+        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
+        
+        # 咖啡按鈕 (由 CSS 著色)
+        if st.button("☕ Buy Me a Coffee", key="btn_coffee"):
+            if 'log_user_intent' in globals():
+                log_user_intent("click_coffee")
+            st.info("### 🚧 帳號系統準備中，將開放贊助，感謝您的支持！")
+            st.balloons()
+
+        # 米糕按鈕 (由 CSS 著色)
+        if st.button("贊助一碗米糕！", key="btn_rice"):
+            if 'log_user_intent' in globals():
+                log_user_intent("click_ricecake")
+            st.success("### 🏗️ 帳號系統準備中，將開放贊助，感謝您的支持！")
+            
+        st.markdown("---")
     # --- [管理員登入] ---
     is_admin = False
     with st.sidebar.expander("🔐 管理員登入", expanded=False):
