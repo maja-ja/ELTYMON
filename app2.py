@@ -79,7 +79,7 @@ def ai_decode(input_text, subject):
     5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
     
     輸出格式要求：
-    - 必須是純 JSON，不要包含 Markdown 的 ```json 標記。
+    - 必須是純 JSON，不要包含標題功能的星號和 Markdown 的 ```json 標記。
     - 所有的 Key 必須為：word, category, roots, breakdown, definition, native_vibe, memory_hook。
     - 內容中的引號請使用中文「」或單引號 '，避免破壞 JSON 結構。
     """
