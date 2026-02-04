@@ -50,7 +50,67 @@ def get_cycle_info():
     }
 
 CYCLE = get_cycle_info()
+def ai_decode(input_text, subject):
+    """
+    管理員專用：呼叫 Gemini 1.5 Flash 進行知識解構。
+    自動適應最新的 108 課綱脈絡。
+    """
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        st.error("❌ 找不到 GEMINI_API_KEY，請在 Secrets 中設定。")
+        return None
 
+    # 配置 Google Gemini API
+    genai.configure(api_key=api_key)
+    
+    # 這裡使用的是動態更新模型，Google 會自動升級其後台邏輯
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    # 針對台灣升學考試優化的系統提示詞
+    system_instruction = f"""
+    你現在是台灣高中升學考試（學測/分科測驗）的頂尖名師，目標是帶領學生考上台大醫學系。
+    請針對「{subject}」科目中的概念「{input_text}」進行深度解析。
+    
+    請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
+    1. roots: 若理科則提供 LaTeX 核心公式；若文科則提供字源或核心邏輯。
+    2. definition: 108 課綱標準定義，要精準、專業。
+    3. breakdown: 條列式重點拆解，使用 \\n 換行。
+    4. memory_hook: 創意口訣、諧音或聯想圖像。
+    5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
+    
+    輸出格式要求：
+    - 必須是純 JSON，不要包含 Markdown 的 ```json 標記。
+    - 所有的 Key 必須為：word, category, roots, breakdown, definition, native_vibe, memory_hook。
+    - 內容中的引號請使用中文「」或單引號 '，避免破壞 JSON 結構。
+    """
+    
+    try:
+        response = model.generate_content(system_instruction)
+        
+        # 提取 JSON 的正則表達式，增加穩定性
+        match = re.search(r'\{.*\}', response.text, re.DOTALL)
+        if match:
+            json_str = match.group(0)
+            data = json.loads(json_str)
+            
+            # 強制校正基本欄位，確保資料一致性
+            data['word'] = input_text
+            data['category'] = subject
+            
+            # 補足可能缺失的欄位，防止存檔報錯
+            defaults = ["meaning", "phonetic", "example", "translation"]
+            for field in defaults:
+                if field not in data:
+                    data[field] = "無"
+                    
+            return data
+        else:
+            st.error("AI 回傳格式有誤，請重試一次。")
+            return None
+            
+    except Exception as e:
+        st.error(f"AI 運算發生錯誤: {e}")
+        return None
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -198,12 +258,35 @@ def main():
             show_card(row)
 
     elif choice == "🔬 預埋考點" and is_admin:
-        st.title("🔬 AI 生成")
-        inp = st.text_input("輸入概念")
-        sub = st.selectbox("科目", SUBJECTS)
-        if st.button("生成並存入"):
-            # 此處呼叫之前定義過的 ai_decode 函式
-            st.write("AI 運作中... (請確保程式碼包含 ai_decode)")
-
+        st.title("🔬 AI 考點填裝 (上帝模式)")
+        st.info(f"當前賽季：{CYCLE['season_label']} | 預計寫入：Week {CYCLE['week_num']}")
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            inp = st.text_input("輸入要拆解的學科概念", placeholder="例如：赫茲實驗、木蘭詩、邊際效用...")
+        with c2:
+            sub = st.selectbox("所屬科目", SUBJECTS)
+        
+        if st.button("🚀 啟動 AI 解碼並存入", type="primary", use_container_width=True):
+            if not inp:
+                st.warning("請輸入內容才能解碼！")
+            else:
+                with st.spinner(f"正在以【{sub}】名師視角進行深度拆解..."):
+                    # 1. 執行 AI 解碼
+                    res_data = ai_decode(inp, sub)
+                    
+                    if res_data:
+                        # 2. 顯示即時預覽
+                        st.subheader("👀 生成預覽")
+                        show_card(res_data)
+                        
+                        # 3. 寫入 Google Sheets
+                        save_to_db(res_data)
+                        
+                        # 4. 成功回饋
+                        st.balloons()
+                        st.success(f"🎉 成功！「{inp}」已洗入 {CYCLE['season_label']} 的資料庫。")
+                    else:
+                        st.error("AI 解碼失敗，請檢查 API Key 或網路連線。")
 if __name__ == "__main__":
     main()
