@@ -1,189 +1,75 @@
-import streamlit as st
-import pandas as pd
-import base64
-import time
-import json
-import re
-import os
-from io import BytesIO
-from gtts import gTTS
-import google.generativeai as genai
+def show_encyclopedia_card(row):
+    # --- 1. 原有的渲染邏輯 (保持不變) ---
+    r_word = str(row.get('word', '未命名主題'))
+    r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
+    r_phonetic = fix_content(row.get('phonetic', "")) 
+    r_breakdown = fix_content(row.get('breakdown', ""))
+    r_def = fix_content(row.get('definition', ""))
+    r_meaning = str(row.get('meaning', ""))
+    r_hook = fix_content(row.get('memory_hook', ""))
+    r_vibe = fix_content(row.get('native_vibe', ""))
+    r_trans = str(row.get('translation', ""))
 
-# ==========================================
-# 1. 核心配置與 CSS
-# ==========================================
-st.set_page_config(page_title="Etymon Decoder v3.0", page_icon="🧩", layout="wide")
-
-def inject_custom_css():
-    st.markdown("""
-        <style>
-            .breakdown-wrapper {
-                background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
-                padding: 25px; border-radius: 15px; color: white !important; margin: 20px 0;
-            }
-            .breakdown-wrapper p, .breakdown-wrapper li { color: white !important; font-weight: 700; }
-            .hero-word { font-size: 3rem; font-weight: 800; color: #1A237E; }
-            .vibe-box { 
-                background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
-                border-left: 6px solid #2196F3; color: #2C3E50; margin: 15px 0;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
-# ==========================================
-# 2. 資料處理 (master_db.json)
-# ==========================================
-DB_FILE = 'master_db.json'
-COL_NAMES = [
-    'category', 'roots', 'meaning', 'word', 'breakdown', 
-    'definition', 'phonetic', 'example', 'translation', 'native_vibe',
-    'synonym_nuance', 'visual_prompt', 'social_status', 'emotional_tone', 'street_usage',
-    'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag'
-]
-
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return pd.DataFrame(columns=COL_NAMES)
-    try:
-        df = pd.read_json(DB_FILE, orient='records')
-        # 補齊缺失欄位
-        for col in COL_NAMES:
-            if col not in df.columns: df[col] = "無"
-        return df.fillna("無")
-    except Exception as e:
-        st.error(f"讀取資料庫失敗: {e}")
-        return pd.DataFrame(columns=COL_NAMES)
-
-def save_db(df):
-    try:
-        df.to_json(DB_FILE, orient='records', force_ascii=False, indent=4)
-    except Exception as e:
-        st.error(f"儲存資料庫失敗: {e}")
-
-def fix_content(text):
-    if text is None or str(text) in ["無", "nan", ""]: return ""
-    return str(text).replace('\\n', '  \n').replace('\n', '  \n').strip('"').strip("'")
-
-def speak(text, key_suffix=""):
-    english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
-    if not english_only: return
-    try:
-        tts = gTTS(text=english_only, lang='en')
-        fp = BytesIO()
-        tts.write_to_fp(fp)
-        audio_base64 = base64.b64encode(fp.getvalue()).decode()
-        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
-        html_code = f"""<button style="padding:5px 10px; border-radius:8px; cursor:pointer;" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
-        <audio id="{unique_id}"><source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3"></audio>"""
-        st.components.v1.html(html_code, height=45)
-    except: pass
-
-# ==========================================
-# 3. AI 解碼核心
-# ==========================================
-def ai_decode(input_text, category):
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return None
-    genai.configure(api_key=api_key)
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    prompt = f"""
-    Task: 解構「{input_text}」為高品質百科 JSON。
-    身份：你是「{category}」專家。
-    欄位對照：category, word, roots(LaTeX), meaning(痛點), breakdown(流程), definition(ELI5), phonetic(背景/發音), example(場景), translation(🍎生活比喻), native_vibe(🌊專家心法), synonym_nuance, visual_prompt, social_status, emotional_tone, street_usage, collocation, etymon_story, usage_warning, memory_hook, audio_tag.
-    規範：輸出純 JSON，不含 ```json，引號用單引號或中文引號，換行用 \\\\n。
-    """
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        res = model.generate_content(prompt)
-        return res.text if res else None
-    except: return None
+    if r_phonetic and r_phonetic != "無":
+        st.markdown(f"<div style='color: #E0E0E0; font-size: 0.95rem; margin-bottom: 20px;'>{r_phonetic}</div>", unsafe_allow_html=True)
 
-# ==========================================
-# 4. 介面組件
-# ==========================================
-def show_card(row):
-    st.markdown(f"<div class='hero-word'>{row['word']}</div>", unsafe_allow_html=True)
-    st.caption(f"📍 {row['category']} | {row['phonetic']}")
-    speak(row['word'], "main")
-    
-    st.markdown(f"<div class='breakdown-wrapper'><h4>🧬 邏輯拆解</h4>{fix_content(row['breakdown'])}</div>", unsafe_allow_html=True)
-    
+    col_a, col_b = st.columns([1, 4])
+    with col_a:
+        speak(r_word, key_suffix="card_main")
+    with col_b:
+        st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
+
+    st.write("---")
     c1, c2 = st.columns(2)
     with c1:
-        st.info(f"### 🎯 定義\n{row['definition']}\n\n**📝 應用：**\n{row['example']}")
+        st.info("### 🎯 定義與解釋")
+        st.markdown(r_def) 
+        st.markdown(f"**📝 應用案例：** \n{fix_content(row.get('example', ''))}")
     with c2:
-        st.success(f"### 💡 原理\n{str(row['roots']).replace('$', '$$')}\n\n**🔍 意義：**\n{row['meaning']}")
+        st.success("### 💡 核心原理")
+        st.markdown(r_roots)
+        st.write(f"**🔍 本質意義：** {r_meaning}")
+        st.markdown(f"**🪝 記憶鉤子：** \n{r_hook}")
 
-    if row['native_vibe'] != "無":
-        st.markdown(f"<div class='vibe-box'>{row['native_vibe']}</div>", unsafe_allow_html=True)
+    if r_vibe:
+        st.markdown(f"<div class='vibe-box'><h4>🌊 專家視角</h4>{r_vibe}</div>", unsafe_allow_html=True)
 
-# ==========================================
-# 5. 各分頁邏輯
-# ==========================================
-def page_home(df):
-    st.title("🚀 Etymon Decoder")
-    st.metric("📚 總單字量", len(df))
+    with st.expander("🔍 深度百科"):
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
+        with sub_c2:
+            st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+
+    # --- 2. 新增：一鍵寫入回報資料庫邏輯 ---
     st.write("---")
-    if not df.empty:
-        if st.button("🔄 換一批推薦"): st.rerun()
-        sample = df.sample(min(3, len(df)))
-        cols = st.columns(3)
-        for i, (idx, row) in enumerate(sample.iterrows()):
-            with cols[i]:
-                st.subheader(row['word'])
-                st.write(row['definition'])
-                speak(row['word'], f"h_{i}")
-
-def page_learn(df):
-    st.title("📖 學習中心")
-    search = st.text_input("🔍 搜尋單字或分類...")
-    if search:
-        df = df[df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)]
-    
-    if not df.empty:
-        if 'idx' not in st.session_state: st.session_state.idx = 0
-        if st.button("🎲 隨機抽一個"):
-            st.session_state.idx = df.sample(1).index[0]
-        
-        target = df.loc[st.session_state.idx] if st.session_state.idx in df.index else df.iloc[0]
-        show_card(target)
-
-def page_lab(df):
-    st.title("🔬 解碼實驗室")
-    word = st.text_input("輸入解碼主題")
-    cat = st.selectbox("領域", ["英語辭源", "數學邏輯", "物理科學", "程式開發", "雜類"])
-    
-    if st.button("啟動 AI 解碼", type="primary"):
-        with st.spinner("AI 思考中..."):
-            raw_res = ai_decode(word, cat)
-            if raw_res:
-                try:
-                    match = re.search(r'\{.*\}', raw_res, re.DOTALL)
-                    res_json = json.loads(match.group(0), strict=False)
-                    new_df = pd.concat([df, pd.DataFrame([res_json])], ignore_index=True)
-                    save_db(new_df)
-                    st.success("解碼完成並存入 master_db.json！")
-                    show_card(res_json)
-                except Exception as e: st.error(f"解析失敗: {e}")
-
-# ==========================================
-# 6. 主入口
-# ==========================================
-def main():
-    inject_custom_css()
-    df = load_db()
-    
-    st.sidebar.title("Kadowsella")
-    is_admin = st.sidebar.checkbox("上帝模式 (解碼)")
-    
-    menu = ["首頁", "學習中心"]
-    if is_admin: menu.append("🔬 解碼實驗室")
-    
-    choice = st.sidebar.radio("選單", menu)
-    
-    if choice == "首頁": page_home(df)
-    elif choice == "學習中心": page_learn(df)
-    elif choice == "🔬 解碼實驗室": page_lab(df)
-
-if __name__ == "__main__":
-    main()
+    if st.button(f"🚩 回報「{r_word}」解析有誤", type="secondary", use_container_width=True):
+        try:
+            # 指定回饋表單的網址
+            FEEDBACK_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0"
+            
+            # 建立與回饋表單的連線
+            conn_feedback = st.connection("gsheets", type=GSheetsConnection)
+            
+            # 準備要寫入的一列資料 (包含 20 個原欄位 + term 欄位)
+            # 我們將 term 設為 1 (代表待修理)
+            report_data = row.copy()
+            report_data['term'] = 1
+            
+            # 將 Dict 轉為 DataFrame 以便寫入
+            report_df = pd.DataFrame([report_data])
+            
+            # 讀取現有回饋資料並合併 (Append 邏輯)
+            existing_feedback = conn_feedback.read(spreadsheet=FEEDBACK_URL, ttl=0)
+            new_feedback_df = pd.concat([existing_feedback, report_df], ignore_index=True)
+            
+            # 執行寫入
+            conn_feedback.update(spreadsheet=FEEDBACK_URL, data=new_feedback_df)
+            
+            st.success(f"✅ 已成功將「{r_word}」標記為待修理並寫入回報庫！")
+            st.balloons()
+            
+        except Exception as e:
+            st.error(f"❌ 回報失敗，請確認資料庫權限：{e}")
