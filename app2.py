@@ -147,15 +147,24 @@ def load_db(tick=0):
 
 def save_to_db(new_data):
     try:
+       
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["gsheets"]["spreadsheet"]
-        existing_df = conn.read(spreadsheet=url, ttl=0)
+
+        existing_df = conn.read(ttl=0)
+        
+        # 加入新日期
         new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        updated_df = pd.concat([existing_df, pd.DataFrame([new_data])], ignore_index=True)
-        conn.update(spreadsheet=url, data=updated_df)
-        st.toast(f"✅ 存入 Week {CYCLE['week_num']}", icon="💾")
+        
+        # 合併資料
+        new_row = pd.DataFrame([new_data])
+        updated_df = pd.concat([existing_df, new_row], ignore_index=True)
+        
+        # 執行更新
+        conn.update(data=updated_df)
+        st.toast(f"✅ 成功洗入資料庫！", icon="💾")
     except Exception as e:
-        st.error(f"寫入失敗: {e}")
+        st.error(f"❌ 寫入失敗。原因：{e}")
+        st.info("提示：請檢查 Streamlit Secrets 是否已包含完整的 Service Account JSON 資訊。")
 
 # ==========================================
 # 3. 顯示與輔助功能
