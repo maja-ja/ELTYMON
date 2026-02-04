@@ -136,10 +136,15 @@ def inject_custom_css():
 @st.cache_data(ttl=300)
 def load_db(tick=0):
     try:
+        # 建立連線，它會自動讀取 [connections.gsheets] 區塊的所有 secrets
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets.get("gsheets", {}).get("spreadsheet")
-        df = conn.read(spreadsheet=url, ttl=0)
-        if 'created_at' not in df.columns: df['created_at'] = "2025-03-01"
+        
+        # 讀取資料：不需要再次傳入 URL，只要 Secrets 裡有 spreadsheet 欄位即可
+        df = conn.read(ttl=0)
+        
+        if 'created_at' not in df.columns:
+            df['created_at'] = "2026-03-01"
+            
         return df.fillna("無")
     except Exception as e:
         st.error(f"📡 資料庫讀取失敗: {e}")
@@ -147,24 +152,25 @@ def load_db(tick=0):
 
 def save_to_db(new_data):
     try:
-       
         conn = st.connection("gsheets", type=GSheetsConnection)
-
+        
+        # 1. 先讀取現有資料
         existing_df = conn.read(ttl=0)
         
-        # 加入新日期
+        # 2. 準備新資料
         new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        
-        # 合併資料
         new_row = pd.DataFrame([new_data])
+        
+        # 3. 合併
         updated_df = pd.concat([existing_df, new_row], ignore_index=True)
         
-        # 執行更新
+        # 4. 寫入 (此時 conn 已經具備 Service Account 權限)
         conn.update(data=updated_df)
+        
         st.toast(f"✅ 成功洗入資料庫！", icon="💾")
     except Exception as e:
-        st.error(f"❌ 寫入失敗。原因：{e}")
-        st.info("提示：請檢查 Streamlit Secrets 是否已包含完整的 Service Account JSON 資訊。")
+        # 如果還是報錯 Spreadsheet must be specified，代表 Secrets 結構有誤
+        st.error(f"❌ 寫入失敗：{e}")
 
 # ==========================================
 # 3. 顯示與輔助功能
