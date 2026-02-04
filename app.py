@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import base64
@@ -19,46 +20,54 @@ def inject_custom_css():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
-            /* 1. 拆解區塊 (漸層外框) */
+            /* 1. 基礎卡片樣式：在深色模式下增加陰影與邊框對比 */
+            .stMainContainer {
+                transition: background-color 0.3s ease;
+            }
+
+            /* 2. 標題 Hero Word：動態適應主題色 */
+            .hero-word { 
+                font-size: 2.8rem; 
+                font-weight: 800; 
+                color: #1A237E; /* 淺色模式：深藍 */
+                margin-bottom: 5px;
+            }
+            
+            /* 3. 專家視角 Vibe Box：適應深色背景 */
+            .vibe-box { 
+                background-color: #F0F7FF; 
+                padding: 20px; 
+                border-radius: 12px; 
+                border-left: 6px solid #2196F3; 
+                color: #2C3E50 !important; 
+                margin: 15px 0;
+            }
+
+            /* --- 深色模式自動適應樣式覆蓋 --- */
+            @media (prefers-color-scheme: dark) {
+                .hero-word { color: #90CAF9 !important; } /* 深色模式：粉藍 */
+                
+                .vibe-box {
+                    background-color: #1E262E !important; /* 深色模式：深灰藍 */
+                    color: #E3F2FD !important; /* 文字轉亮色 */
+                    border-left: 6px solid #64B5F6 !important;
+                }
+                
+                /* 強制修正深色模式下的表格/清單文字顏色 */
+                .stMarkdown p, .stMarkdown li {
+                    color: #E0E0E0 !important;
+                }
+            }
+
+            /* 4. 邏輯拆解區 (漸層外框保持高對比) */
             .breakdown-wrapper {
                 background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
                 padding: 25px 30px;
                 border-radius: 15px;
-                box-shadow: 0 4px 15px rgba(30, 136, 229, 0.3);
-                margin: 20px 0;
                 color: white !important;
-            }
-            
-            /* 2. LaTeX 引擎修正：徹底移除黑塊、文字變白 */
-            .breakdown-wrapper .katex {
-                color: #FFFFFF !important;
-                background: transparent !important;
-                font-size: 1.15em;
-            }
-            .breakdown-wrapper .katex-display {
-                background: transparent !important;
-                margin: 1em 0;
-            }
-
-            /* 3. 強制讓內容文字與列表變白、換行 */
-            .breakdown-wrapper p, .breakdown-wrapper li, .breakdown-wrapper span {
-                color: white !important;
-                font-weight: 700 !important;
-                line-height: 1.7;
-                white-space: pre-wrap !important;
-            }
-
-            /* 4. 語感與標題樣式 */
-            .hero-word { font-size: 2.8rem; font-weight: 800; color: #1A237E; }
-            @media (prefers-color-scheme: dark) { .hero-word { color: #90CAF9; } }
-            
-            .vibe-box { 
-                background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
-                border-left: 6px solid #2196F3; color: #2C3E50 !important; margin: 15px 0;
             }
         </style>
     """, unsafe_allow_html=True)
-
 # ==========================================
 # 2. 工具函式
 # ==========================================
@@ -174,40 +183,105 @@ def get_spreadsheet_url():
         except:
             st.error("找不到 spreadsheet 設定，請檢查 secrets.toml")
             return ""
-
-@st.cache_data(ttl=3600) 
-def load_db():
-    # 定義我們需要的 20 個標準欄位名稱
+def track_intent(label):
+    """紀錄用戶意願 (點擊次數) 到 Google Sheets 的 metrics 分頁"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        # 讀取 metrics 分頁 (建議你在 Sheet 裡先建好這一頁，欄位為 feature_name, count)
+        try:
+            m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
+        except:
+            # 如果沒這一頁，建立初始資料
+            m_df = pd.DataFrame(columns=['feature_name', 'count'])
+        
+        if label in m_df['feature_name'].values:
+            m_df.loc[m_df['feature_name'] == label, 'count'] += 1
+        else:
+            new_row = pd.DataFrame([{'feature_name': label, 'count': 1}])
+            m_df = pd.concat([m_df, new_row], ignore_index=True)
+        
+        # 寫回雲端 (注意：這會更新整頁)
+        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
+    except Exception as e:
+        # 靜默處理，不干擾用戶
+        pass
+@st.cache_data(ttl=360) 
+def load_db(source_type="Google Sheets"):
+    # 定義標準 21 個欄位名稱
     COL_NAMES = [
         'category', 'roots', 'meaning', 'word', 'breakdown', 
         'definition', 'phonetic', 'example', 'translation', 'native_vibe',
         'synonym_nuance', 'visual_prompt', 'social_status', 'emotional_tone', 'street_usage',
-        'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag'
+        'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag',
+        'term'  # <-- 補上第 21 個欄位
     ]
     
+    df = pd.DataFrame(columns=COL_NAMES)
+
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = get_spreadsheet_url()
+        if source_type == "Google Sheets":
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            url = get_spreadsheet_url()
+            df = conn.read(spreadsheet=url, ttl=0)
         
-        # 讀取數據 (ttl=0 強制不使用 st.connection 內建快取)
-        df = conn.read(spreadsheet=url, ttl=0)
+        elif source_type == "Local JSON":
+            json_file = "master_db.json"
+            if os.path.exists(json_file):
+                with open(json_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data: df = pd.DataFrame(data)
         
         # 1. 自動補齊缺失欄位
         for col in COL_NAMES:
             if col not in df.columns:
-                df[col] = "無"
+                df[col] = 0 if col == 'term' else "無"
         
-        # 2. 資料清洗
-        df = df.dropna(subset=['word'])
-        df = df.fillna("無")
-        
-        # 3. 欄位排序
+        # 2. 清洗與排序
+        df = df.dropna(subset=['word']).fillna("無")
         return df[COL_NAMES].reset_index(drop=True)
         
     except Exception as e:
         st.error(f"❌ 資料庫載入失敗: {e}")
         return pd.DataFrame(columns=COL_NAMES)
-
+def submit_report(row_data):
+    """
+    將單字資料一鍵寫入反饋試算表，並標記 term=1 (待修理)
+    """
+    try:
+        # 1. 指定你的回饋表單 URL
+        FEEDBACK_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0"
+        
+        # 2. 建立連線 (確保 secrets.toml 已配置 GSheets 權限)
+        conn_fb = st.connection("gsheets", type=GSheetsConnection)
+        
+        # 3. 處理資料：複製該列並強制設定 term=1
+        # row_data 如果是從 page_home 傳進來的 row.to_dict()
+        report_row = row_data.copy()
+        report_row['term'] = 1  # 標記為待修理
+        
+        # 4. 讀取現有資料進行合併 (Append 邏輯)
+        # ttl=0 確保每次按按鈕都是讀取最新狀態，避免寫入衝突
+        existing_fb = conn_fb.read(spreadsheet=FEEDBACK_URL, ttl=0)
+        
+        # 5. 轉換為 DataFrame 並確保欄位順序正確
+        report_df = pd.DataFrame([report_row])
+        
+        # 6. 合併新舊資料
+        updated_fb = pd.concat([existing_fb, report_df], ignore_index=True)
+        
+        # 7. 寫回 Google Sheets
+        conn_fb.update(spreadsheet=FEEDBACK_URL, data=updated_fb)
+        
+        # 8. 顯示輕量化提示 (Toast) 
+        # 這不會像 st.success 佔用頁面空間，也不會強制阻斷使用者操作
+        st.toast(f"✅ 已成功將「{row_data.get('word', '該單字')}」記錄至待修清單", icon="🛠️")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ 回報寫入失敗: {e}")
+        return False
 # ==========================================
 # 3. AI 解碼核心 (還原中文 Prompt)
 # ==========================================
@@ -277,9 +351,8 @@ def ai_decode_and_save(input_text, fixed_category):
     except Exception as e:
         st.error(f"Gemini API 錯誤: {e}")
         return None
-
 def show_encyclopedia_card(row):
-    # 1. 變數取值與清洗
+    # 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -290,65 +363,67 @@ def show_encyclopedia_card(row):
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
 
-    # 2. 標題展示 (Hero Word)
+    # 1. 標題區 (會隨系統主題變色)
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    # 3. 標題下方的描述
     if r_phonetic and r_phonetic != "無":
-        st.markdown(f"""
-            <div style='color: #E0E0E0; font-size: 0.95rem; margin-bottom: 20px; line-height: 1.6; opacity: 0.9;'>
-            {r_phonetic}
-            </div>
-        """, unsafe_allow_html=True)
+        st.caption(f"/{r_phonetic}/")
 
-    # 4. 朗讀與拆解區 (整合修正版 speak)
-    col_a, col_b = st.columns([1, 4])
-    with col_a:
-        st.caption("🔊 點擊播放")
-        # 這裡直接呼叫 speak，會在介面上顯示一個播放器
-        speak(r_word, key_suffix="card_main")
-            
-    with col_b:
-        st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
+    # 2. 邏輯拆解 (深色底漸層)
+    st.markdown(f"""
+        <div class='breakdown-wrapper'>
+            <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
+            <div style='color: white; font-weight: 700;'>{r_breakdown}</div>
+        </div>
+    """, unsafe_allow_html=True)
 
-    # 5. 雙欄核心區
     st.write("---")
+    
+    # 3. 核心內容區 (st.info/success 會自動處理深淺色)
     c1, c2 = st.columns(2)
     r_ex = fix_content(row.get('example', ""))
     
     with c1:
         st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) 
-        st.markdown(f"**📝 應用案例 / 推導步驟：** \n{r_ex}")
+        st.write(r_def) 
+        st.caption(f"📝 {r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
     with c2:
         st.success("### 💡 核心原理")
-        st.markdown(r_roots)
+        st.write(r_roots)
         st.write(f"**🔍 本質意義：** {r_meaning}")
-        st.markdown(f"**🪝 記憶鉤子：** \n{r_hook}")
+        st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 6. 專家視角
+    # 4. 專家視角 (配合 CSS 變數自動變色)
     if r_vibe:
-        st.markdown("""
+        st.markdown(f"""
             <div class='vibe-box'>
-                <h4 style='margin-top:0; color:#1565C0;'>🌊 專家視角 / 內行心法</h4>
+                <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
+                {r_vibe}
+            </div>
         """, unsafe_allow_html=True)
-        st.markdown(r_vibe)
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    # 7. 深度百科
+    # 5. 深度百科
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
             st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
-            st.markdown(f"**🏛️ 歷史脈絡：** \n{fix_content(row.get('etymon_story', '無'))}")
         with sub_c2:
             st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
-            st.markdown(f"**🏙️ 關聯圖譜：** \n{fix_content(row.get('collocation', '無'))}")
 
-# ==========================================
+    # --- [關鍵修正：變數名稱統一為 rep_col] ---
+    st.write("---")
+    rep_col1, rep_col2 = st.columns([3, 1])
+    
+    with rep_col1:
+        st.caption("發現解析有誤？點擊右側按鈕一鍵送入修復清單。")
+        
+    with rep_col2:
+        # 使用唯一 key 以免在隨機探索時發生元件 ID 衝突
+        if st.button("🚩 有誤", key=f"rep_card_{r_word}", use_container_width=True):
+            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
 # 4. 頁面邏輯
 # ==========================================
 
@@ -434,12 +509,43 @@ def page_ai_lab():
                 st.error(f"⚠️ 處理失敗: {e}")
                 with st.expander("查看原始數據回報錯誤"):
                     st.code(raw_res)
-
+def log_user_intent(label):
+    """將用戶點擊意願寫入 Google Sheets 的 metrics 分頁"""
+    try:
+        # 1. 建立連線
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        
+        # 2. 嘗試讀取名為 'metrics' 的工作表
+        try:
+            # ttl=0 確保我們拿到的是最即時的計數
+            m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
+        except Exception:
+            # 如果找不到 metrics 工作表，就建立一個初始的 DataFrame
+            m_df = pd.DataFrame(columns=['label', 'count'])
+        
+        # 3. 更新計數邏輯
+        if label in m_df['label'].values:
+            # 如果這個標籤（如 click_coffee）已存在，次數 +1
+            m_df.loc[m_df['label'] == label, 'count'] = m_df.loc[m_df['label'] == label, 'count'].astype(int) + 1
+        else:
+            # 如果是第一次點擊，新增一行紀錄
+            new_record = pd.DataFrame([{'label': label, 'count': 1}])
+            m_df = pd.concat([m_df, new_record], ignore_index=True)
+        
+        # 4. 寫回雲端 (覆蓋 metrics 分頁)
+        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
+        
+    except Exception as e:
+        # 為了不干擾用戶體驗，後台紀錄失敗時我們靜默處理
+        # 測試時可以把下面這行註解拿掉來除錯
+        # st.write(f"DEBUG: Metrics Error - {e}")
+        pass
 def page_home(df):
     st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.write("---")
     
-    # 1. 數據儀表板
+    # 1. 數據儀表板 (Dashboard)
     c1, c2, c3 = st.columns(3)
     c1.metric("📚 總單字量", len(df))
     c2.metric("🏷️ 分類主題", df['category'].nunique() if not df.empty else 0)
@@ -447,41 +553,57 @@ def page_home(df):
     
     st.write("---")
 
-    # 2. [新增功能] 隨機推薦區 + 換一批按鈕
+    # 2. 隨機推薦區標頭
     col_header, col_btn = st.columns([4, 1])
     with col_header:
         st.subheader("💡 今日隨機推薦")
     with col_btn:
-        # 👇 這裡就是你要的新增隨機按鈕
+        # 當點擊「換一批」時，清除 Session State 讓它重新抽樣
         if st.button("🔄 換一批", use_container_width=True):
-            st.rerun() # 點擊後重新執行頁面，就會重新隨機抽樣
+            if 'home_sample' in st.session_state:
+                del st.session_state.home_sample
+            st.rerun()
     
+    # --- 關鍵修正：鎖定隨機抽樣的結果 ---
     if not df.empty:
-        # 這裡的邏輯：每次頁面執行時 (包含點擊按鈕)，都會重新 sample
-        sample_count = min(3, len(df))
-        sample = df.sample(sample_count)
+        # 如果 Session State 裡還沒有抽樣結果，則進行抽樣並鎖定
+        if 'home_sample' not in st.session_state:
+            sample_count = min(3, len(df))
+            st.session_state.home_sample = df.sample(sample_count)
+        
+        # 從 Session State 讀取單字，確保按下「🚩 有誤」刷新後單字不變
+        sample = st.session_state.home_sample
         
         cols = st.columns(3)
         for i, (index, row) in enumerate(sample.iterrows()):
             with cols[i % 3]:
                 with st.container(border=True):
-                    # 標題
+                    # 標題與分類
                     st.markdown(f"### {row['word']}")
                     st.caption(f"🏷️ {row['category']}")
                     
-                    # 內容清洗與顯示
+                    # 內容清洗
                     cleaned_def = fix_content(row['definition'])
                     cleaned_roots = fix_content(row['roots'])
                     
                     st.markdown(f"**定義：** {cleaned_def}")
                     st.markdown(f"**核心：** {cleaned_roots}")
 
-                    # 發音按鈕 (使用 unique key 避免衝突)
-                    speak(row['word'], key_suffix=f"home_{i}_{int(time.time())}")
+                    # --- [功能按鈕佈局] ---
+                    btn_col_a, btn_col_b = st.columns([1, 1])
+                    
+                    with btn_col_a:
+                        speak(row['word'], key_suffix=f"home_{i}")
+                    
+                    with btn_col_b:
+                        # 點擊「🚩 有誤」會觸發 submit_report 寫入 feedback 試算表
+                        # 加入 term=1 的邏輯已封裝在 submit_report 內
+                        if st.button("🚩 有誤", key=f"rep_home_{i}_{row['word']}", use_container_width=True):
+                            # 呼叫回報函式
+                            submit_report(row.to_dict())
 
     st.write("---")
     st.info("👈 點擊左側選單進入「學習與搜尋」查看完整資料庫。")
-
 def page_learn_search(df):
     st.title("📖 學習與搜尋")
     if df.empty:
@@ -567,23 +689,25 @@ def main():
     
     st.sidebar.title("Kadowsella")
     
-    # --- [贊助區塊] ---
-    st.sidebar.markdown("""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 12px; border: 1px solid #e9ecef; margin-bottom: 25px;">
-            <p style="text-align: center; margin-bottom: 12px; font-weight: bold; color: #444;">💖 支持開發者</p>
-            <a href="[https://www.buymeacoffee.com/kadowsella](https://www.buymeacoffee.com/kadowsella)" target="_blank" style="text-decoration: none;">
-                <div style="background-color: #FFDD00; color: #000; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; margin-bottom: 8px; font-size: 0.9rem;">
-                    ☕ Buy Me a Coffee
-                </div>
-            </a>
-            <a href="[https://p.ecpay.com.tw/kadowsella20](https://p.ecpay.com.tw/kadowsella20)" target="_blank" style="text-decoration: none;">
-                <div style="background: linear-gradient(90deg, #28C76F 0%, #81FBB8 100%); color: white; padding: 8px; border-radius: 8px; text-align: center; font-weight: bold; font-size: 0.9rem;">
-                    贊助一碗米糕！
-                </div>
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
-    
+    # --- [贊助區塊：視覺複刻與意願追蹤] ---
+    with st.sidebar:
+        # 渲染外框與標題
+        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
+        
+        # 咖啡按鈕 (由 CSS 著色)
+        if st.button("☕ Buy Me a Coffee", key="btn_coffee"):
+            if 'log_user_intent' in globals():
+                log_user_intent("click_coffee")
+            st.info("### 🚧 帳號系統準備中，將開放贊助，感謝您的支持！")
+            st.balloons()
+
+        # 米糕按鈕 (由 CSS 著色)
+        if st.button("贊助一碗米糕！", key="btn_rice"):
+            if 'log_user_intent' in globals():
+                log_user_intent("click_ricecake")
+            st.success("### 🏗️ 帳號系統準備中，將開放贊助，感謝您的支持！")
+            
+        st.markdown("---")
     # --- [管理員登入] ---
     is_admin = False
     with st.sidebar.expander("🔐 管理員登入", expanded=False):
