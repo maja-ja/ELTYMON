@@ -16,20 +16,24 @@ SUBJECTS = ["國文", "英文", "數學A", "數學B", "物理", "化學", "生�
 def get_cycle_info():
     """
     自動計算當前的「年度賽季」資訊。
-    設定：每年 2 月 1 日為新賽季 (Week 1) 開始。
+    設定：每年 3 月 1 日為新賽季 (Week 1) 開始。
+    學測日：鎖定為隔年 1 月 15 日。
     """
     now = datetime.now()
     current_year = now.year
     
-    # 定義今年的開訓日 (3/1)
+    # 定義今年的開訓日 (改為 3/1)
     this_year_start = datetime(current_year, 3, 1)
 
     if now < this_year_start:
-        cycle_start = datetime(current_year - 1, 2, 1)
-        exam_date = datetime(current_year, 1, 15) # 考試就在今年
+        # 如果現在還沒到 3/1 (例如 2月)，代表我們還在「上一屆」的尾聲
+        # 邏輯同步：上一屆也是從去年的 3/1 開始
+        cycle_start = datetime(current_year - 1, 3, 1)
+        exam_date = datetime(current_year, 1, 15) # 考試是今年 1/15 (已結束)
     else:
+        # 如果已經過了 3/1，代表「新一屆」賽季開始
         cycle_start = this_year_start
-        exam_date = datetime(current_year + 1, 1, 15) # 考試在明年
+        exam_date = datetime(current_year + 1, 1, 15) # 考試是明年 1/15
         
     # 計算閉關日 (考前 10 天)
     lockdown_date = exam_date - timedelta(days=10)
@@ -38,7 +42,7 @@ def get_cycle_info():
     delta = now - cycle_start
     current_week = (delta.days // 7) + 1
     
-    # 防止休賽期出現負數週次 (雖不應發生，但做個防呆)
+    # 防呆：防止計算出負數週次
     if current_week < 1: current_week = 1
     
     return {
