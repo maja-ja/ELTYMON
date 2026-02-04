@@ -1,75 +1,152 @@
-def show_encyclopedia_card(row):
-    # --- 1. 原有的渲染邏輯 (保持不變) ---
-    r_word = str(row.get('word', '未命名主題'))
-    r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
-    r_phonetic = fix_content(row.get('phonetic', "")) 
-    r_breakdown = fix_content(row.get('breakdown', ""))
-    r_def = fix_content(row.get('definition', ""))
-    r_meaning = str(row.get('meaning', ""))
-    r_hook = fix_content(row.get('memory_hook', ""))
-    r_vibe = fix_content(row.get('native_vibe', ""))
-    r_trans = str(row.get('translation', ""))
+import streamlit as st
 
-    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    
-    if r_phonetic and r_phonetic != "無":
-        st.markdown(f"<div style='color: #E0E0E0; font-size: 0.95rem; margin-bottom: 20px;'>{r_phonetic}</div>", unsafe_allow_html=True)
+# 1. 注入自定義 CSS (包含手機端優化)
+def inject_custom_css():
+    st.markdown("""
+    <style>
+    /* 匯入字體 */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
 
-    col_a, col_b = st.columns([1, 4])
-    with col_a:
-        speak(r_word, key_suffix="card_main")
-    with col_b:
-        st.markdown(f"#### 🧬 邏輯拆解\n{r_breakdown}")
+    /* 基礎背景與字體設置 */
+    .stApp {
+        background-color: #0E1117;
+        font-family: 'Inter', 'Noto Sans TC', sans-serif;
+    }
 
-    st.write("---")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info("### 🎯 定義與解釋")
-        st.markdown(r_def) 
-        st.markdown(f"**📝 應用案例：** \n{fix_content(row.get('example', ''))}")
-    with c2:
-        st.success("### 💡 核心原理")
-        st.markdown(r_roots)
-        st.write(f"**🔍 本質意義：** {r_meaning}")
-        st.markdown(f"**🪝 記憶鉤子：** \n{r_hook}")
+    /* 英雄詞：響應式字體大小 */
+    .hero-word {
+        font-size: clamp(2rem, 8vw, 3.5rem);
+        font-weight: 800;
+        color: #90CAF9;
+        text-align: center;
+        margin: 20px 0 10px 0;
+        text-shadow: 0px 4px 10px rgba(144, 202, 249, 0.2);
+    }
 
-    if r_vibe:
-        st.markdown(f"<div class='vibe-box'><h4>🌊 專家視角</h4>{r_vibe}</div>", unsafe_allow_html=True)
+    /* 邏輯拆解區：漸變背景 */
+    .breakdown-wrapper {
+        background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
+        padding: 25px;
+        border-radius: 15px;
+        color: white !important;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
 
-    with st.expander("🔍 深度百科"):
-        sub_c1, sub_c2 = st.columns(2)
-        with sub_c1:
-            st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
-        with sub_c2:
-            st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+    /* 定義區：深藍塊 */
+    .def-box {
+        background-color: #1A237E;
+        padding: 20px;
+        border-radius: 12px;
+        border-left: 6px solid #2196F3;
+        color: #E3F2FD;
+        height: 100%;
+        margin-bottom: 15px;
+    }
 
-    # --- 2. 新增：一鍵寫入回報資料庫邏輯 ---
-    st.write("---")
-    if st.button(f"🚩 回報「{r_word}」解析有誤", type="secondary", use_container_width=True):
-        try:
-            # 指定回饋表單的網址
-            FEEDBACK_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0"
-            
-            # 建立與回饋表單的連線
-            conn_feedback = st.connection("gsheets", type=GSheetsConnection)
-            
-            # 準備要寫入的一列資料 (包含 20 個原欄位 + term 欄位)
-            # 我們將 term 設為 1 (代表待修理)
-            report_data = row.copy()
-            report_data['term'] = 1
-            
-            # 將 Dict 轉為 DataFrame 以便寫入
-            report_df = pd.DataFrame([report_data])
-            
-            # 讀取現有回饋資料並合併 (Append 邏輯)
-            existing_feedback = conn_feedback.read(spreadsheet=FEEDBACK_URL, ttl=0)
-            new_feedback_df = pd.concat([existing_feedback, report_df], ignore_index=True)
-            
-            # 執行寫入
-            conn_feedback.update(spreadsheet=FEEDBACK_URL, data=new_feedback_df)
-            
-            st.success(f"✅ 已成功將「{r_word}」標記為待修理並寫入回報庫！")
-            st.balloons()
-            
-        except Exception as e:
-            st.error(f"❌ 回報失敗，請確認資料庫權限：{e}")
+    /* 核心原理區：深綠塊 */
+    .core-box {
+        background-color: #1B5E20;
+        padding: 20px;
+        border-radius: 12px;
+        border-left: 6px solid #4CAF50;
+        color: #E8F5E9;
+        height: 100%;
+        margin-bottom: 15px;
+    }
+
+    /* 響應式修正：強制手機端列垂直堆疊並撐滿 */
+    @media (max-width: 768px) {
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            min-width: 100% !important;
+        }
+        .stHorizontal {
+            flex-direction: column !important;
+        }
+    }
+
+    /* 按鈕美化 */
+    .stButton button {
+        background-color: #D32F2F !important;
+        color: white !important;
+        border-radius: 10px !important;
+        border: none !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: bold !important;
+        transition: transform 0.2s;
+    }
+    .stButton button:hover {
+        transform: scale(1.02);
+        background-color: #B71C1C !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. 頁面內容渲染邏輯
+def render_app():
+    inject_custom_css()
+
+    # 側邊欄示例
+    with st.sidebar:
+        st.title("🧩 Etymon Decoder")
+        st.radio("導航菜單", ["🏠 首頁", "📖 學習與搜尋", "🧠 腦根挑戰", "🔬 解碼實驗室"])
+        st.divider()
+        st.button("☕ Buy Me a Coffee", use_container_width=True)
+
+    # 主介面標題
+    st.markdown('<p style="text-align:center; color:#888;">📖 學習與搜尋 > 🎲 隨機探索</p>', unsafe_allow_html=True)
+
+    # 隨機探索按鈕
+    _, col_btn_mid, _ = st.columns([1, 2, 1])
+    with col_btn_mid:
+        if st.button("🎲 隨機探索下一個 (Next)", use_container_width=True):
+            st.toast("正在探索新單詞...")
+
+    # 核心展示區
+    st.markdown('<h1 class="hero-word">evict</h1>', unsafe_allow_html=True)
+
+    # 邏輯拆解
+    st.markdown("""
+    <div class="breakdown-wrapper">
+        <h3 style="margin:0; font-size:1.1rem; opacity:0.9;">🧩 邏輯拆解</h3>
+        <p style="font-size:1.5rem; font-weight:bold; margin:10px 0;">e- (向外) + vict (征服/證明)</p>
+        <p style="opacity:0.8;">詞源：來自拉丁語 evincere，意為通過法律手段徹底戰勝並驅逐。</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 定義與原理 (雙列佈局)
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        <div class="def-box">
+            <h4 style="margin-top:0; color:#90CAF9;">📘 定義與解釋</h4>
+            <p><b>v. 依法驅逐；趕出</b></p>
+            <hr style="opacity:0.2;">
+            <p style="font-size:0.9rem;">通常指通過法律程序將房客或佔據者從房產中移除。</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col2:
+        st.markdown("""
+        <div class="core-box">
+            <h4 style="margin-top:0; color:#A5D6A7;">🟢 核心原理</h4>
+            <p><b>「法律上的勝訴」</b></p>
+            <hr style="opacity:0.2;">
+            <p style="font-size:0.9rem;">vict 詞根代表力量。evict 不僅是趕走，而是通過「證明自己有理」來正當驅逐。</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 底部頁腳
+    st.divider()
+    st.caption("© 2026 Etymon Decoder | 基於邏輯的單詞解碼工具")
+
+# 3. 主程序入口
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="Etymon Decoder",
+        page_icon="🧩",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    render_app()
