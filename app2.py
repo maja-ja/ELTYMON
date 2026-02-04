@@ -22,27 +22,29 @@ def get_cycle_info():
     now = datetime.now()
     current_year = now.year
     
-    # 定義今年的開訓日 (改為 3/1)
-    this_year_start = datetime(current_year, 3, 1)
-
-    if now < this_year_start:
-        # 如果現在還沒到 3/1 (例如 2月)，代表我們還在「上一屆」的尾聲
-        # 邏輯同步：上一屆也是從去年的 3/1 開始
+    # 1. 判斷賽季起始日
+    # 如果現在是 1月或 2月，賽季起始日應該是「去年」的 3/1
+    if now.month < 3:
         cycle_start = datetime(current_year - 1, 3, 1)
-        exam_date = datetime(current_year, 1, 15) # 考試是今年 1/15 (已結束)
     else:
-        # 如果已經過了 3/1，代表「新一屆」賽季開始
-        cycle_start = this_year_start
-        exam_date = datetime(current_year + 1, 1, 15) # 考試是明年 1/15
+        cycle_start = datetime(current_year, 3, 1)
+
+    # 2. 判斷學測目標日
+    # 這裡最關鍵：如果「今年的 1/15」已經過了，目標就必須是「明年的 1/15」
+    exam_date = datetime(current_year, 1, 15)
+    if now > exam_date:
+        exam_date = datetime(current_year + 1, 1, 15)
         
-    # 計算閉關日 (考前 10 天)
+    # 3. 計算閉關日 (考前 10 天)
     lockdown_date = exam_date - timedelta(days=10)
     
-    # 計算當前週次
-    delta = now - cycle_start
-    current_week = (delta.days // 7) + 1
+    # 4. 計算天數與週次
+    days_to_exam = (exam_date - now).days
     
-    # 防呆：防止計算出負數週次
+    delta_from_start = now - cycle_start
+    current_week = (delta_from_start.days // 7) + 1
+    
+    # 防呆：防止出現負數週次
     if current_week < 1: current_week = 1
     
     return {
@@ -50,9 +52,9 @@ def get_cycle_info():
         "exam_date": exam_date,
         "lockdown_date": lockdown_date,
         "week_num": current_week,
+        "days_left": days_to_exam,
         "season_label": f"{cycle_start.year}-{exam_date.year} 賽季"
     }
-
 # 取得全域賽季資訊
 CYCLE = get_cycle_info()
 
