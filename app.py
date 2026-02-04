@@ -418,7 +418,7 @@ def show_encyclopedia_card(row):
     rep_col1, rep_col2 = st.columns([3, 1])
     
     with rep_col1:
-        st.caption("發現解析有誤？點擊右側按鈕一鍵送入修復清單。")
+        st.caption("發現解析有誤？點擊按鈕一鍵送入修復清單。")
         
     with rep_col2:
         # 使用唯一 key 以免在隨機探索時發生元件 ID 衝突
