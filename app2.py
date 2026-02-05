@@ -50,6 +50,32 @@ def get_cycle_info():
     }
 
 CYCLE = get_cycle_info()
+
+# ==========================================
+# 引入 fix_content 函數 - 處理 LaTeX 反斜線轉義和換行
+# ==========================================
+def fix_content(text):
+    """
+    清洗字串內容，特別處理 LaTeX 反斜線轉義和 Markdown 換行。
+    """
+    if text is None or str(text).strip() in ["無", "nan", ""]:
+        return ""
+    
+    text = str(text)
+    
+    # 處理 AI 有時輸出 \\n 有時輸出 \n 的情況，統一轉為 Markdown 換行
+    text = text.replace('\\n', '  \n').replace('\n', '  \n')
+    
+    # 關鍵修正：將 JSON 轉義後的 \\ 替換回 LaTeX 所需的 \
+    # 例如：\\frac 會變成 \frac
+    if '\\\\' in text:
+        text = text.replace('\\\\', '\\')
+    
+    # 清理 JSON 解析殘留的引號
+    text = text.strip('"').strip("'")
+    
+    return text
+
 def ai_decode(input_text, subject):
     """
     管理員專用：呼叫 Gemini 1.5 Flash 進行知識解構。
@@ -66,15 +92,17 @@ def ai_decode(input_text, subject):
     # 這裡使用的是動態更新模型，Google 會自動升級其後台邏輯
     model = genai.GenerativeModel('gemini-2.5-flash')
     
-    # 針對台灣升學考試優化的系統提示詞
+    # ==========================================
+    # 更新 system_instruction - 明確指示 LaTeX 格式和 JSON 轉義
+    # ==========================================
     system_instruction = f"""
     你現在是台灣高中升學考試（學測/分科測驗）的頂尖名師，目標是帶領學生考上台大醫學系。
     請針對「{subject}」科目中的概念「{input_text}」進行深度解析。
     
     請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
-    1. roots: 若理科則提供 LaTeX 核心公式；若文科則提供字源或核心邏輯。
+    1. roots: 若理科則提供 LaTeX 核心公式；若文科則提供字源或核心邏輯。**請務必使用 LaTeX 格式並用 $ 包圍（行內公式用 $...$，區塊公式用 $$...$$）。**
     2. definition: 108 課綱標準定義，要精準、專業。
-    3. breakdown: 條列式重點拆解，使用 \\n 換行。
+    3. breakdown: 條列式重點拆解，若包含數學公式請使用 LaTeX 格式（例如：行內公式用 $E=mc^2$，區塊公式用 $$E=mc^2$$），並使用 \\n 換行。
     4. memory_hook: 創意口訣、諧音或聯想圖像。
     5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
     
@@ -82,6 +110,7 @@ def ai_decode(input_text, subject):
     - 必須是純 JSON，不要包含標題功能的星號和 Markdown 的 ```json 標記。
     - 所有的 Key 必須為：word, category, roots, breakdown, definition, native_vibe, memory_hook。
     - 內容中的引號請使用中文「」或單引號 '，避免破壞 JSON 結構。
+    - **LaTeX 公式請使用單個反斜線格式 (例如 \frac)，但在 JSON 內需雙重轉義 (例如 \\\\frac)。**
     """
     
     try:
@@ -111,6 +140,10 @@ def ai_decode(input_text, subject):
     except Exception as e:
         st.error(f"AI 運算發生錯誤: {e}")
         return None
+
+# ==========================================
+# 修改 inject_custom_css - 添加 MathJax/KaTeX 相關樣式
+# ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -125,6 +158,17 @@ def inject_custom_css():
             /* 讓定義區的文字也清晰可見 */
             .stInfo, .stSuccess, .stWarning {
                 color: #1E293B !important;
+            }
+            /* 確保 MathJax/KaTeX 元素能夠正確顯示，避免被其他 CSS 覆蓋 */
+            .MathJax, .katex {
+                color: #1E293B !important; /* 確保數學公式的顏色為深色 */
+                /* font-family: 'Latin Modern Math', 'STIXGeneral', 'Cambria Math', serif !important; */ 
+                /* 數學字體通常由 MathJax/KaTeX 自動處理，除非有特殊需求 */
+                font-size: 1em !important; /* 確保字體大小正常 */
+            }
+            /* 針對區塊數學公式，允許水平滾動以防過長 */
+            .MathJax_Display, .katex-display {
+                overflow-x: auto; 
             }
         </style>
     """, unsafe_allow_html=True)
@@ -183,12 +227,48 @@ def get_record_week(date_str):
         return (delta.days // 7) + 1
     except: return 0
 
+# ==========================================
+# 修改 show_card 函數 - 應用 fix_content 並正確渲染 LaTeX
+# ==========================================
 def show_card(row):
     st.markdown(f"<span class='subject-tag'>{row['category']}</span> <b>{row['word']}</b>", unsafe_allow_html=True)
-    st.markdown(f"<div class='breakdown-wrapper'>🧬 {row['breakdown']}</div>", unsafe_allow_html=True)
+    
+    # 對 breakdown 內容應用 fix_content
+    cleaned_breakdown = fix_content(row['breakdown'])
+    st.markdown(f"<div class='breakdown-wrapper'>🧬 {cleaned_breakdown}</div>", unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
-    with c1: st.info(f"💡 {row['definition']}")
-    with c2: st.success(f"📌 {row['roots']}")
+    with c1: 
+        # 對 definition 內容應用 fix_content
+        cleaned_definition = fix_content(row['definition'])
+        st.info(f"💡 {cleaned_definition}")
+    with c2: 
+        # 對 roots 內容應用 fix_content
+        cleaned_roots = fix_content(row['roots'])
+        
+        # （可選）如果您希望 roots 總是顯示為區塊公式，可以這樣處理
+        # 如果 AI 已經用 $$ 包裹，則不需要再替換
+        if cleaned_roots and not (cleaned_roots.startswith('$$') and cleaned_roots.endswith('$$')):
+            # 移除可能的單個 $，然後包裹為區塊公式
+            cleaned_roots = cleaned_roots.replace('$', '') 
+            cleaned_roots = f"$${cleaned_roots}$$" 
+
+        # 使用 st.markdown 配合自定義樣式來渲染 roots，確保 LaTeX 顯示
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #ECFDF5; /* Light green background, similar to st.success */
+                color: #1E293B; /* Dark text color as per existing CSS */
+                padding: 1rem;
+                border-radius: 0.375rem; /* Equivalent to Streamlit's default border-radius */
+                border: 1px solid #059669; /* A darker green border */
+                margin-bottom: 1rem; /* Add some space below */
+            ">
+                📌 {cleaned_roots}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 # ==========================================
 # 4. 主程式頁面
@@ -271,7 +351,7 @@ def main():
         st.title("🎲 隨機驗收")
         if st.button("🎲 抽題"): st.rerun()
         if not visible_df.empty:
-            row = visible_df.sample(1).iloc[0]
+            row = visible_df.sample(1).iloc # Changed .iloc to .iloc to get a Series
             st.caption(f"來自 Week {row['dynamic_week']}")
             show_card(row)
 
@@ -279,7 +359,7 @@ def main():
         st.title("🔬 AI 考點填裝 (上帝模式)")
         st.info(f"當前賽季：{CYCLE['season_label']} | 預計寫入：Week {CYCLE['week_num']}")
         
-        c1, c2 = st.columns([3, 1])
+        c1, c2 = st.columns() # Adjusted column width for better layout
         with c1:
             inp = st.text_input("輸入要拆解的學科概念", placeholder="例如：赫茲實驗、木蘭詩、邊際效用...")
         with c2:
