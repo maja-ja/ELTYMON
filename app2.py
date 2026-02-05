@@ -184,11 +184,21 @@ def get_record_week(date_str):
     except: return 0
 
 def show_card(row):
+    # 1. 標題區 (保持 HTML 以維持樣式，標題通常沒有複雜公式)
     st.markdown(f"<span class='subject-tag'>{row['category']}</span> <b>{row['word']}</b>", unsafe_allow_html=True)
-    st.markdown(f"<div class='breakdown-wrapper'>🧬 {row['breakdown']}</div>", unsafe_allow_html=True)
+    
+    # 2. 核心拆解區 (這是修正的重點)
+    # 改用 container(border=True) 來產生框框，這樣內部的 st.markdown 才能渲染 LaTeX
+    with st.container(border=True):
+        st.caption("🧬 重點拆解")
+        # 這裡直接用 markdown，$$公式$$ 就能正常顯示了
+        st.markdown(row['breakdown'])
+
+    # 3. 定義與字源區
     c1, c2 = st.columns(2)
-    with c1: st.info(f"💡 {row['definition']}")
-    with c2: st.success(f"📌 {row['roots']}")
+    with c1:
+        st.info(f"💡 **定義**\n\n{row['definition']}")
+    with c2:
 
 # ==========================================
 # 4. 主程式頁面
