@@ -78,10 +78,13 @@ def ai_decode(input_text, subject):
     4. memory_hook: 創意口訣、諧音或聯想圖像。
     5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
     
-    輸出格式要求：
-    - 必須是純 JSON，不要包含標題功能的星號和 Markdown 的 ```json 標記。
-    - 所有的 Key 必須為：word, category, roots, breakdown, definition, native_vibe, memory_hook。
-    - 內容中的引號請使用中文「」或單引號 '，避免破壞 JSON 結構。
+    【重要格式規定】
+    1. 數學公式必須使用 LaTeX 格式，並嚴格使用單個錢字號包裹，例如：$E = mc^2$。
+    2. 絕對不要使用反引號 ` ` 來包裹公式，那是程式碼格式。
+    3. 條列重點時，請用 \\n 換行。
+    
+    請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
+    # ... (後面保持不變)
     """
     
     try:
