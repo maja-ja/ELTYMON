@@ -188,23 +188,7 @@ def show_card(row):
     st.markdown(f"<div class='breakdown-wrapper'>🧬 {row['breakdown']}</div>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1: st.info(f"💡 {row['definition']}")
-    with c2: 
-        # Modified to use st.markdown with custom styling for LaTeX rendering
-        st.markdown(
-            f"""
-            <div style="
-                background-color: #ECFDF5; /* Light green background, similar to st.success */
-                color: #1E293B; /* Dark text color as per existing CSS */
-                padding: 1rem;
-                border-radius: 0.375rem; /* Equivalent to Streamlit's default border-radius */
-                border: 1px solid #059669; /* A darker green border */
-                margin-bottom: 1rem; /* Add some space below */
-            ">
-                📌 {row['roots']}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    with c2: st.success(f"📌 {row['roots']}")
 
 # ==========================================
 # 4. 主程式頁面
@@ -287,7 +271,7 @@ def main():
         st.title("🎲 隨機驗收")
         if st.button("🎲 抽題"): st.rerun()
         if not visible_df.empty:
-            row = visible_df.sample(1).iloc
+            row = visible_df.sample(1).iloc[0]
             st.caption(f"來自 Week {row['dynamic_week']}")
             show_card(row)
 
@@ -295,7 +279,7 @@ def main():
         st.title("🔬 AI 考點填裝 (上帝模式)")
         st.info(f"當前賽季：{CYCLE['season_label']} | 預計寫入：Week {CYCLE['week_num']}")
         
-        c1, c2 = st.columns()
+        c1, c2 = st.columns([3, 1])
         with c1:
             inp = st.text_input("輸入要拆解的學科概念", placeholder="例如：赫茲實驗、木蘭詩、邊際效用...")
         with c2:
