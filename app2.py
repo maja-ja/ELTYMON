@@ -199,6 +199,7 @@ def show_card(row):
     with c1:
         st.info(f"💡 **定義**\n\n{row['definition']}")
     with c2:
+        st.success(f"📌 **核心/字源**\n\n{row['roots']}")
 
 # ==========================================
 # 4. 主程式頁面
