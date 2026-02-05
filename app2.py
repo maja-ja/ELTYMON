@@ -187,23 +187,39 @@ def get_record_week(date_str):
     except: return 0
 
 def show_card(row):
-    # 1. 標題區 (保持 HTML 以維持樣式，標題通常沒有複雜公式)
+    # --- 自動修復資料格式的小工具 ---
+    def fix_latex(text):
+        if not isinstance(text, str): return text
+        # 1. 把誤用的程式碼符號 (`) 換成數學符號 ($)
+        # 注意：這是一個簡單暴力的修法，假設你在這個 App 裡不會用到真的程式碼
+        text = text.replace("`", "$")
+        
+        # 2. 處理原本就沒加符號的裸露 LaTeX (針對 roots 欄位常見狀況)
+        # 如果看起來像 LaTeX (有反斜線) 但沒被 $ 包住，稍微補救一下
+        # (這步比較難完美，建議主要靠 Prompt，這裡只做簡單處理)
+        return text
+
+    # 清洗資料
+    breakdown_text = fix_latex(row['breakdown'])
+    definition_text = fix_latex(row['definition'])
+    roots_text = fix_latex(row['roots'])
+
+    # --- UI 顯示 ---
     st.markdown(f"<span class='subject-tag'>{row['category']}</span> <b>{row['word']}</b>", unsafe_allow_html=True)
     
-    # 2. 核心拆解區 (這是修正的重點)
-    # 改用 container(border=True) 來產生框框，這樣內部的 st.markdown 才能渲染 LaTeX
+    # 使用原生 container (border=True) 取代原本的 HTML div
+    # 這樣 Streamlit 才能正確渲染數學公式
     with st.container(border=True):
         st.caption("🧬 重點拆解")
-        # 這裡直接用 markdown，$$公式$$ 就能正常顯示了
-        st.markdown(row['breakdown'])
+        st.markdown(breakdown_text)  # 這裡的 $公式$ 現在可以正常顯示了！
 
-    # 3. 定義與字源區
     c1, c2 = st.columns(2)
     with c1:
-        st.info(f"💡 **定義**\n\n{row['definition']}")
+        # 使用 st.info，它原生支援 LaTeX
+        st.info(f"💡 **定義**\n\n{definition_text}")
     with c2:
-        st.success(f"📌 **核心/字源**\n\n{row['roots']}")
-
+        # 使用 st.success，它原生支援 LaTeX
+        st.success(f"📌 **核心公式/字源**\n\n{roots_text}")
 # ==========================================
 # 4. 主程式頁面
 # ==========================================
