@@ -74,7 +74,7 @@ def ai_decode(input_text, subject):
     請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
     1. roots: 若理科則提供 LaTeX 核心公式；若文科則提供字源或核心邏輯。
     2. definition: 108 課綱標準定義，要精準、專業。
-    3. breakdown: 條列式重點拆解，使用 \\n 換行。
+    3. breakdown: 條列式重點拆解，若包含數學公式請使用 LaTeX 格式（例如：$E=mc^2$ 或 $$E=mc^2$$），並使用 \\n 換行。
     4. memory_hook: 創意口訣、諧音或聯想圖像。
     5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
     
@@ -185,10 +185,27 @@ def get_record_week(date_str):
 
 def show_card(row):
     st.markdown(f"<span class='subject-tag'>{row['category']}</span> <b>{row['word']}</b>", unsafe_allow_html=True)
+    # breakdown 內容會被包裹在 breakdown-wrapper 中，且 st.markdown 會解析其中的 LaTeX
     st.markdown(f"<div class='breakdown-wrapper'>🧬 {row['breakdown']}</div>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1: st.info(f"💡 {row['definition']}")
-    with c2: st.success(f"📌 {row['roots']}")
+    with c2: 
+        # roots 內容同樣被包裹在自定義樣式中，且 st.markdown 會解析其中的 LaTeX
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #ECFDF5; /* Light green background, similar to st.success */
+                color: #1E293B; /* Dark text color as per existing CSS */
+                padding: 1rem;
+                border-radius: 0.375rem; /* Equivalent to Streamlit's default border-radius */
+                border: 1px solid #059669; /* A darker green border */
+                margin-bottom: 1rem; /* Add some space below */
+            ">
+                📌 {row['roots']}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 # ==========================================
 # 4. 主程式頁面
@@ -271,7 +288,7 @@ def main():
         st.title("🎲 隨機驗收")
         if st.button("🎲 抽題"): st.rerun()
         if not visible_df.empty:
-            row = visible_df.sample(1).iloc[0]
+            row = visible_df.sample(1).iloc
             st.caption(f"來自 Week {row['dynamic_week']}")
             show_card(row)
 
@@ -279,7 +296,7 @@ def main():
         st.title("🔬 AI 考點填裝 (上帝模式)")
         st.info(f"當前賽季：{CYCLE['season_label']} | 預計寫入：Week {CYCLE['week_num']}")
         
-        c1, c2 = st.columns([3, 1])
+        c1, c2 = st.columns()
         with c1:
             inp = st.text_input("輸入要拆解的學科概念", placeholder="例如：赫茲實驗、木蘭詩、邊際效用...")
         with c2:
