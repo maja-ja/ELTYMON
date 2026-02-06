@@ -64,7 +64,32 @@ def ai_call(system_instruction, user_input=""):
             return json.loads(match.group(0)) if match else None
         return res_text
     except: return "🤖 AI 暫時斷線..."
-
+def check_and_update_quota(username, role, limit=10):
+    """檢查並更新使用者的 AI 額度"""
+    if role == "admin": return True, 0 # 管理員無限體力
+    
+    u_df = load_db("users")
+    if u_df.empty: return False, 0
+    
+    idx = u_df.index[u_df['username'] == username].tolist()[0]
+    last_date = str(u_df.at[idx, 'last_ai_date'])
+    count = int(u_df.at[idx, 'ai_count'])
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    if last_date != today:
+        # 新的一天，重置次數
+        u_df.at[idx, 'last_ai_date'] = today
+        u_df.at[idx, 'ai_count'] = 1
+        st.connection("gsheets", type=GSheetsConnection).update(worksheet="users", data=u_df)
+        return True, 1
+    else:
+        if count >= limit:
+            return False, count
+        else:
+            # 增加次數
+            u_df.at[idx, 'ai_count'] = count + 1
+            st.connection("gsheets", type=GSheetsConnection).update(worksheet="users", data=u_df)
+            return True, count + 1
 def ai_decode_concept(input_text, subject):
     sys_prompt = f"""你現在是台灣高中補教名師。請針對「{subject}」的「{input_text}」進行拆解。
     請嚴格輸出 JSON：{{ "roots": "公式", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
@@ -200,11 +225,25 @@ def main_app():
 
     elif choice == "🤖 找學長姐聊聊":
         st.title("🤖 找學霸學長姐聊聊")
+        
+        # 1. 權限檢查 (原本的授權制)
         is_auth = (st.session_state.role == "admin") or (st.session_state.get('can_chat', False))
         if not is_auth:
-            st.error("🔒 AI 對話功能尚未開通")
-            st.info(f"請至 Discord 聯繫管理員開通帳號：**{st.session_state.username}**")
+            st.error("🔒 權限未開通")
             st.stop()
+
+        # 2. 體力值檢查 (防止無限吃)
+        # 這裡設定每天限額 10 次
+        daily_limit = 10
+        can_use, current_count = check_and_update_quota(st.session_state.username, st.session_state.role, limit=daily_limit)
+        
+        if not can_use:
+            st.error(f"❌ 今日體力已耗盡 ({current_count}/{daily_limit})")
+            st.warning("AI 運算很貴的，學長姐也要休息，明天再來吧！")
+            st.stop()
+        
+        st.caption(f"🔋 今日剩餘額度：{daily_limit - current_count} 次")
+
         
         if "messages" not in st.session_state: st.session_state.messages = []
         for msg in st.session_state.messages:
