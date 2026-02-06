@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
-import json, re, io, time, urllib.parse, hashlib
-from datetime import datetime, timedelta
+import json, re, io, time, hashlib
+from datetime import datetime
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
-from gtts import gTTS
 
 # ==========================================
-# 1. 核心配置 & 116 戰情邏輯
+# 1. 核心配置
 # ==========================================
 st.set_page_config(page_title="Kadowsella | 116 數位戰情室", page_icon="⚡", layout="wide")
 
@@ -19,13 +18,12 @@ def get_cycle_info():
     exam_date = datetime(2027, 1, 15)
     cycle_start = datetime(2026, 3, 1)
     days_left = (exam_date - now).days
-    current_week = ((now - cycle_start).days // 7) + 1
-    return {"week_num": max(1, current_week), "days_left": days_left, "start_date": cycle_start}
+    return {"week_num": max(1, ((now - cycle_start).days // 7) + 1), "days_left": days_left}
 
 CYCLE = get_cycle_info()
 
 # ==========================================
-# 2. 安全與資料庫功能
+# 2. 安全與資料庫工具
 # ==========================================
 
 def hash_password(password):
@@ -37,70 +35,67 @@ def load_db(sheet_name):
         return conn.read(worksheet=sheet_name, ttl=0).fillna("無")
     except: return pd.DataFrame()
 
-def save_to_db(new_data, sheet_name):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=sheet_name, ttl=0)
-        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
-        conn.update(worksheet=sheet_name, data=updated_df)
-        return True
-    except: return False
+def update_user_usage(username, new_count):
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df = conn.read(worksheet="users", ttl=0)
+    df.loc[df['username'] == username, 'ai_usage'] = new_count
+    conn.update(worksheet="users", data=df)
 
 # ==========================================
-# 3. AI 引擎 (僅保留管理員工具使用)
+# 3. AI 引擎 (根據資料庫內容進行「學長化」解釋)
 # ==========================================
 
-def ai_call(system_instruction, user_input=""):
+def ai_explain_from_db(db_row):
+    """
+    db_row: 來自 Sheet1 的一列資料 (Series)
+    """
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return None
+    if not api_key: return "❌ API Key 缺失"
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # 餵給 AI 的背景資料
+    context = f"""
+    【學科概念】：{db_row['word']}
+    【標準定義】：{db_row['definition']}
+    【核心公式/邏輯】：{db_row['roots']}
+    【重點拆解】：{db_row['breakdown']}
+    【記憶口訣】：{db_row['memory_hook']}
+    【學長姐叮嚀】：{db_row['native_vibe']}
+    """
+    
+    sys_prompt = f"""
+    你現在是台大學霸學長。請根據下方提供的【戰情室資料庫內容】，為學弟妹進行一場「深度邏輯教學」。
+    
+    教學要求：
+    1. 內容必須嚴格基於提供的資料，不要過度發散。
+    2. 語氣要親切、像在 Discord 語音頻道聊天一樣，但邏輯要極度清晰。
+    3. 結構：
+       - 先用白話文解釋這個概念在幹嘛。
+       - 帶領學弟妹看懂核心公式/邏輯。
+       - 強調資料庫中提到的「雷區」和「叮嚀」。
+       - 最後用資料庫裡的「口訣」做結尾。
+    
+    資料內容如下：
+    {context}
+    """
     try:
-        response = model.generate_content(system_instruction + "\n\n" + user_input)
-        res_text = response.text
-        # 管理員工具需要解析 JSON
-        match = re.search(r'\{.*\}', res_text, re.DOTALL)
-        return json.loads(match.group(0)) if match else None
-    except: return None
-
-def ai_decode_concept(input_text, subject):
-    sys_prompt = f"""你現在是台灣高中補教名師。請針對「{subject}」的「{input_text}」進行拆解。
-    請嚴格輸出 JSON：{{ "roots": "公式", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
-    res = ai_call(sys_prompt)
-    if isinstance(res, dict): res.update({"word": input_text, "category": subject})
-    return res
-
-def ai_generate_question(concept, subject):
-    sys_prompt = f"""你現在是大考命題委員。請針對「{subject}」的「{concept}」出108課綱素養題。
-    請嚴格輸出 JSON：{{ "concept": "{concept}", "subject": "{subject}", "q_type": "素養題", "listening_script": "無", "content": "題目全文", "answer_key": "解析", "translation": "無" }}"""
-    return ai_call(sys_prompt)
+        response = model.generate_content(sys_prompt)
+        return response.text
+    except: return "🤖 AI 學長目前斷線中，請稍後再試。"
 
 # ==========================================
-# 4. UI 視覺組件
+# 4. UI 組件
 # ==========================================
 
 def inject_css():
-    st.markdown(f"""
+    st.markdown("""
         <style>
-        .card {{ border-radius: 15px; padding: 20px; background: var(--secondary-background-color); border: 1px solid var(--border-color); margin-bottom: 20px; border-left: 8px solid #6366f1; }}
-        .tag {{ background: #6366f1; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }}
-        .streak-badge {{ background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; }}
-        .admin-badge {{ background: #ef4444; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.7em; margin-left: 5px; }}
-        .flashcard {{ height: 250px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6366f1, #a855f7); color: white; border-radius: 20px; text-align: center; padding: 30px; font-size: 1.8em; }}
+        .card { border-radius: 15px; padding: 20px; background: var(--secondary-background-color); border: 1px solid var(--border-color); margin-bottom: 20px; border-left: 8px solid #6366f1; }
+        .quota-box { padding: 15px; border-radius: 10px; border: 1px solid #6366f1; text-align: center; margin-bottom: 20px; }
+        .stButton>button { width: 100%; border-radius: 10px; }
         </style>
     """, unsafe_allow_html=True)
-
-def show_concept(row):
-    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
-    <h2 style="margin-top:10px;">{row['word']}</h2><p><b>💡 秒懂定義：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
-        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
-    with c2:
-        st.warning(f"🚩 **學長姐雷區**\n\n{row['native_vibe']}")
-        with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
 
 # ==========================================
 # 5. 登入頁面
@@ -108,83 +103,121 @@ def show_concept(row):
 
 def login_page():
     st.title("⚡ Kadowsella 116 登入")
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
-        with tab1:
-            with st.form("login"):
-                u = st.text_input("帳號")
-                p = st.text_input("密碼", type="password")
-                if st.form_submit_button("進入戰情室", use_container_width=True):
-                    users = load_db("users")
-                    user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
-                    if not user.empty:
-                        st.session_state.logged_in = True
-                        st.session_state.username = u
-                        st.session_state.role = user.iloc[0]['role']
-                        st.rerun()
-                    else: st.error("❌ 帳號或密碼錯誤")
-        with tab2:
-            with st.form("reg"):
-                new_u = st.text_input("設定帳號")
-                new_p = st.text_input("設定密碼", type="password")
-                admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
-                if st.form_submit_button("完成註冊"):
-                    role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
-                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role}, "users"):
-                        st.success(f"註冊成功！身分：{role}。請切換至登入頁面。")
-    with col2:
-        st.markdown("---")
-        st.write("🚀 **訪客預覽**")
-        if st.button("🚪 以訪客身分試用", use_container_width=True):
-            st.session_state.logged_in = True
-            st.session_state.username = "訪客"
-            st.session_state.role = "guest"
-            st.rerun()
-        st.link_button("💬 加入 Discord 社群", DISCORD_URL, use_container_width=True)
+    tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
+    with tab1:
+        with st.form("login"):
+            u = st.text_input("帳號")
+            p = st.text_input("密碼", type="password")
+            if st.form_submit_button("進入戰情室", use_container_width=True):
+                users = load_db("users")
+                user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
+                if not user.empty:
+                    st.session_state.logged_in = True
+                    st.session_state.username = u
+                    st.session_state.role = user.iloc[0]['role']
+                    st.session_state.ai_usage = int(user.iloc[0].get('ai_usage', 0))
+                    st.rerun()
+                else: st.error("❌ 帳號或密碼錯誤")
+    with tab2:
+        with st.form("reg"):
+            new_u = st.text_input("設定帳號")
+            new_p = st.text_input("設定密碼", type="password")
+            admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
+            if st.form_submit_button("完成註冊"):
+                role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                df = conn.read(worksheet="users", ttl=0)
+                new_user = pd.DataFrame([{"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "created_at": datetime.now().strftime("%Y-%m-%d")}])
+                conn.update(worksheet="users", data=pd.concat([df, new_user], ignore_index=True))
+                st.success("註冊成功！請登入。")
 
 # ==========================================
-# 6. 主程式內容 (已移除聊天功能)
+# 6. 主程式內容
 # ==========================================
 
+d
 def main_app():
     inject_css()
+    
+    # 同步 AI 次數
+    users_df = load_db("users")
+    current_user_data = users_df[users_df['username'] == st.session_state.username]
+    if not current_user_data.empty:
+        st.session_state.ai_usage = int(current_user_data.iloc[0]['ai_usage'])
+
     with st.sidebar:
-        role_tag = " <span class='admin-badge'>ADMIN</span>" if st.session_state.role == "admin" else ""
-        st.markdown(f"### 👋 你好, {st.session_state.username}{role_tag}", unsafe_allow_html=True)
-        if st.session_state.role != "guest":
-            st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
+        st.title(f"⚡ Kadowsella 116")
         st.metric("距離 116 學測", f"{CYCLE['days_left']} Days")
         st.divider()
-        
-        # --- 選單已移除「找學長姐聊聊」 ---
-        menu = ["📅 本週菜單", "🃏 閃卡複習", "🎲 隨機驗收", "🏆 戰力排行榜", "🍅 衝刺番茄鐘"]
+        menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "🃏 閃卡複習", "🎲 隨機驗收", "🏆 戰力排行榜"]
         if st.session_state.role == "admin":
-            st.subheader("🛠️ 管理員模式")
-            menu.extend(["🔬 預埋考點", "🧪 考題開發"])
-        
+            menu.extend(["---", "👤 使用者管理", "🔬 預埋考點"])
         choice = st.radio("導航", menu)
         if st.button("🚪 登出"): st.session_state.logged_in = False; st.rerun()
 
+    # 讀取資料庫
     c_df = load_db("Sheet1")
-    q_df = load_db("questions")
-    l_df = load_db("leaderboard")
 
     if choice == "📅 本週菜單":
         st.title("🚀 116 級本週重點進度")
         if not c_df.empty:
-            for _, r in c_df.tail(5).iterrows(): show_concept(r)
-        else: st.info("資料庫建置中...")
+            for _, r in c_df.tail(5).iterrows():
+                st.markdown(f"""<div class="card"><h3>{r['word']}</h3><p>{r['definition']}</p></div>""", unsafe_allow_html=True)
 
-    elif choice == "🃏 閃卡複習":
-        st.title("🃏 閃卡快速複習")
-        if not c_df.empty:
-            if 'card_idx' not in st.session_state: st.session_state.card_idx = 0
-            row = c_df.iloc[st.session_state.card_idx % len(c_df)]
-            flip = st.toggle("翻轉卡片")
-            if not flip: st.markdown(f"<div class='flashcard'><b>{row['word']}</b></div>", unsafe_allow_html=True)
-            else: st.markdown(f"<div class='flashcard' style='background:#10B981;'>{row['definition']}</div>", unsafe_allow_html=True)
-            if st.button("下一題 ➡️"): st.session_state.card_idx += 1; st.rerun()
+    elif choice == "🧪 AI 邏輯補給站":
+        st.title("🧪 AI 邏輯補給站 (資料庫驅動版)")
+        
+        MAX_USAGE = 10
+        usage = st.session_state.ai_usage
+        
+        if st.session_state.role != "admin":
+            st.markdown(f'<div class="quota-box"><h4>🔋 剩餘教學能量：{max(0, MAX_USAGE - usage)} / {MAX_USAGE}</h4></div>', unsafe_allow_html=True)
+
+        if usage >= MAX_USAGE and st.session_state.role != "admin":
+            st.error("🚨 能量耗盡！請聯繫學長補給。")
+        else:
+            st.info("💡 本功能會根據「戰情室資料庫」中的精華內容，由 AI 學長為你進行深度導讀。")
+            
+            if c_df.empty:
+                st.warning("目前資料庫尚無內容，請等待管理員預埋考點。")
+            else:
+                # 讓學生從資料庫已有的清單中選擇 (確保 AI 有資料可依據)
+                concept_list = c_df['word'].unique().tolist()
+                selected_concept = st.selectbox("請選擇你想秒懂的概念：", ["--- 請選擇 ---"] + concept_list)
+                
+                if selected_concept != "--- 請選擇 ---":
+                    # 抓取該列資料
+                    db_row = c_df[c_df['word'] == selected_concept].iloc[0]
+                    
+                    if st.button("🚀 啟動學長深度教學"):
+                        with st.spinner(f"正在根據資料庫解析「{selected_concept}」..."):
+                            # 呼叫 AI 進行解釋
+                            explanation = ai_explain_from_db(db_row)
+                            st.markdown("---")
+                            st.markdown(explanation)
+                            
+                            # 扣除次數
+                            if st.session_state.role != "admin":
+                                new_count = usage + 1
+                                update_user_usage(st.session_state.username, new_count)
+                                st.session_state.ai_usage = new_count
+                                # 不使用 rerun 以免畫面跳掉，讓學生看完
+                else:
+                    st.write("👆 請從上方選單選擇一個概念。")
+
+
+    elif choice == "👤 使用者管理" and st.session_state.role == "admin":
+        st.title("👤 使用者權限與能量管理")
+        u_df = load_db("users")
+        for i, row in u_df.iterrows():
+            if row['role'] == "admin": continue
+            c1, c2, c3 = st.columns([2, 2, 1])
+            c1.write(f"**{row['username']}**")
+            c2.write(f"已用能量：{row['ai_usage']}")
+            if c3.button("能量補滿", key=f"reset_{i}"):
+                update_user_usage(row['username'], 0)
+                st.success(f"已重置 {row['username']} 的能量！")
+                time.sleep(1); st.rerun()
 
     elif choice == "🎲 隨機驗收":
         st.title("🎲 隨機邏輯驗收")
