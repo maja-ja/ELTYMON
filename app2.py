@@ -166,7 +166,7 @@ def main():
             st.markdown("""
                 <div class="unlock-container">
                     <h2>🔒 功能尚未開啟</h2>
-                    <p>這是一個專屬於「Kadowsella 會員」的進階功能。<br>在這裡，你可以直接與剛考上台大的學霸學長姐進行 1 對 1 知識對話。</p>
+                    <p>這是一個專屬於「Kadowsella 會員」的進階功能。<br>在這裡，你可以直接與剛考上台大的學霸學長姐(AI)進行 1 對 1 知識對話。</p>
                 </div>
             """, unsafe_allow_html=True)
             
@@ -176,7 +176,7 @@ def main():
                 serial_input = st.text_input("🔑 請輸入授權序號以開啟對話", placeholder="輸入 8 位數序號...")
                 if st.button("🚀 開啟對話", use_container_width=True):
                     # 序號檢查 (預設序號可設在 Secrets 的 CHAT_KEY)
-                    correct_key = st.secrets.get("CHAT_KEY", "KADOW888")
+                    correct_key = st.secrets.get("CHAT_KEY")
                     if serial_input == correct_key:
                         st.session_state.chat_unlocked = True
                         st.success("解鎖成功！正在連線學長姐...")
@@ -185,7 +185,7 @@ def main():
                     else:
                         st.error("序號錯誤，請聯繫管理員獲取。")
                 
-                st.caption("還沒有序號？[點擊這裡加入 Discord 領取](https://discord.gg/yourlink)")
+                st.caption("還沒有序號？[點擊這裡加入 Discord 領取](https://discord.com/invite/xQh5hJ3peg)")
         
         else:
             # 已解鎖：顯示對話介面
@@ -231,7 +231,7 @@ def main():
 
     elif choice == "🔬 預埋考點" and is_admin:
         st.title("🔬 AI 考點生成 (管理員)")
-        st.info(f"當前解鎖序號為: {st.secrets.get('CHAT_KEY', 'KADOW888')}")
+        st.info(f"當前解鎖序號為: {st.secrets.get('CHAT_KEY')}")
         inp = st.text_input("輸入概念")
         sub = st.selectbox("科目", SUBJECTS)
         if st.button("🚀 生成並存檔"):
