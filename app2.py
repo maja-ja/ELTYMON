@@ -66,7 +66,7 @@ def ai_generate_question_from_db(db_row):
     """根據資料庫內容生成素養題目"""
     api_key = st.secrets.get("GEMINI_API_KEY")
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的題目。
