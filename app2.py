@@ -120,7 +120,7 @@ def ai_explain_from_db(db_row):
     公式邏輯：{db_row['roots']} | 重點：{db_row['breakdown']}
     口訣：{db_row['memory_hook']} | 叮嚀：{db_row['native_vibe']}
     """
-    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}"
+    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}（不用提供圖片）"
     
     try:
         response = model.generate_content(prompt)
