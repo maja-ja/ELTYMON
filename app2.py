@@ -143,10 +143,12 @@ def inject_css():
 # ==========================================
 # 5. 登入頁面
 # ==========================================
-
 def login_page():
     st.title("⚡ Kadowsella 116 登入")
+    st.markdown("### 補習班沒教的數位複習法 | 116 級工程師邏輯戰情室")
+    
     col1, col2 = st.columns([2, 1])
+    
     with col1:
         tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
         with tab1:
@@ -163,6 +165,7 @@ def login_page():
                             st.session_state.role = user.iloc[0]['role']
                             st.rerun()
                         else: st.error("❌ 帳號或密碼錯誤")
+        
         with tab2:
             with st.form("reg"):
                 new_u = st.text_input("設定帳號")
@@ -171,9 +174,11 @@ def login_page():
                 if st.form_submit_button("完成註冊"):
                     role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
                     if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "can_chat": "FALSE"}, "users"):
-                        st.success("註冊成功！請登入。")
+                        st.success(f"註冊成功！身分：{role}。請登入。")
+
     with col2:
         st.markdown("---")
+        st.write("🚀 **想先看看內容？**")
         if st.button("🚪 以訪客身分試用", use_container_width=True):
             st.session_state.logged_in = True
             st.session_state.username = "訪客"
@@ -181,6 +186,18 @@ def login_page():
             st.rerun()
         st.link_button("💬 加入 Discord 社群", DISCORD_URL, use_container_width=True)
 
+    # --- 新增：使用者條款與免責聲明 ---
+    st.markdown("---")
+    with st.expander("⚖️ 使用者條款與免責聲明"):
+        st.markdown(f"""
+        <div style="font-size: 0.85em; line-height: 1.6; color: gray;">
+            <b>【使用者條款與免責聲明】</b><br><br>
+            <b>1. 隱私保護</b>：本系統採用 SHA-256 加密技術保護密碼。請勿使用真實姓名或敏感資訊作為帳號。<br>
+            <b>2. 內容聲明</b>：所有學科解析與題目均由 AI 輔助生成，僅供 116 級同學複習參考，不保證內容之絕對正確性。<br>
+            <b>3. 非營利性質</b>：本專案為個人開發之教育工具，不收取任何費用，亦不提供任何商業服務。<br>
+            <b>4. 著作權說明</b>：本站尊重著作權，若內容有侵權疑慮請聯繫管理員處理 email kadowsella@gmail.com。
+        </div>
+        """, unsafe_allow_html=True)
 # ==========================================
 # 6. 主程式內容
 # ==========================================
