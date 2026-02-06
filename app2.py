@@ -1,340 +1,307 @@
 import streamlit as st
 import pandas as pd
-import json, re
+import json, re, io, time
 from datetime import datetime, timedelta
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
+from gtts import gTTS
 
 # ==========================================
-# 1. 核心配置 & 無限循環大腦
+# 1. 核心配置 & 賽季邏輯
 # ==========================================
-st.set_page_config(page_title="Kadowsella | 無限賽季版", page_icon="♾️", layout="wide")
+st.set_page_config(page_title="Kadowsella | 108課綱戰情室", page_icon="⚡", layout="wide")
 
-SUBJECTS = ["國文", "英文", "數學A", "數學B", "物理", "化學", "生物", "地科", "歷史", "地理", "公民"]
+SUBJECTS = ["國文", "英文", "數學A","數學B","數學甲","數學乙", "物理", "化學", "生物", "地科", "歷史", "地理", "公民"]
 
 def get_cycle_info():
-    """
-    自動計算當前的「年度賽季」資訊。
-    開訓日：每年 3 月 1 日 (Week 1)
-    學測日：每年 1 月 15 日
-    """
     now = datetime.now()
     current_year = now.year
-    
-    # 判斷賽季起始日：1-2月算去年的循環，3月後算今年的
-    if now.month < 3:
-        cycle_start = datetime(current_year - 1, 3, 1)
-    else:
-        cycle_start = datetime(current_year, 3, 1)
-
-    # 判斷學測目標日：如果今年的 1/15 過了，目標就是明年的 1/15
+    # 每年 3/1 開訓
+    cycle_start = datetime(current_year - 1, 3, 1) if now.month < 3 else datetime(current_year, 3, 1)
+    # 每年 1/15 學測
     exam_date = datetime(current_year, 1, 15)
-    if now > exam_date:
-        exam_date = datetime(current_year + 1, 1, 15)
-        
-    lockdown_date = exam_date - timedelta(days=10)
+    if now > exam_date: exam_date = datetime(current_year + 1, 1, 15)
+    
     days_left = (exam_date - now).days
-    
-    # 計算週次
-    delta_from_start = now - cycle_start
-    current_week = (delta_from_start.days // 7) + 1
-    if current_week < 1: current_week = 1
-    
+    current_week = ((now - cycle_start).days // 7) + 1
     return {
-        "start_date": cycle_start,
-        "exam_date": exam_date,
-        "lockdown_date": lockdown_date,
-        "week_num": current_week,
-        "days_left": days_left,
-        "season_label": f"{cycle_start.year}-{exam_date.year} 賽季"
+        "week_num": max(1, current_week), 
+        "days_left": days_left, 
+        "season": f"{cycle_start.year} 戰役",
+        "start_date": cycle_start
     }
 
 CYCLE = get_cycle_info()
-def ai_decode(input_text, subject):
-    """
-    管理員專用：呼叫 Gemini 1.5 Flash 進行知識解構。
-    自動適應最新的 108 課綱脈絡。
-    """
+
+# ==========================================
+# 2. AI 引擎 (名師 & 學長姐人格)
+# ==========================================
+
+def ai_call(system_instruction, user_input=""):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
-        st.error("❌ 找不到 GEMINI_API_KEY，請在 Secrets 中設定。")
+        st.error("缺少 GEMINI_API_KEY")
+        return None
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    try:
+        response = model.generate_content(system_instruction + "\n\n" + user_input)
+        return response.text
+    except Exception as e:
+        st.error(f"AI 呼叫失敗: {e}")
         return None
 
-    # 配置 Google Gemini API
-    genai.configure(api_key=api_key)
-    
-    # 這裡使用的是動態更新模型，Google 會自動升級其後台邏輯
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    # 針對台灣升學考試優化的系統提示詞
-    system_instruction = f"""
-    你現在是台灣高中升學考試（學測/分科測驗）的頂尖名師，目標是帶領學生考上台大醫學系。
-    請針對「{subject}」科目中的概念「{input_text}」進行深度解析。
-    
-    請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
-    1. roots: 若理科則提供 LaTeX 核心公式；若文科則提供字源或核心邏輯。
-    2. definition: 108 課綱標準定義，要精準、專業。
-    3. breakdown: 條列式重點拆解，使用 \\n 換行。
-    4. memory_hook: 創意口訣、諧音或聯想圖像。
-    5. native_vibe: 考試陷阱、常考題型或重要程度提醒。
-    
-    【重要格式規定】
-    1. 數學公式必須使用 LaTeX 格式，並嚴格使用單個錢字號包裹，例如：$E = mc^2$。
-    2. 絕對不要使用反引號 ` ` 來包裹公式，那是程式碼格式。
-    3. 條列重點時，請用 \\n 換行。
-    
-    請嚴格遵守以下欄位邏輯並輸出 JSON 格式：
-    # ... (後面保持不變)
+def ai_decode_concept(input_text, subject):
+    sys_prompt = f"""
+    你現在是台灣最受高中生歡迎的補教名師，說話幽默、直擊重點，擅長用迷因或生活例子解釋學科。
+    請針對「{subject}」的「{input_text}」進行拆解。
+    請嚴格輸出 JSON 格式：
+    {{
+        "roots": "核心公式(LaTeX)或邏輯底層",
+        "definition": "用一句話講完重點(不要課本廢話)",
+        "breakdown": "拆解成3個高中生聽得懂的點(用\\n換行)",
+        "memory_hook": "超強諧音口訣、迷因聯想或冷笑話",
+        "native_vibe": "學長姐叮嚀：這題在學測怎麼考？哪裡是雷區？",
+        "star": "考頻星等(1-5)"
+    }}
     """
+    res_text = ai_call(sys_prompt)
+    match = re.search(r'\{.*\}', res_text, re.DOTALL)
+    if match:
+        data = json.loads(match.group(0))
+        data.update({"word": input_text, "category": subject})
+        return data
+    return None
+
+def ai_generate_question(concept, subject):
+    prompt_context = "題目要結合 108 課綱素養情境（如：社群媒體、外送、永續發展）。"
+    if subject == "英文":
+        prompt_context += "必須包含 listening_script (聽力腳本)，要像真實對話(Podcast或校園聊天)。"
     
+    sys_prompt = f"""
+    你現在是台灣大考中心命題委員。請針對「{subject}」的「{concept}」出一份素養模擬題。
+    {prompt_context}
+    請嚴格輸出 JSON 格式：
+    {{
+        "concept": "{concept}",
+        "subject": "{subject}",
+        "q_type": "108課綱素養題",
+        "listening_script": "（英文聽力腳本，其餘填無）",
+        "content": "### 📝 情境描述\\n[描述情境]\\n\\n### ❓ 題目\\n[題目與選項]",
+        "answer_key": "正確答案與『防呆解析』",
+        "translation": "（英文翻譯，其餘填無）"
+    }}
+    """
+    res_text = ai_call(sys_prompt)
+    match = re.search(r'\{.*\}', res_text, re.DOTALL)
+    return json.loads(match.group(0)) if match else None
+
+# ==========================================
+# 3. 資料庫與語音工具
+# ==========================================
+
+def generate_audio(text):
     try:
-        response = model.generate_content(system_instruction)
-        
-        # 提取 JSON 的正則表達式，增加穩定性
-        match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        if match:
-            json_str = match.group(0)
-            data = json.loads(json_str)
-            
-            # 強制校正基本欄位，確保資料一致性
-            data['word'] = input_text
-            data['category'] = subject
-            
-            # 補足可能缺失的欄位，防止存檔報錯
-            defaults = ["meaning", "phonetic", "example", "translation"]
-            for field in defaults:
-                if field not in data:
-                    data[field] = "無"
-                    
-            return data
-        else:
-            st.error("AI 回傳格式有誤，請重試一次。")
-            return None
-            
+        tts = gTTS(text=text, lang='en')
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        return fp
+    except: return None
+
+def load_db(sheet_name):
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        return conn.read(worksheet=sheet_name, ttl=0).fillna("無")
+    except: return pd.DataFrame()
+
+def save_to_db(new_data, sheet_name):
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(worksheet=sheet_name, ttl=0)
+        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
+        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+        conn.update(worksheet=sheet_name, data=updated_df)
+        st.toast(f"✅ {sheet_name} 同步成功！")
     except Exception as e:
-        st.error(f"AI 運算發生錯誤: {e}")
-        return None
-def inject_custom_css():
+        st.error(f"同步失敗: {e}")
+
+# ==========================================
+# 4. UI 視覺組件
+# ==========================================
+
+def inject_css():
     st.markdown("""
         <style>
-            .breakdown-wrapper { 
-                background: #F8FAFC; 
-                color: #1E293B !important; /* 強制使用深色字，避免在黑魂模式下變白色 */
-                padding: 20px; 
-                border-radius: 12px; 
-                border-left: 5px solid #3B82F6; 
-                line-height: 1.6;
-            }
-            /* 讓定義區的文字也清晰可見 */
-            .stInfo, .stSuccess, .stWarning {
-                color: #1E293B !important;
-            }
+        .stApp { background-color: #F8FAFC; }
+        .card { border-radius: 15px; padding: 20px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border-left: 8px solid #6366f1; }
+        .tag { background: #6366f1; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
+        .flashcard { height: 250px; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #6366f1, #a855f7); color: white; border-radius: 20px; text-align: center; padding: 30px; font-size: 1.8em; box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        .streak-badge { background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; text-align: center; }
         </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 2. 資料庫邏輯
-# ==========================================
+def show_concept(row):
+    with st.container():
+        st.markdown(f"""
+        <div class="card">
+            <span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
+            <h2 style="margin-top:10px;">{row['word']}</h2>
+            <p style="color:#4b5563; font-size:1.1em;"><b>💡 秒懂定義：</b>{row['definition']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.info(f"🧬 **核心邏輯 / 公式**\n\n{row['roots']}")
+            st.success(f"🧠 **超強記憶點**\n\n{row['memory_hook']}")
+        with c2:
+            st.warning(f"🚩 **學長姐雷區叮嚀**\n\n{row['native_vibe']}")
+            with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
 
-@st.cache_data(ttl=300)
-def load_db(tick=0):
-    try:
-        # 建立連線，它會自動讀取 [connections.gsheets] 區塊的所有 secrets
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        
-        # 讀取資料：不需要再次傳入 URL，只要 Secrets 裡有 spreadsheet 欄位即可
-        df = conn.read(ttl=0)
-        
-        if 'created_at' not in df.columns:
-            df['created_at'] = "2026-03-01"
-            
-        return df.fillna("無")
-    except Exception as e:
-        st.error(f"📡 資料庫讀取失敗: {e}")
-        return pd.DataFrame()
-
-def save_to_db(new_data):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        
-        # 1. 先讀取現有資料
-        existing_df = conn.read(ttl=0)
-        
-        # 2. 準備新資料
-        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        new_row = pd.DataFrame([new_data])
-        
-        # 3. 合併
-        updated_df = pd.concat([existing_df, new_row], ignore_index=True)
-        
-        # 4. 寫入 (此時 conn 已經具備 Service Account 權限)
-        conn.update(data=updated_df)
-        
-        st.toast(f"✅ 成功洗入資料庫！", icon="💾")
-    except Exception as e:
-        # 如果還是報錯 Spreadsheet must be specified，代表 Secrets 結構有誤
-        st.error(f"❌ 寫入失敗：{e}")
-
-# ==========================================
-# 3. 顯示與輔助功能
-# ==========================================
-
-def get_record_week(date_str):
-    try:
-        dt = datetime.strptime(str(date_str), "%Y-%m-%d")
-        delta = dt - CYCLE["start_date"]
-        return (delta.days // 7) + 1
-    except: return 0
-
-def show_card(row):
-    # --- 自動修復資料格式的小工具 ---
-    def fix_latex(text):
-        if not isinstance(text, str): return text
-        # 1. 把誤用的程式碼符號 (`) 換成數學符號 ($)
-        # 注意：這是一個簡單暴力的修法，假設你在這個 App 裡不會用到真的程式碼
-        text = text.replace("`", "$")
-        
-        # 2. 處理原本就沒加符號的裸露 LaTeX (針對 roots 欄位常見狀況)
-        # 如果看起來像 LaTeX (有反斜線) 但沒被 $ 包住，稍微補救一下
-        # (這步比較難完美，建議主要靠 Prompt，這裡只做簡單處理)
-        return text
-
-    # 清洗資料
-    breakdown_text = fix_latex(row['breakdown'])
-    definition_text = fix_latex(row['definition'])
-    roots_text = fix_latex(row['roots'])
-
-    # --- UI 顯示 ---
-    st.markdown(f"<span class='subject-tag'>{row['category']}</span> <b>{row['word']}</b>", unsafe_allow_html=True)
-    
-    # 使用原生 container (border=True) 取代原本的 HTML div
-    # 這樣 Streamlit 才能正確渲染數學公式
+def show_question(row):
     with st.container(border=True):
-        st.caption("🧬 重點拆解")
-        st.markdown(breakdown_text)  # 這裡的 $公式$ 現在可以正常顯示了！
+        st.markdown(f"<span class='tag'>{row['subject']}</span> **{row['concept']}**", unsafe_allow_html=True)
+        if row['subject'] == "英文" and row['listening_script'] != "無":
+            st.write("🎧 **聽力播放 (點擊播放鍵)**")
+            audio = generate_audio(row['listening_script'])
+            if audio: st.audio(audio)
+        
+        st.markdown(row['content'])
+        with st.expander("🔓 查看解析與翻譯"):
+            if row['translation'] != "無": st.markdown(f"**【中文翻譯】**\n\n{row['translation']}")
+            st.success(f"**【防呆解析】**\n\n{row['answer_key']}")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        # 使用 st.info，它原生支援 LaTeX
-        st.info(f"💡 **定義**\n\n{definition_text}")
-    with c2:
-        # 使用 st.success，它原生支援 LaTeX
-        st.success(f"📌 **核心公式/字源**\n\n{roots_text}")
 # ==========================================
-# 4. 主程式頁面
+# 5. 主程式頁面
 # ==========================================
 
 def main():
-    inject_custom_css()
-    if 'db_tick' not in st.session_state: st.session_state.db_tick = 0
-    full_df = load_db(st.session_state.db_tick)
+    inject_css()
     
-    is_admin = False
+    # Sidebar 導航
     with st.sidebar:
-        st.title("♾️ 永恆戰情室")
-        st.markdown(f"<div class='cycle-badge'>{CYCLE['season_label']}</div>", unsafe_allow_html=True)
+        st.title("⚡ Kadowsella")
+        st.markdown(f"<div class='streak-badge'>🔥 學習戰力：連續 3 天</div>", unsafe_allow_html=True)
+        st.metric("距離學測", f"{CYCLE['days_left']} Days", f"Week {CYCLE['week_num']}")
         
-        # 狀態顯示邏輯
-        days_left = CYCLE["days_left"]
-        if days_left > 330:
-            st.success("🍃 賽季交替期：2026 戰役結束")
-            st.write(f"距離 2027 學測剩 {days_left} 天")
-        elif datetime.now() >= CYCLE["lockdown_date"]:
-            st.error(f"🚨 考前 10 天閉關！ (剩 {days_left} 天)")
-        else:
-            st.info(f"📆 本季進度：第 {CYCLE['week_num']} 週\n\n🎯 距離學測：{days_left} 天")
-
-        if st.button("🔄 同步雲端"):
-            st.session_state.db_tick += 1
-            st.cache_data.clear()
-            st.rerun()
-
-        # 🔮 偷看功能
-        with st.expander("🔮 偷看下週預告"):
-            if st.button("👀 偷瞄"):
-                next_w = CYCLE["week_num"] + 1
-                if not full_df.empty:
-                    full_df['dynamic_week'] = full_df['created_at'].apply(get_record_week)
-                    p_df = full_df[full_df['dynamic_week'] == next_w]
-                    if not p_df.empty:
-                        for _, r in p_df.iterrows(): st.write(f"· [{r['category']}] {r['word']}")
-                    else: st.write("尚無預告。")
-
-        with st.expander("🔑 管理員"):
-            if st.text_input("Pwd", type="password") == st.secrets.get("ADMIN_PASSWORD"):
+        menu = ["📅 本週菜單", "🃏 閃卡複習", "📝 模擬演練", "🤖 找學長姐聊聊", "🍅 衝刺番茄鐘", "📚 歷史庫存"]
+        
+        is_admin = False
+        with st.expander("🔑 管理員入口"):
+            if st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD"):
                 is_admin = True
+                menu.extend(["🔬 預埋考點", "🧪 考題開發"])
         
-        menu = ["📅 本週訓練菜單", "🛡️ 歷史考點回顧", "🎲 隨機抽題"]
-        if is_admin: menu.append("🔬 預埋考點")
-        choice = st.radio("功能", menu)
+        choice = st.radio("功能導航", menu)
+        if st.button("🔄 刷新雲端數據"): st.cache_data.clear(); st.rerun()
 
-    # 資料分流
-    if not full_df.empty:
-        full_df['dynamic_week'] = full_df['created_at'].apply(get_record_week)
-        # 學生只能看到當前賽季且已解鎖的
-        if is_admin: visible_df = full_df
-        else: visible_df = full_df[(full_df['dynamic_week'] > 0) & (full_df['dynamic_week'] <= CYCLE["week_num"])]
-    else: visible_df = pd.DataFrame()
+    # 讀取資料
+    c_df = load_db("Sheet1")
+    q_df = load_db("questions")
 
-    if choice == "📅 本週訓練菜單":
-        st.title(f"📅 第 {CYCLE['week_num']} 週任務")
-        if not visible_df.empty:
-            this_week = visible_df[visible_df['dynamic_week'] == CYCLE['week_num']]
-            if this_week.empty: st.info("本週尚無新考點。")
+    def get_w(d):
+        try: return ((datetime.strptime(str(d), "%Y-%m-%d") - CYCLE['start_date']).days // 7) + 1
+        except: return 0
+
+    if not c_df.empty:
+        c_df['w'] = c_df['created_at'].apply(get_w)
+        v_c = c_df if is_admin else c_df[c_df['w'] <= CYCLE['week_num']]
+    else: v_c = pd.DataFrame()
+
+    if not q_df.empty:
+        q_df['w'] = q_df['created_at'].apply(get_w)
+        v_q = q_df if is_admin else q_df[q_df['w'] <= CYCLE['week_num']]
+    else: v_q = pd.DataFrame()
+
+    # --- 頁面路由 ---
+
+    if choice == "📅 本週菜單":
+        st.title(f"🚀 第 {CYCLE['week_num']} 週重點進度")
+        this_week = v_c[v_c['w'] == CYCLE['week_num']]
+        if this_week.empty: st.info("本週還沒更新，先去複習之前的吧！")
+        else:
+            for _, r in this_week.iterrows(): show_concept(r)
+
+    elif choice == "🃏 閃卡複習":
+        st.title("🃏 閃卡快速複習")
+        if not v_c.empty:
+            if 'card_idx' not in st.session_state: st.session_state.card_idx = 0
+            row = v_c.iloc[st.session_state.card_idx % len(v_c)]
+            
+            flip = st.toggle("翻轉卡片看定義")
+            if not flip:
+                st.markdown(f"<div class='flashcard'><b>{row['word']}</b></div>", unsafe_allow_html=True)
             else:
-                for _, r in this_week.iterrows():
-                    with st.expander(f"📌 {r['word']}", expanded=True): show_card(r)
-        else: st.info("等待開訓...")
+                st.markdown(f"<div class='flashcard' style='background:#10B981;'>{row['definition']}</div>", unsafe_allow_html=True)
+            
+            if st.button("下一題 ➡️"):
+                st.session_state.card_idx += 1
+                st.rerun()
+        else: st.warning("目前沒有卡片可以複習。")
 
-    elif choice == "🛡️ 歷史考點回顧":
-        st.title("🛡️ 知識庫存")
-        if not visible_df.empty:
-            hist = visible_df[visible_df['dynamic_week'] < CYCLE['week_num']]
-            weeks = sorted(hist['dynamic_week'].unique(), reverse=True)
-            for w in weeks:
-                with st.expander(f"📂 第 {w} 週回顧"):
-                    for _, r in hist[hist['dynamic_week'] == w].iterrows():
-                        st.markdown("---")
-                        show_card(r)
+    elif choice == "📝 模擬演練":
+        st.title("✍️ 素養題庫演練")
+        if v_q.empty: st.info("題庫正在趕工中...")
+        else:
+            for _, r in v_q.iterrows(): show_question(r)
 
-    elif choice == "🎲 隨機抽題":
-        st.title("🎲 隨機驗收")
-        if st.button("🎲 抽題"): st.rerun()
-        if not visible_df.empty:
-            row = visible_df.sample(1).iloc[0]
-            st.caption(f"來自 Week {row['dynamic_week']}")
-            show_card(row)
+    elif choice == "🤖 找學長姐聊聊":
+        st.title("🤖 找學霸學長姐聊聊")
+        if "messages" not in st.session_state:
+            st.session_state.messages = [{"role": "assistant", "content": "嘿！我是你的台大學長，哪科卡住了？我來幫你秒懂。"}]
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).write(msg["content"])
+        if prompt := st.chat_input("輸入你的問題..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.chat_message("user").write(prompt)
+            sys_msg = "你是一位剛考上台大的學霸學長，語氣親切、愛用表情符號，會用簡單的例子解釋高中課程內容。"
+            response = ai_call(sys_msg, prompt)
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.chat_message("assistant").write(response)
+
+    elif choice == "🍅 衝刺番茄鐘":
+        st.title("🍅 衝刺番茄鐘")
+        col1, col2 = st.columns([1, 2])
+        mins = col1.number_input("設定分鐘", value=25, step=5)
+        if col1.button("🔥 開始專注"):
+            ph = st.empty()
+            for t in range(mins * 60, 0, -1):
+                m, s = divmod(t, 60)
+                ph.metric("剩餘時間", f"{m:02d}:{s:02d}")
+                time.sleep(1)
+            st.balloons()
+            st.success("太強了！休息一下吧。")
+
+    elif choice == "📚 歷史庫存":
+        st.title("📚 歷史考點全紀錄")
+        if not v_c.empty:
+            for w in sorted(v_c['w'].unique(), reverse=True):
+                with st.expander(f"第 {w} 週考點"):
+                    for _, r in v_c[v_c['w'] == w].iterrows(): show_concept(r)
 
     elif choice == "🔬 預埋考點" and is_admin:
-        st.title("🔬 AI 考點填裝 (上帝模式)")
-        st.info(f"當前賽季：{CYCLE['season_label']} | 預計寫入：Week {CYCLE['week_num']}")
-        
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            inp = st.text_input("輸入要拆解的學科概念", placeholder="例如：赫茲實驗、木蘭詩、邊際效用...")
-        with c2:
-            sub = st.selectbox("所屬科目", SUBJECTS)
-        
-        if st.button("🚀 啟動 AI 解碼並存入", type="primary", use_container_width=True):
-            if not inp:
-                st.warning("請輸入內容才能解碼！")
-            else:
-                with st.spinner(f"正在以【{sub}】名師視角進行深度拆解..."):
-                    # 1. 執行 AI 解碼
-                    res_data = ai_decode(inp, sub)
-                    
-                    if res_data:
-                        # 2. 顯示即時預覽
-                        st.subheader("👀 生成預覽")
-                        show_card(res_data)
-                        
-                        # 3. 寫入 Google Sheets
-                        save_to_db(res_data)
-                        
-                        # 4. 成功回饋
-                        st.balloons()
-                        st.success(f"🎉 成功！「{inp}」已洗入 {CYCLE['season_label']} 的資料庫。")
-                    else:
-                        st.error("AI 解碼失敗，請檢查 API Key 或網路連線。")
+        st.title("🔬 AI 考點生成 (管理員)")
+        c1, c2 = st.columns([3,1])
+        inp = c1.text_input("輸入概念 (如：光電效應)")
+        sub = c2.selectbox("科目", SUBJECTS)
+        if st.button("🚀 生成並存檔"):
+            with st.spinner("名師正在拆解中..."):
+                res = ai_decode_concept(inp, sub)
+                if res: show_concept(res); save_to_db(res, "Sheet1")
+
+    elif choice == "🧪 考題開發" and is_admin:
+        st.title("🧪 AI 素養題開發 (管理員)")
+        c1, c2 = st.columns([3,1])
+        q_inp = c1.text_input("針對哪個概念出題？")
+        q_sub = c2.selectbox("科目", SUBJECTS, key="q_sub")
+        if st.button("🪄 命題"):
+            with st.spinner("命題委員出題中..."):
+                res = ai_generate_question(q_inp, q_sub)
+                if res: st.session_state.temp_q = res; show_question(res)
+        if "temp_q" in st.session_state:
+            if st.button("💾 確認存入題庫"):
+                save_to_db(st.session_state.temp_q, "questions")
+                del st.session_state.temp_q; st.rerun()
+
 if __name__ == "__main__":
     main()
