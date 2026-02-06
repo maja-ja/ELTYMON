@@ -232,32 +232,72 @@ def main_app():
                             st.caption("🌐 中文翻譯")
                             st.markdown(row['translation'])
                         st.success(row['answer_key'])
-    elif choice == "🧪 考題開發" and st.session_state.role == "admin":
-        st.title("🧪 AI 考題開發 (上帝模式)")
-        if c_df.empty:
-            st.warning("請先去「預埋考點」新增概念，才能根據概念出題。")
-        else:
-            target_concept = st.selectbox("選擇要命題的概念：", c_df['word'].unique().tolist())
-            if st.button("🪄 根據此概念生成素養題"):
-                db_row = c_df[c_df['word'] == target_concept].iloc[0]
-                with st.spinner("命題委員正在構思情境..."):
-                    new_q = ai_generate_question_from_db(db_row)
-                    if new_q:
-                        st.session_state.temp_q = new_q
-                        st.success("題目生成成功！請預覽下方內容。")
-                    else: st.error("生成失敗")
-            
-            if "temp_q" in st.session_state:
-                res = st.session_state.temp_q
-                st.markdown("### 👀 題目預覽")
-                st.write(res['content'])
-                st.info(res['answer_key'])
-                if st.button("💾 確認無誤，存入題庫"):
-                    if save_to_db(res, "questions"):
-                        st.success("已存入題庫！學生現在可以在「模擬演練」看到了。")
-                        del st.session_state.temp_q
-                        time.sleep(1); st.rerun()
+    elif choice == "🧪 AI 邏輯補給站":
+        st.title("🧪 AI 邏輯補給站")
+        st.caption("💡 根據戰情室資料庫內容，由 AI 學長為你進行深度導讀。")
 
+        # 1. 檢查資料庫是否有內容
+        if c_df.empty or len(c_df) == 0:
+            st.warning("⚠️ 目前資料庫（Sheet1）是空的！")
+            st.info("管理員（你）需要先去左側選單點擊 **『🔬 預埋考點』**，輸入概念並存檔後，這裡才會有東西可以選。")
+            if st.session_state.role == "admin":
+                if st.button("現在去預埋考點"):
+                    st.info("請點擊左側選單的『🔬 預埋考點』")
+            st.stop() # 停止執行後面代碼
+
+        # 2. 額度檢查 (訪客擋掉，學生檢查次數)
+        MAX_USAGE = 10
+        if st.session_state.role == "guest":
+            st.error("🔒 訪客無法使用 AI 教學，請註冊帳號。")
+            st.stop()
+        
+        # 取得當前使用者的 ai_usage (從資料庫同步)
+        user_row = users_df[users_df['username'] == st.session_state.username]
+        try:
+            current_usage = int(float(user_row.iloc[0]['ai_usage']))
+        except:
+            current_usage = 0
+
+        if st.session_state.role != "admin":
+            st.markdown(f'<div class="quota-box"><h4>🔋 剩餘教學能量：{max(0, MAX_USAGE - current_usage)} / {MAX_USAGE}</h4></div>', unsafe_allow_html=True)
+
+        if current_usage >= MAX_USAGE and st.session_state.role != "admin":
+            st.error("🚨 能量耗盡！")
+            st.warning("你已完成 10 次 AI 教學。請前往 Discord 找學長補給能量。")
+            st.link_button("💬 前往 Discord", DISCORD_URL)
+            st.stop()
+
+        # 3. 正式顯示選擇器
+        st.write("---")
+        # 抓取資料庫中所有的概念名稱
+        concept_list = c_df['word'].unique().tolist()
+        selected_concept = st.selectbox("🔍 請選擇你想秒懂的概念：", ["--- 請點擊選擇 ---"] + concept_list)
+
+        if selected_concept != "--- 請點擊選擇 ---":
+            # 抓取該概念的詳細資料
+            db_row = c_df[c_df['word'] == selected_concept].iloc[0]
+            
+            # 顯示該概念的簡短預覽
+            st.markdown(f"**當前選擇：** `{selected_concept}` ({db_row['category']})")
+            
+            if st.button("🚀 啟動學長深度教學", use_container_width=True):
+                with st.spinner(f"正在根據資料庫解析「{selected_concept}」..."):
+                    # 呼叫 AI 進行解釋
+                    explanation = ai_explain_from_db(db_row)
+                    
+                    if explanation:
+                        st.markdown("### 🎓 學長深度導讀")
+                        st.markdown(explanation)
+                        st.divider()
+                        st.caption("💡 提示：如果覺得解釋得好，記得截圖存起來！")
+                        
+                        # 扣除次數 (管理員不扣)
+                        if st.session_state.role != "admin":
+                            update_user_data(st.session_state.username, "ai_usage", current_usage + 1)
+                            st.toast("消耗 1 點能量", icon="🔋")
+                            # 這裡不 rerun，讓學生看完內容
+                    else:
+                        st.error("AI 好像睡著了，請再試一次。")
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
         # (保持原本的預埋考點邏輯...)
         st.title("🔬 AI 考點預埋")
