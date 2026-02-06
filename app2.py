@@ -73,6 +73,58 @@ def update_user_data(username, column, value):
 # ==========================================
 # 3. AI 引擎
 # ==========================================
+def ai_generate_question_from_db(db_row):
+    """
+    根據資料庫的一列資料生成素養題目
+    db_row: 來自 Sheet1 的資料 (Series 或 Dict)
+    """
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        st.error("❌ 找不到 API Key")
+        return None
+        
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # 建立針對 108 課綱的命題 Prompt
+    prompt = f"""
+    你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
+    
+    【參考資料】：
+    概念：{db_row['word']}
+    科目：{db_row['category']}
+    定義：{db_row['definition']}
+    核心邏輯：{db_row['roots']}
+    
+    【重要規範】：
+    1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
+    2. 題目必須包含「情境描述」與「問題內容」。
+    
+    請嚴格輸出 JSON 格式：
+    {{
+        "concept": "{db_row['word']}",
+        "subject": "{db_row['category']}",
+        "q_type": "素養選擇題",
+        "listening_script": "無",
+        "content": "### 📝 情境描述\\n[情境文字]\\n\\n### ❓ 題目\\n[題目文字]\\n(A) [選項]\\n(B) [選項]\\n(C) [選項]\\n(D) [選項]",
+        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[解析內容]",
+        "translation": "無"
+    }}
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        res_text = response.text
+        # 提取 JSON 內容
+        match = re.search(r'\{.*\}', res_text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        else:
+            st.error("AI 回傳格式非 JSON，請重試。")
+            return None
+    except Exception as e:
+        st.error(f"AI 出題發生錯誤: {e}")
+        return None
 def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
