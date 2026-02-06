@@ -48,48 +48,22 @@ def save_to_db(new_data, sheet_name):
     except: return False
 
 # ==========================================
-# 3. AI 引擎 (支援 JSON 工具與純文字聊天)
+# 3. AI 引擎 (僅保留管理員工具使用)
 # ==========================================
 
 def ai_call(system_instruction, user_input=""):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return "❌ 找不到 API Key"
+    if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     try:
         response = model.generate_content(system_instruction + "\n\n" + user_input)
         res_text = response.text
-        if "JSON" in system_instruction:
-            match = re.search(r'\{.*\}', res_text, re.DOTALL)
-            return json.loads(match.group(0)) if match else None
-        return res_text
-    except: return "🤖 AI 暫時斷線..."
-def check_and_update_quota(username, role, limit=10):
-    """檢查並更新使用者的 AI 額度"""
-    if role == "admin": return True, 0 # 管理員無限體力
-    
-    u_df = load_db("users")
-    if u_df.empty: return False, 0
-    
-    idx = u_df.index[u_df['username'] == username].tolist()[0]
-    last_date = str(u_df.at[idx, 'last_ai_date'])
-    count = int(u_df.at[idx, 'ai_count'])
-    today = datetime.now().strftime("%Y-%m-%d")
-    
-    if last_date != today:
-        # 新的一天，重置次數
-        u_df.at[idx, 'last_ai_date'] = today
-        u_df.at[idx, 'ai_count'] = 1
-        st.connection("gsheets", type=GSheetsConnection).update(worksheet="users", data=u_df)
-        return True, 1
-    else:
-        if count >= limit:
-            return False, count
-        else:
-            # 增加次數
-            u_df.at[idx, 'ai_count'] = count + 1
-            st.connection("gsheets", type=GSheetsConnection).update(worksheet="users", data=u_df)
-            return True, count + 1
+        # 管理員工具需要解析 JSON
+        match = re.search(r'\{.*\}', res_text, re.DOTALL)
+        return json.loads(match.group(0)) if match else None
+    except: return None
+
 def ai_decode_concept(input_text, subject):
     sys_prompt = f"""你現在是台灣高中補教名師。請針對「{subject}」的「{input_text}」進行拆解。
     請嚴格輸出 JSON：{{ "roots": "公式", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
@@ -117,8 +91,19 @@ def inject_css():
         </style>
     """, unsafe_allow_html=True)
 
+def show_concept(row):
+    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
+    <h2 style="margin-top:10px;">{row['word']}</h2><p><b>💡 秒懂定義：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
+        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
+    with c2:
+        st.warning(f"🚩 **學長姐雷區**\n\n{row['native_vibe']}")
+        with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
+
 # ==========================================
-# 5. 登入與權限管理
+# 5. 登入頁面
 # ==========================================
 
 def login_page():
@@ -137,7 +122,6 @@ def login_page():
                         st.session_state.logged_in = True
                         st.session_state.username = u
                         st.session_state.role = user.iloc[0]['role']
-                        st.session_state.can_chat = str(user.iloc[0].get('can_chat', "FALSE")) == "TRUE"
                         st.rerun()
                     else: st.error("❌ 帳號或密碼錯誤")
         with tab2:
@@ -147,9 +131,8 @@ def login_page():
                 admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
                 if st.form_submit_button("完成註冊"):
                     role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
-                    can_chat = "TRUE" if role == "admin" else "FALSE"
-                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "can_chat": can_chat}, "users"):
-                        st.success(f"註冊成功！身分：{role}。請聯繫管理員開通 AI 權限。")
+                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role}, "users"):
+                        st.success(f"註冊成功！身分：{role}。請切換至登入頁面。")
     with col2:
         st.markdown("---")
         st.write("🚀 **訪客預覽**")
@@ -157,12 +140,11 @@ def login_page():
             st.session_state.logged_in = True
             st.session_state.username = "訪客"
             st.session_state.role = "guest"
-            st.session_state.can_chat = False
             st.rerun()
         st.link_button("💬 加入 Discord 社群", DISCORD_URL, use_container_width=True)
 
 # ==========================================
-# 6. 主程式內容
+# 6. 主程式內容 (已移除聊天功能)
 # ==========================================
 
 def main_app():
@@ -174,10 +156,13 @@ def main_app():
             st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
         st.metric("距離 116 學測", f"{CYCLE['days_left']} Days")
         st.divider()
-        menu = ["📅 本週菜單", "🃏 閃卡複習", "🎲 隨機驗收", "🏆 戰力排行榜", "🤖 找學長姐聊聊", "🍅 衝刺番茄鐘"]
+        
+        # --- 選單已移除「找學長姐聊聊」 ---
+        menu = ["📅 本週菜單", "🃏 閃卡複習", "🎲 隨機驗收", "🏆 戰力排行榜", "🍅 衝刺番茄鐘"]
         if st.session_state.role == "admin":
             st.subheader("🛠️ 管理員模式")
-            menu.extend(["🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
+            menu.extend(["🔬 預埋考點", "🧪 考題開發"])
+        
         choice = st.radio("導航", menu)
         if st.button("🚪 登出"): st.session_state.logged_in = False; st.rerun()
 
@@ -188,9 +173,7 @@ def main_app():
     if choice == "📅 本週菜單":
         st.title("🚀 116 級本週重點進度")
         if not c_df.empty:
-            for _, r in c_df.tail(5).iterrows():
-                with st.container():
-                    st.markdown(f"""<div class="card"><span class="tag">{r['category']}</span><h3>{r['word']}</h3><p>{r['definition']}</p></div>""", unsafe_allow_html=True)
+            for _, r in c_df.tail(5).iterrows(): show_concept(r)
         else: st.info("資料庫建置中...")
 
     elif choice == "🃏 閃卡複習":
@@ -209,67 +192,18 @@ def main_app():
             row = c_df.sample(1).iloc[0]
             st.markdown(f"### 挑戰題目：{row['word']}")
             with st.expander("💡 顯示答案"): st.write(row['definition'])
-            if st.session_state.role not in ["guest"]:
+            if st.session_state.role != "guest":
                 with st.form("score"):
                     score = st.slider("掌握度 (%)", 0, 100, 80)
                     if st.form_submit_button("提交戰績"):
                         save_to_db({"username": st.session_state.username, "score": score, "subject": row['category']}, "leaderboard")
                         st.balloons(); st.success("戰績已同步！")
-            else: st.warning("訪客無法提交戰績。")
 
     elif choice == "🏆 戰力排行榜":
         st.title("🏆 116 戰力排行榜")
         if not l_df.empty:
             st.table(l_df.sort_values(by="score", ascending=False).head(10))
         else: st.info("尚無戰績。")
-
-    elif choice == "🤖 找學長姐聊聊":
-        st.title("🤖 找學霸學長姐聊聊")
-        
-        # 1. 權限檢查 (原本的授權制)
-        is_auth = (st.session_state.role == "admin") or (st.session_state.get('can_chat', False))
-        if not is_auth:
-            st.error("🔒 權限未開通")
-            st.stop()
-
-        # 2. 體力值檢查 (防止無限吃)
-        # 這裡設定每天限額 10 次
-        daily_limit = 10
-        can_use, current_count = check_and_update_quota(st.session_state.username, st.session_state.role, limit=daily_limit)
-        
-        if not can_use:
-            st.error(f"❌ 今日體力已耗盡 ({current_count}/{daily_limit})")
-            st.warning("AI 運算很貴的，學長姐也要休息，明天再來吧！")
-            st.stop()
-        
-        st.caption(f"🔋 今日剩餘額度：{daily_limit - current_count} 次")
-
-        
-        if "messages" not in st.session_state: st.session_state.messages = []
-        for msg in st.session_state.messages:
-            with st.chat_message(msg["role"]): st.write(msg["content"])
-        if prompt := st.chat_input("問點什麼..."):
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"): st.write(prompt)
-            res = ai_call("你是一位親切的台大學霸學長，擅長用邏輯簡化知識。", prompt)
-            st.session_state.messages.append({"role": "assistant", "content": res})
-            with st.chat_message("assistant"): st.write(res)
-
-    elif choice == "👤 使用者管理" and st.session_state.role == "admin":
-        st.title("👤 使用者權限管理")
-        u_df = load_db("users")
-        if not u_df.empty:
-            for i, row in u_df.iterrows():
-                if row['role'] == "admin": continue
-                c1, c2, c3 = st.columns([2, 2, 1])
-                c1.write(f"**{row['username']}**")
-                status = "✅ 已開通" if str(row['can_chat']) == "TRUE" else "❌ 未開通"
-                c2.write(status)
-                if str(row['can_chat']) != "TRUE":
-                    if c3.button("授權", key=f"auth_{i}"):
-                        u_df.at[i, 'can_chat'] = "TRUE"
-                        st.connection("gsheets", type=GSheetsConnection).update(worksheet="users", data=u_df)
-                        st.success(f"已開通 {row['username']}"); time.sleep(1); st.rerun()
 
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
         st.title("🔬 AI 考點自動拆解")
