@@ -55,14 +55,27 @@ def save_to_db(new_data, sheet_name):
 
 def ai_call(system_instruction, user_input=""):
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return None
+    if not api_key: 
+        return "❌ 找不到 API Key，請檢查 Streamlit Secrets 設定。"
+    
     genai.configure(api_key=api_key)
+    # 建議使用 gemini-1.5-flash，速度最快且免費額度高
     model = genai.GenerativeModel('gemini-1.5-flash')
+    
     try:
         response = model.generate_content(system_instruction + "\n\n" + user_input)
-        match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        return json.loads(match.group(0)) if match else response.text
-    except: return None
+        full_text = response.text
+        
+        # 邏輯優化：如果是管理員工具(需要JSON)，就去抓括號；如果是聊天，就直接回傳文字
+        match = re.search(r'\{.*\}', full_text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except:
+                return full_text # JSON 解析失敗則回傳原文字
+        return full_text # 沒找到 JSON 符號，直接回傳純文字
+    except Exception as e:
+        return f"🤖 AI 暫時斷線了 (錯誤原因: {str(e)})"
 
 def ai_decode_concept(input_text, subject):
     sys_prompt = f"""你現在是台灣高中補教名師。請針對「{subject}」的「{input_text}」進行拆解。
@@ -203,18 +216,33 @@ def main_app():
 
     elif choice == "🤖 找學長姐聊聊":
         st.title("🤖 找學霸學長姐聊聊")
-        if st.session_state.role == "guest": st.error("🔒 AI 聊天僅限註冊會員。")
+        st.info(f"💬 [點我加入 Discord 討論群]({DISCORD_URL})")
+        
+        if st.session_state.role == "guest":
+            st.error("🔒 AI 聊天功能僅限註冊會員使用。")
         else:
-            if not st.session_state.get('chat_unlocked', False) and st.session_state.role != "admin":
-                serial = st.text_input("🔑 輸入 116 專屬序號解鎖", type="password")
-                if st.button("解鎖"):
-                    if serial == st.secrets.get("CHAT_KEY", "KADOW116"): st.session_state.chat_unlocked = True; st.rerun()
-            else:
-                if prompt := st.chat_input("問點什麼..."):
-                    st.chat_message("user").write(prompt)
-                    res = ai_call("你是一位親切的台大學霸學長。", prompt)
-                    st.chat_message("assistant").write(res)
+            # 初始化對話紀錄
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
 
+            # 顯示歷史訊息
+            for msg in st.session_state.messages:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["content"])
+
+            # 使用者輸入
+            if prompt := st.chat_input("問點什麼..."):
+                # 1. 顯示使用者訊息
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.write(prompt)
+
+                # 2. 呼叫 AI 並顯示回覆
+                with st.chat_message("assistant"):
+                    with st.spinner("學長正在思考中..."):
+                        res = ai_call("你是一位親切的台大學霸學長，擅長用邏輯簡化知識，說話會帶一點表情符號。", prompt)
+                        st.write(res)
+                        st.session_state.messages.append({"role": "assistant", "content": res})
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
         st.title("🔬 AI 考點自動拆解")
         inp = st.text_input("輸入概念")
