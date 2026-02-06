@@ -55,7 +55,7 @@ def ai_call(system_instruction, user_input=""):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return "❌ 找不到 API Key"
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     try:
         response = model.generate_content(system_instruction + "\n\n" + user_input)
         res_text = response.text
