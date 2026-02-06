@@ -60,7 +60,7 @@ def ai_call(system_instruction, user_input=""):
     
     genai.configure(api_key=api_key)
     # 建議使用 gemini-1.5-flash，速度最快且免費額度高
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     try:
         response = model.generate_content(system_instruction + "\n\n" + user_input)
