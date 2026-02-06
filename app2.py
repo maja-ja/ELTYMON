@@ -73,6 +73,19 @@ def update_user_data(username, column, value):
 # ==========================================
 # 3. AI 引擎
 # ==========================================
+def clean_json_string(json_str):
+    """
+    處理 AI 回傳 JSON 時常見的 LaTeX 反斜線報錯問題
+    """
+    # 1. 處理掉可能存在的 Markdown 程式碼區塊標籤
+    json_str = json_str.replace("```json", "").replace("```", "").strip()
+    
+    # 2. 核心修復：將 LaTeX 常見的反斜線進行轉義處理
+    # 這裡使用正則表達式，尋找後面不是跟著 (n, r, t, b, f, u, ", \) 的反斜線並補上一個反斜線
+    # 但最簡單暴力且有效的方法是針對 LaTeX 關鍵字處理，或直接對所有反斜線做初步處理
+    fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
+    
+    return fixed_str
 def ai_generate_question_from_db(db_row):
     """
     根據資料庫的一列資料生成素養題目
