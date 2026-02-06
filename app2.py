@@ -33,10 +33,13 @@ def load_db(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
-        df = df.fillna("無")
+        # 針對不同表單做不同的空值填充
         if sheet_name == "users":
-            if 'ai_usage' not in df.columns: df['ai_usage'] = 0
-            if 'can_chat' not in df.columns: df['can_chat'] = "FALSE"
+            df['ai_usage'] = pd.to_numeric(df['ai_usage'], errors='coerce').fillna(0)
+            df['can_chat'] = df['can_chat'].fillna("FALSE")
+            df = df.fillna("無")
+        else:
+            df = df.fillna("無")
         return df
     except:
         return pd.DataFrame()
@@ -146,7 +149,12 @@ def main_app():
     
     users_df = load_db("users")
     user_data = users_df[users_df['username'] == st.session_state.username]
-    ai_usage = int(user_data.iloc[0]['ai_usage']) if not user_data.empty else 0
+    
+    # 防呆轉換 ai_usage
+    try:
+        ai_usage = int(float(user_data.iloc[0]['ai_usage'])) if not user_data.empty else 0
+    except:
+        ai_usage = 0
 
     with st.sidebar:
         st.title(f"👋 你好, {st.session_state.username}")
@@ -206,15 +214,16 @@ def main_app():
             if row['role'] == "admin": continue
             c1, c2, c3 = st.columns([2, 2, 1])
             c1.write(f"**{row['username']}**")
-            c2.write(f"已用能量：{row['ai_usage']}")
+            # 顯示時也做防呆
+            try: u_usage = int(float(row['ai_usage']))
+            except: u_usage = 0
+            c2.write(f"已用能量：{u_usage}")
             if c3.button("能量補滿", key=f"reset_{i}"):
                 update_user_data(row['username'], "ai_usage", 0)
                 st.rerun()
 
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
         st.title("🔬 AI 考點預埋 (上帝模式)")
-        st.caption("輸入一個學科概念，AI 將自動拆解並生成符合 108 課綱的教學內容。")
-
         c1, c2 = st.columns([3, 1])
         inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
         sub = c2.selectbox("所屬科目", SUBJECTS)
@@ -223,16 +232,16 @@ def main_app():
             if not inp:
                 st.warning("請先輸入概念名稱！")
             else:
-                with st.spinner(f"正在以【{sub}】名師視角拆解「{inp}」..."):
+                with st.spinner(f"正在拆解「{inp}」..."):
                     sys_prompt = f"""
-                    你現在是台灣高中升學考試的頂尖名師。請針對「{sub}」科目中的概念「{inp}」進行深度解析。
+                    你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。
                     請嚴格遵守以下 JSON 格式輸出：
                     {{
                         "roots": "核心公式(LaTeX)或字源邏輯",
-                        "definition": "108 課綱標準定義(精簡專業)",
+                        "definition": "108 課綱標準定義",
                         "breakdown": "條列式重點拆解(使用 \\n 換行)",
                         "memory_hook": "創意口訣或諧音聯想",
-                        "native_vibe": "學長姐叮嚀：考試陷阱或重要程度提醒",
+                        "native_vibe": "學長姐叮嚀",
                         "star": 5
                     }}
                     """
