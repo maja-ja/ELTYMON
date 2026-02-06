@@ -129,7 +129,7 @@ def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     try:
         response = model.generate_content(
