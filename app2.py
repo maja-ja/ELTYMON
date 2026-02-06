@@ -6,9 +6,16 @@ import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 1. 核心配置
+# 1. 核心配置 & 116 戰情邏輯
 # ==========================================
-st.set_page_config(page_title="Kadowsella | 116 數位戰情室", page_icon="⚡", layout="wide")
+st.set_page_config(
+    page_title="Kadowsella | 116 數位戰情室", 
+    page_icon="⚡", 
+    layout="wide",
+    menu_items={
+        'About': "# Kadowsella 116\n這是一個專屬授權系統，嚴禁未經授權之複製。"
+    }
+)
 
 DISCORD_URL = st.secrets.get("DISCORD_LINK", "https://discord.gg/")
 SUBJECTS = ["國文", "英文", "數學A","數學B","數學甲","數學乙", "物理", "化學", "生物", "地科", "歷史", "地理", "公民"]
@@ -22,110 +29,84 @@ def get_cycle_info():
 
 CYCLE = get_cycle_info()
 
-
 # ==========================================
 # 2. 安全與資料庫工具
 # ==========================================
 
 def hash_password(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
+
 def load_db(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
-        df = df.fillna("無")
+        
+        # 強制修復欄位缺失問題
         if sheet_name == "users":
+            expected_cols = ['username', 'password', 'role', 'can_chat', 'ai_usage', 'created_at']
+            for col in expected_cols:
+                if col not in df.columns: df[col] = 0 if col == 'ai_usage' else "無"
             df['ai_usage'] = pd.to_numeric(df['ai_usage'], errors='coerce').fillna(0)
-        return df
-    except: return pd.DataFrame()
+        
+        return df.fillna("無")
+    except:
+        return pd.DataFrame()
 
 def save_to_db(new_data, sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # 1. 讀取現有資料
         df = conn.read(worksheet=sheet_name, ttl=0)
-        
-        # 2. 準備新資料
-        new_row = pd.DataFrame([new_data])
-        new_row['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        
-        # 3. 合併資料
-        # 如果原本是空的，直接用新資料；否則合併
-        if df.empty or (len(df.columns) == 1 and df.columns[0] == '無'):
-            updated_df = new_row
-        else:
-            updated_df = pd.concat([df, new_row], ignore_index=True)
-        
-        # 4. 寫入雲端
+        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
+        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
         conn.update(worksheet=sheet_name, data=updated_df)
         return True
-    except Exception as e:
-        # 這行非常重要，它會告訴你為什麼失敗 (例如：Permission denied 或 Worksheet not found)
-        st.error(f"❌ 存檔至 {sheet_name} 失敗：{str(e)}")
-        return False
+    except: return False
+
 def update_user_data(username, column, value):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet="users", ttl=0)
         df.loc[df['username'] == username, column] = value
         conn.update(worksheet="users", data=df)
-    except Exception as e:
-        st.error(f"資料庫更新失敗: {e}")
+    except: pass
 
 # ==========================================
 # 3. AI 引擎
 # ==========================================
-def ai_generate_question_from_db(db_row):
-    """根據資料庫內容生成素養題目"""
+def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    prompt = f"""
-    你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的題目。
-    
-    【重要規範】：
-    1. 所有的數學符號、座標、公式、根號、分數，必須使用 LaTeX 格式並用單個錢字號包裹。
-       例如：$(0,0)$、$\sqrt{{3}}$、$\frac{{\pi}}{{3}}$、$x^2$。
-    2. 題目必須包含「情境描述」與「題目內容」。
-    
-    資料內容：
-    概念：{db_row['word']} | 科目：{db_row['category']}
-    定義：{db_row['definition']}
-    
-    要求輸出 JSON 格式：
-    {{
-        "concept": "{db_row['word']}",
-        "subject": "{db_row['category']}",
-        "q_type": "素養選擇題",
-        "listening_script": "無",
-        "content": "### 📝 情境描述\\n[情境文字]\\n\\n### ❓ 題目\\n[題目文字]\\n(A) [選項]\\n(B) [選項]",
-        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[解析]",
-        "translation": "無"
-    }}
-    """
+    model = genai.GenerativeModel('gemini-1.5-flash')
     try:
-        response = model.generate_content(prompt)
-        match = re.search(r'\{.*\}', response.text, re.DOTALL)
-        return json.loads(match.group(0)) if match else None
+        response = model.generate_content(
+            system_instruction + "\n\n" + user_input,
+            generation_config=genai.types.GenerationConfig(temperature=temp)
+        )
+        res_text = response.text
+        if "JSON" in system_instruction:
+            match = re.search(r'\{.*\}', res_text, re.DOTALL)
+            return json.loads(match.group(0)) if match else None
+        return res_text
     except: return None
+
+def ai_decode_concept(input_text, subject):
+    sys_prompt = f"""你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
+    請嚴格輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
+    res = ai_call(sys_prompt, temp=0.5) # 邏輯用低溫
+    if isinstance(res, dict): res.update({"word": input_text, "category": subject})
+    return res
+
+def ai_generate_social_post(concept_data):
+    sys_prompt = f"""你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
+    請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。多用💀、謝了、116。"""
+    return ai_call(sys_prompt, str(concept_data), temp=1.5) # 社群文用高溫
+
 def ai_explain_from_db(db_row):
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return "❌ 找不到 API Key"
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    context = f"""
-    概念：{db_row['word']} | 定義：{db_row['definition']}
-    公式邏輯：{db_row['roots']} | 重點：{db_row['breakdown']}
-    口訣：{db_row['memory_hook']} | 叮嚀：{db_row['native_vibe']}
-    """
-    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}（不用提供圖片）"
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except: return "🤖 AI 學長目前斷線中。"
+    context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']} | 口訣：{db_row['memory_hook']}"
+    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}"
+    return ai_call(prompt, temp=0.7)
+
 
 # ==========================================
 # 4. UI 組件
@@ -136,10 +117,23 @@ def inject_css():
     st.markdown("""
         <style>
         .card { border-radius: 15px; padding: 20px; background: var(--secondary-background-color); border: 1px solid var(--border-color); margin-bottom: 20px; border-left: 8px solid #6366f1; }
-        .q-box { background: var(--secondary-background-color); padding: 20px; border-radius: 15px; border: 1px solid #10b981; margin-top: 10px; }
         .tag { background: #6366f1; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; font-weight: bold; }
+        .streak-badge { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; }
+        .quota-box { padding: 15px; border-radius: 10px; border: 1px solid #6366f1; text-align: center; margin-bottom: 20px; }
         </style>
     """, unsafe_allow_html=True)
+
+def show_concept(row):
+    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
+    <h2 style="margin-top:10px;">{row['word']}</h2><p><b>💡 秒懂定義：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
+        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
+    with c2:
+        st.warning(f"🚩 **學長姐雷區**\n\n{row['native_vibe']}")
+        with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
+
 # ==========================================
 # 5. 登入頁面
 # ==========================================
@@ -202,34 +196,100 @@ def login_page():
 # 6. 主程式內容
 # ==========================================
 def main_app():
+    inject_css()
     
-    # 讀取資料庫
-    c_df = load_db("Sheet1")
-    q_df = load_db("questions")
-    users_df = load_db("users")
+    # --- 1. 資料預加載 ---
+    c_df = load_db("Sheet1")      # 知識點資料庫
+    q_df = load_db("questions")   # 題庫資料庫
+    users_df = load_db("users")   # 使用者資料庫
+    l_df = load_db("leaderboard") # 排行榜資料庫
     
-    user_data = users_df[users_df['username'] == st.session_state.username]
-    try: ai_usage = int(float(user_data.iloc[0]['ai_usage'])) if not user_data.empty else 0
-    except: ai_usage = 0
+    # --- 2. 獲取當前使用者狀態 ---
+    user_row = users_df[users_df['username'] == st.session_state.username] if not users_df.empty else pd.DataFrame()
+    
+    # 安全轉換 ai_usage (防止 "無" 或 NaN 導致崩潰)
+    try:
+        ai_usage = int(float(user_row.iloc[0]['ai_usage'])) if not user_row.empty else 0
+    except:
+        ai_usage = 0
 
+    # --- 3. 側邊欄導航 (Sidebar) ---
     with st.sidebar:
-        st.title(f"👋 你好, {st.session_state.username}")
-        st.metric("距離 116 學測", f"{CYCLE['days_left']} Days")
+        role_tag = " <span class='admin-badge'>ADMIN</span>" if st.session_state.role == "admin" else ""
+        st.markdown(f"### 👋 你好, {st.session_state.username}{role_tag}", unsafe_allow_html=True)
+        
+        if st.session_state.role == "guest":
+            st.warning("⚠️ 訪客模式：功能受限")
+        else:
+            st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
+        
+        st.metric("距離 116 學測", f"{CYCLE['days_left']} Days", f"Week {CYCLE['week_num']}")
         st.divider()
+        
+        # 選單定義
         menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
         if st.session_state.role == "admin":
-            menu.extend(["---", "🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
-        choice = st.radio("導航", menu)
-        if st.button("🚪 登出"): st.session_state.logged_in = False; st.rerun()
+            st.subheader("🛠️ 管理員上帝模式")
+            menu.extend(["🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
+        
+        choice = st.radio("功能導航", menu)
+        
+        st.divider()
+        st.link_button("💬 Discord 戰情室", DISCORD_URL, use_container_width=True)
+        
+        if st.button("🚪 登出系統", use_container_width=True):
+            st.session_state.logged_in = False
+            st.rerun()
 
-    # --- 頁面路由 ---
+    # --- 4. 頁面路由邏輯 ---
 
+    # A. 本週菜單
     if choice == "📅 本週菜單":
         st.title("🚀 116 級本週重點進度")
+        st.caption("補習班沒教的數位複習法：用工程師邏輯模組化知識。")
         if not c_df.empty:
-            for _, r in c_df.tail(5).iterrows():
-                st.markdown(f'<div class="card"><h3>{r["word"]}</h3><p>{r["definition"]}</p></div>', unsafe_allow_html=True)
+            # 顯示最新的 5 筆或當週資料
+            for _, r in c_df.tail(10).iterrows():
+                show_concept(r)
+        else:
+            st.info("資料庫建置中，請等待管理員預埋考點。")
 
+    # B. AI 邏輯補給站 (10次限制 + 資料庫驅動)
+    elif choice == "🧪 AI 邏輯補給站":
+        st.title("🧪 AI 邏輯補給站")
+        MAX_USAGE = 10
+        
+        if st.session_state.role == "guest":
+            st.error("🔒 訪客無法使用 AI 教學，請註冊帳號以解鎖。")
+        else:
+            if st.session_state.role != "admin":
+                st.markdown(f'<div class="quota-box"><h4>🔋 剩餘教學能量：{max(0, MAX_USAGE - ai_usage)} / {MAX_USAGE}</h4></div>', unsafe_allow_html=True)
+
+            if ai_usage >= MAX_USAGE and st.session_state.role != "admin":
+                st.error("🚨 能量耗盡！")
+                st.warning(f"你已完成 {MAX_USAGE} 次 AI 深度教學。請前往 Discord 找學長補給能量。")
+                st.link_button("💬 前往 Discord 找學長", DISCORD_URL)
+            else:
+                st.info("💡 選擇一個概念，AI 學長將根據資料庫精華為你進行深度導讀。")
+                if c_df.empty:
+                    st.warning("資料庫目前沒有內容可供教學。")
+                else:
+                    concept_list = c_df['word'].unique().tolist()
+                    selected = st.selectbox("請選擇你想秒懂的概念：", ["--- 請選擇 ---"] + concept_list)
+                    
+                    if selected != "--- 請選擇 ---":
+                        db_row = c_df[c_df['word'] == selected].iloc[0]
+                        if st.button("🚀 啟動學長深度教學", use_container_width=True):
+                            with st.spinner(f"正在解析「{selected}」的底層邏輯..."):
+                                explanation = ai_explain_from_db(db_row)
+                                st.markdown("---")
+                                st.markdown(explanation) # 支援 LaTeX
+                                
+                                if st.session_state.role != "admin":
+                                    update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
+                                    st.toast("消耗 1 點能量", icon="🔋")
+
+    # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
         st.title("📝 素養模擬演練")
         if q_df.empty:
@@ -240,146 +300,85 @@ def main_app():
             
             for _, row in filtered_q.iterrows():
                 with st.container(border=True):
-                    # 使用 st.markdown 直接渲染，這樣 $...$ 才會被識別為 LaTeX
-                    st.markdown(row["content"]) 
+                    st.markdown(f"**【{row['subject']}】{row['concept']}**")
+                    st.markdown(row["content"]) # 這裡會自動渲染 $...$ LaTeX
                     
                     with st.expander("🔓 查看答案與防呆解析"):
                         if row['translation'] != "無":
                             st.caption("🌐 中文翻譯")
                             st.markdown(row['translation'])
                         st.success(row['answer_key'])
-    elif choice == "🧪 AI 邏輯補給站":
-        st.title("🧪 AI 邏輯補給站")
-        st.caption("💡 根據戰情室資料庫內容，由 AI 學長為你進行深度導讀。")
+                    st.divider()
 
-        # 1. 檢查資料庫是否有內容
-        if c_df.empty or len(c_df) == 0:
-            st.warning("⚠️ 目前資料庫（Sheet1）是空的！")
-            st.info("管理員（你）需要先去左側選單點擊 **『🔬 預埋考點』**，輸入概念並存檔後，這裡才會有東西可以選。")
-            if st.session_state.role == "admin":
-                if st.button("現在去預埋考點"):
-                    st.info("請點擊左側選單的『🔬 預埋考點』")
-            st.stop() # 停止執行後面代碼
-
-        # 2. 額度檢查 (訪客擋掉，學生檢查次數)
-        MAX_USAGE = 10
-        if st.session_state.role == "guest":
-            st.error("🔒 訪客無法使用 AI 教學，請註冊帳號。")
-            st.stop()
-        
-        # 取得當前使用者的 ai_usage (從資料庫同步)
-        user_row = users_df[users_df['username'] == st.session_state.username]
-        try:
-            current_usage = int(float(user_row.iloc[0]['ai_usage']))
-        except:
-            current_usage = 0
-
-        if st.session_state.role != "admin":
-            st.markdown(f'<div class="quota-box"><h4>🔋 剩餘教學能量：{max(0, MAX_USAGE - current_usage)} / {MAX_USAGE}</h4></div>', unsafe_allow_html=True)
-
-        if current_usage >= MAX_USAGE and st.session_state.role != "admin":
-            st.error("🚨 能量耗盡！")
-            st.warning("你已完成 10 次 AI 教學。請前往 Discord 找學長補給能量。")
-            st.link_button("💬 前往 Discord", DISCORD_URL)
-            st.stop()
-
-        # 3. 正式顯示選擇器
-        st.write("---")
-        # 抓取資料庫中所有的概念名稱
-        concept_list = c_df['word'].unique().tolist()
-        selected_concept = st.selectbox("🔍 請選擇你想秒懂的概念：", ["--- 請點擊選擇 ---"] + concept_list)
-
-        if selected_concept != "--- 請點擊選擇 ---":
-            # 抓取該概念的詳細資料
-            db_row = c_df[c_df['word'] == selected_concept].iloc[0]
+    # D. 戰力排行榜
+    elif choice == "🏆 戰力排行榜":
+        st.title("🏆 116 戰力排行榜")
+        if not l_df.empty:
+            st.subheader("🔥 全台 Top 10 巔峰榜")
+            top_10 = l_df.sort_values(by="score", ascending=False).head(10)
+            st.table(top_10[['username', 'subject', 'score', 'created_at']])
             
-            # 顯示該概念的簡短預覽
-            st.markdown(f"**當前選擇：** `{selected_concept}` ({db_row['category']})")
-            
-            if st.button("🚀 啟動學長深度教學", use_container_width=True):
-                with st.spinner(f"正在根據資料庫解析「{selected_concept}」..."):
-                    # 呼叫 AI 進行解釋
-                    explanation = ai_explain_from_db(db_row)
-                    
-                    if explanation:
-                        st.markdown("### 🎓 學長深度導讀")
-                        st.markdown(explanation)
-                        st.divider()
-                        st.caption("💡 提示：如果覺得解釋得好，記得截圖存起來！")
-                        
-                        # 扣除次數 (管理員不扣)
-                        if st.session_state.role != "admin":
-                            update_user_data(st.session_state.username, "ai_usage", current_usage + 1)
-                            st.toast("消耗 1 點能量", icon="🔋")
-                            # 這裡不 rerun，讓學生看完內容
-                    else:
-                        st.error("AI 好像睡著了，請再試一次。")
+            my_data = l_df[l_df['username'] == st.session_state.username]
+            if not my_data.empty:
+                st.metric("你的平均戰力值", f"{my_data['score'].mean():.1f} %")
+        else:
+            st.info("尚無戰績，快去隨機驗收刷一波！")
+
+    # E. 預埋考點 (管理員 - Temp 0.5)
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
-        # (保持原本的預埋考點邏輯...)
-        st.title("🔬 AI 考點預埋")
+        st.title("🔬 AI 考點預埋 (上帝模式)")
         c1, c2 = st.columns([3, 1])
         inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
         sub = c2.selectbox("所屬科目", SUBJECTS)
 
         if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
-            if not inp:
-                st.warning("請先輸入概念名稱！")
-            else:
+            if inp:
                 with st.spinner(f"正在拆解「{inp}」..."):
-                    sys_prompt = f"""
-                    你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。
-                    請嚴格遵守以下 JSON 格式輸出：
-                    {{
-                        "roots": "核心公式(LaTeX)或字源邏輯",
-                        "definition": "108 課綱標準定義",
-                        "breakdown": "條列式重點拆解(使用 \\n 換行)",
-                        "memory_hook": "創意口訣或諧音聯想",
-                        "native_vibe": "學長姐叮嚀",
-                        "star": 5
-                    }}
-                    """
-                    api_key = st.secrets.get("GEMINI_API_KEY")
-                    genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel('gemini-2.5-flash')
-                    try:
-                        response = model.generate_content(sys_prompt)
-                        res_text = response.text
-                        match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                        if match:
-                            res_data = json.loads(match.group(0))
-                            res_data.update({"word": inp, "category": sub})
-                            st.session_state.temp_concept = res_data
-                        else: st.error("AI 回傳格式錯誤")
-                    except Exception as e: st.error(f"AI 生成失敗: {e}")
+                    sys_prompt = f"你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。請嚴格輸出 JSON：{{ \"roots\": \"公式\", \"definition\": \"定義\", \"breakdown\": \"拆解\", \"memory_hook\": \"口訣\", \"native_vibe\": \"叮嚀\", \"star\": 5 }}"
+                    res = ai_call(sys_prompt, temp=0.5)
+                    if res:
+                        res.update({"word": inp, "category": sub})
+                        st.session_state.temp_concept = res
+            else: st.warning("請輸入內容")
 
         if "temp_concept" in st.session_state:
-            res = st.session_state.temp_concept
-            st.markdown("---")
-            st.subheader("👀 生成內容預覽")
-            with st.container():
-                st.markdown(f"""
-                <div class="card">
-                    <span class="tag">{res['category']}</span> <span style="color:#f59e0b;">{'★' * int(res['star'])}</span>
-                    <h2 style="margin-top:10px;">{res['word']}</h2>
-                    <p><b>💡 秒懂定義：</b>{res['definition']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.info(f"🧬 **核心邏輯 / 公式**\n\n{res['roots']}")
-                    st.success(f"🧠 **超強記憶點**\n\n{res['memory_hook']}")
-                with col_b:
-                    st.warning(f"🚩 **學長姐雷區叮嚀**\n\n{res['native_vibe']}")
-                    with st.expander("🔍 詳細拆解", expanded=True): st.write(res['breakdown'])
-            if st.button("💾 確認無誤，存入雲端資料庫", type="primary", use_container_width=True):
-                if save_to_db(res, "Sheet1"):
+            show_concept(st.session_state.temp_concept)
+            if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
+                if save_to_db(st.session_state.temp_concept, "Sheet1"):
                     st.balloons()
-                    st.success(f"✅ 「{res['word']}」已成功埋入戰情室！")
                     del st.session_state.temp_concept
-                    time.sleep(1)
                     st.rerun()
-                else: st.error("存檔失敗")
 
+    # F. 考題開發 (管理員)
+    elif choice == "🧪 考題開發" and st.session_state.role == "admin":
+        st.title("🧪 AI 考題開發")
+        if c_df.empty: st.warning("請先預埋考點")
+        else:
+            target = st.selectbox("選擇要命題的概念：", c_df['word'].unique().tolist())
+            if st.button("🪄 生成素養題"):
+                db_row = c_df[c_df['word'] == target].iloc[0]
+                res = ai_generate_question_from_db(db_row)
+                if res: st.session_state.temp_q = res
+            
+            if "temp_q" in st.session_state:
+                st.markdown(st.session_state.temp_q['content'])
+                if st.button("💾 存入題庫"):
+                    if save_to_db(st.session_state.temp_q, "questions"):
+                        st.success("已存入！")
+                        del st.session_state.temp_q
+                        st.rerun()
+
+    # G. 使用者管理 (管理員)
+    elif choice == "👤 使用者管理" and st.session_state.role == "admin":
+        st.title("👤 使用者權限與能量管理")
+        for i, row in users_df.iterrows():
+            if row['role'] == "admin": continue
+            c1, c2, c3 = st.columns([2, 2, 1])
+            c1.write(f"**{row['username']}**")
+            c2.write(f"已用能量：{row['ai_usage']}")
+            if c3.button("能量補滿", key=f"reset_{i}"):
+                update_user_data(row['username'], "ai_usage", 0)
+                st.rerun()
 # ==========================================
 # 7. 執行入口
 # ==========================================
