@@ -216,33 +216,58 @@ def main_app():
 
     elif choice == "🤖 找學長姐聊聊":
         st.title("🤖 找學霸學長姐聊聊")
-        st.info(f"💬 [點我加入 Discord 討論群]({DISCORD_URL})")
         
+        # 第一層：訪客完全禁止
         if st.session_state.role == "guest":
-            st.error("🔒 AI 聊天功能僅限註冊會員使用。")
-        else:
-            # 初始化對話紀錄
-            if "messages" not in st.session_state:
-                st.session_state.messages = []
+            st.error("🔒 訪客模式無法使用 AI 聊天功能。")
+            st.info("請註冊正式帳號並輸入邀請碼，即可解鎖與台大學長姐對話的權限。")
+            st.stop() # 停止執行後面的代碼
 
-            # 顯示歷史訊息
-            for msg in st.session_state.messages:
-                with st.chat_message(msg["role"]):
-                    st.write(msg["content"])
+        # 第二層：學生需要序號解鎖 (管理員免序號)
+        if st.session_state.role == "student" and not st.session_state.get('chat_unlocked', False):
+            st.markdown("""
+                <div style="background:#fef2f2; padding:20px; border-radius:10px; border:1px solid #fee2e2;">
+                    <h3 style="color:#991b1b; margin-top:0;">🔒 AI 對話功能尚未解鎖</h3>
+                    <p style="color:#b91c1c;">為了確保 116 級同學的學習品質，本功能僅限持有「專屬序號」的同學使用。</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            serial_input = st.text_input("🔑 請輸入 116 專屬序號", type="password", placeholder="輸入序號以開啟對話...")
+            
+            if st.button("🚀 驗證並解鎖", use_container_width=True):
+                # 從 Secrets 讀取序號，預設為 KADOW116
+                correct_key = st.secrets.get("CHAT_KEY", "KADOW116")
+                if serial_input == correct_key:
+                    st.session_state.chat_unlocked = True
+                    st.success("✅ 驗證成功！正在連線學長姐...")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ 序號錯誤，請聯繫管理員索取。")
+            st.stop() # 未解鎖前不顯示聊天框
 
-            # 使用者輸入
-            if prompt := st.chat_input("問點什麼..."):
-                # 1. 顯示使用者訊息
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                with st.chat_message("user"):
-                    st.write(prompt)
+        # 第三層：正式聊天介面 (管理員或已解鎖的學生)
+        st.success(f"✅ 已連線：台大學霸學長姐 (身分: {st.session_state.role})")
+        st.caption(f"💬 [點我加入 Discord 討論群]({DISCORD_URL})")
 
-                # 2. 呼叫 AI 並顯示回覆
-                with st.chat_message("assistant"):
-                    with st.spinner("學長正在思考中..."):
-                        res = ai_call("你是一位親切的台大學霸學長，擅長用邏輯簡化知識，說話會帶一點表情符號。", prompt)
-                        st.write(res)
-                        st.session_state.messages.append({"role": "assistant", "content": res})
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.write(msg["content"])
+
+        if prompt := st.chat_input("問點什麼..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("學長正在思考中..."):
+                    # 傳入純文字指令，不含 JSON 要求
+                    res = ai_call("你是一位親切的台大學霸學長，擅長用邏輯簡化知識，說話會帶一點表情符號。", prompt)
+                    st.write(res)
+                    st.session_state.messages.append({"role": "assistant", "content": res})
     elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
         st.title("🔬 AI 考點自動拆解")
         inp = st.text_input("輸入概念")
