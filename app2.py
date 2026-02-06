@@ -268,7 +268,7 @@ def main_app():
                     """
                     api_key = st.secrets.get("GEMINI_API_KEY")
                     genai.configure(api_key=api_key)
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     try:
                         response = model.generate_content(sys_prompt)
                         res_text = response.text
