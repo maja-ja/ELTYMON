@@ -84,19 +84,24 @@ def ai_generate_question_from_db(db_row):
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的題目。
     
+    【重要規範】：
+    1. 所有的數學符號、座標、公式、根號、分數，必須使用 LaTeX 格式並用單個錢字號包裹。
+       例如：$(0,0)$、$\sqrt{{3}}$、$\frac{{\pi}}{{3}}$、$x^2$。
+    2. 題目必須包含「情境描述」與「題目內容」。
+    
     資料內容：
     概念：{db_row['word']} | 科目：{db_row['category']}
-    定義：{db_row['definition']} | 核心邏輯：{db_row['roots']}
+    定義：{db_row['definition']}
     
     要求輸出 JSON 格式：
     {{
         "concept": "{db_row['word']}",
         "subject": "{db_row['category']}",
         "q_type": "素養選擇題",
-        "listening_script": "（若是英文科請提供對話腳本，其餘填無）",
-        "content": "### 📝 情境描述\\n[設計一個生活情境]\\n\\n### ❓ 題目\\n[問題內容]\\n(A)選項\\n(B)選項\\n(C)選項\\n(D)選項",
-        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[用學長的口吻解釋為什麼選這個，並指出陷阱]",
-        "translation": "（若是英文科請提供情境翻譯，其餘填無）"
+        "listening_script": "無",
+        "content": "### 📝 情境描述\\n[情境文字]\\n\\n### ❓ 題目\\n[題目文字]\\n(A) [選項]\\n(B) [選項]",
+        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[解析]",
+        "translation": "無"
     }}
     """
     try:
@@ -218,17 +223,15 @@ def main_app():
             filtered_q = q_df if concept_filter == "全部" else q_df[q_df['concept'] == concept_filter]
             
             for _, row in filtered_q.iterrows():
-                with st.container():
-                    st.markdown(f"**【{row['subject']}】{row['concept']}**")
-                    st.markdown(f'<div class="q-box">{row["content"]}</div>', unsafe_allow_html=True)
+                with st.container(border=True):
+                    # 使用 st.markdown 直接渲染，這樣 $...$ 才會被識別為 LaTeX
+                    st.markdown(row["content"]) 
                     
                     with st.expander("🔓 查看答案與防呆解析"):
                         if row['translation'] != "無":
                             st.caption("🌐 中文翻譯")
-                            st.write(row['translation'])
+                            st.markdown(row['translation'])
                         st.success(row['answer_key'])
-                    st.divider()
-
     elif choice == "🧪 考題開發" and st.session_state.role == "admin":
         st.title("🧪 AI 考題開發 (上帝模式)")
         if c_df.empty:
