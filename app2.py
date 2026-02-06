@@ -95,7 +95,7 @@ def ai_explain_from_db(db_row):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return "❌ 找不到 API Key"
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     context = f"""
     概念：{db_row['word']} | 定義：{db_row['definition']}
