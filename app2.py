@@ -42,14 +42,27 @@ def load_db(sheet_name):
 def save_to_db(new_data, sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # 1. 讀取現有資料
         df = conn.read(worksheet=sheet_name, ttl=0)
-        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+        
+        # 2. 準備新資料
+        new_row = pd.DataFrame([new_data])
+        new_row['created_at'] = datetime.now().strftime("%Y-%m-%d")
+        
+        # 3. 合併資料
+        # 如果原本是空的，直接用新資料；否則合併
+        if df.empty or (len(df.columns) == 1 and df.columns[0] == '無'):
+            updated_df = new_row
+        else:
+            updated_df = pd.concat([df, new_row], ignore_index=True)
+        
+        # 4. 寫入雲端
         conn.update(worksheet=sheet_name, data=updated_df)
         return True
-    except: return False
-
-
+    except Exception as e:
+        # 這行非常重要，它會告訴你為什麼失敗 (例如：Permission denied 或 Worksheet not found)
+        st.error(f"❌ 存檔至 {sheet_name} 失敗：{str(e)}")
+        return False
 def update_user_data(username, column, value):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
