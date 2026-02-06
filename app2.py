@@ -185,6 +185,12 @@ def login_page():
 # 6. 主程式內容
 # ==========================================
 def main_app():
+    # 安全檢查：如果身分不是 admin 或 student，直接踢出去
+    if st.session_state.get("role") not in ["admin", "student"]:
+        st.error("🚨 未經授權的存取！請重新登入。")
+        st.session_state.logged_in = False
+        time.sleep(2)
+        st.rerun
     inject_css()
     
     # 讀取資料庫
