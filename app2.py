@@ -41,14 +41,14 @@ def load_db(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
-
-        # 強制修復欄位缺失問題
+        
         if sheet_name == "users":
-            expected_cols = ['username', 'password', 'role', 'can_chat', 'ai_usage', 'created_at','membership']
+            # 強制檢查必要欄位
+            expected_cols = ['username', 'password', 'role', 'membership', 'ai_usage', 'created_at']
             for col in expected_cols:
-                if col not in df.columns: df[col] = 0 if col == 'ai_usage' else "無"
-            df['ai_usage'] = pd.to_numeric(df['ai_usage'], errors='coerce').fillna(0)
-
+                if col not in df.columns:
+                    # 如果沒這欄，自動補上預設值
+                    df[col] = "free" if col == "membership" else (0 if col == "ai_usage" else "無")
         return df.fillna("無")
     except:
         return pd.DataFrame()
@@ -491,9 +491,23 @@ def login_page():
                 new_p = st.text_input("設定密碼", type="password")
                 admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
                 if st.form_submit_button("完成註冊"):
-                    role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
-                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "can_chat": "FALSE", "membership": "free"}, "users"):
-                        st.success(f"註冊成功！身分：{role}。請登入。")
+                    # 判斷身分
+                    is_admin = admin_code == st.secrets.get("ADMIN_PASSWORD")
+                    role = "admin" if is_admin else "student"
+                    # 管理員註冊預設就是 pro 等級，一般人是 free
+                    membership = "pro" if is_admin else "free"
+                    
+                    user_data = {
+                        "username": new_u, 
+                        "password": hash_password(new_p), 
+                        "role": role, 
+                        "membership": membership, # 👈 確保這行有寫入
+                        "ai_usage": 0, 
+                        "can_chat": "FALSE"
+                    }
+                    
+                    if save_to_db(user_data, "users"):
+                        st.success(f"註冊成功！身分：{role}。請切換至登入分頁。")
 
     with col2:
         st.markdown("---")
