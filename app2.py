@@ -236,9 +236,8 @@ def show_concept(row):
 def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
     """
     在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能。
-    參數 filename: 下載時的檔案名稱 (例如: "光電效應_重點筆記.pdf")
+    包含「美顏濾鏡」：強制轉為白底黑字文件格式。
     """
-    # 將檔名轉為 JSON 字串格式，確保特殊字元或中文不會導致 JS 錯誤
     js_filename = json.dumps(filename, ensure_ascii=False)
 
     pdf_export_html = f"""
@@ -247,19 +246,14 @@ def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
         function createPdfButton() {{
             const parentDoc = window.parent.document;
             
-            // 1. 先移除舊按鈕 (確保檔名更新時按鈕也會更新)
             const existingBtn = parentDoc.getElementById('export-pdf-btn');
-            if (existingBtn) {{
-                existingBtn.remove();
-            }}
+            if (existingBtn) existingBtn.remove();
 
-            // 2. 創建新按鈕
             const btn = parentDoc.createElement("button");
             btn.id = "export-pdf-btn";
             btn.innerHTML = "📄";
-            btn.title = "下載本頁為 PDF";
+            btn.title = "下載精美講義";
             
-            // 3. 設定樣式 (右下角懸浮)
             Object.assign(btn.style, {{
                 position: "fixed",
                 bottom: "30px",
@@ -272,59 +266,132 @@ def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
                 border: "none",
                 fontSize: "24px",
                 cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                boxShadow: "0 4px 15px rgba(99, 102, 241, 0.4)",
                 zIndex: "999999",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                transition: "background 0.3s"
+                transition: "all 0.3s ease"
             }});
 
-            // 4. 互動效果
-            btn.onmouseover = function() {{ this.style.backgroundColor = "#4f46e5"; }};
-            btn.onmouseout = function() {{ this.style.backgroundColor = "#6366f1"; }};
+            btn.onmouseover = function() {{ 
+                this.style.backgroundColor = "#4f46e5"; 
+                this.style.transform = "scale(1.1)";
+            }};
+            btn.onmouseout = function() {{ 
+                this.style.backgroundColor = "#6366f1"; 
+                this.style.transform = "scale(1)";
+            }};
 
-            // 5. 點擊事件
             btn.onclick = function() {{
-                // 暫時隱藏按鈕與側邊欄
-                btn.style.display = 'none';
-                const sidebar = parentDoc.querySelector('[data-testid="stSidebar"]');
-                if (sidebar) sidebar.style.display = 'none';
+                // 1. 顯示載入狀態
+                btn.innerHTML = "⏳";
+                btn.disabled = true;
 
-                // 抓取主要內容區
-                const element = parentDoc.querySelector('[data-testid="stAppViewContainer"]');
+                // 2. 複製要輸出的內容 (避免破壞原始網頁顯示)
+                const originalElement = parentDoc.querySelector('[data-testid="stAppViewContainer"]');
+                const clone = originalElement.cloneNode(true);
 
-                // 設定 PDF 參數，這裡使用傳入的 js_filename
+                // 3. 創建一個「列印專用容器」
+                const printContainer = parentDoc.createElement('div');
+                printContainer.id = 'print-container';
+                printContainer.appendChild(clone);
+                
+                // 4. 注入「美顏」CSS (強制白底黑字、隱藏雜訊)
+                const style = parentDoc.createElement('style');
+                style.innerHTML = `
+                    #print-container {{
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        background-color: #ffffff !important;
+                        color: #000000 !important;
+                        padding: 20px;
+                        z-index: -1; /* 隱藏在背景處理 */
+                        font-family: "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+                    }}
+                    /* 隱藏不必要的元素 */
+                    #print-container header, 
+                    #print-container [data-testid="stSidebar"], 
+                    #print-container .stSelectbox, 
+                    #print-container button,
+                    #print-container [data-testid="stToolbar"] {{
+                        display: none !important;
+                    }}
+                    /* 標題美化 */
+                    #print-container h1, #print-container h2, #print-container h3 {{
+                        color: #1e3a8a !important; /* 深藍色標題 */
+                        border-bottom: 2px solid #e5e7eb;
+                        padding-bottom: 10px;
+                        margin-top: 20px;
+                    }}
+                    /* 文字顏色強制轉黑 */
+                    #print-container p, #print-container li, #print-container span, #print-container div {{
+                        color: #1f2937 !important; /* 深灰色內文 */
+                        line-height: 1.6;
+                    }}
+                    /* 數學公式 LaTeX 顏色 */
+                    #print-container .katex {{
+                        color: #000000 !important;
+                    }}
+                    /* 修正卡片樣式 (原本是深色背景的卡片) */
+                    #print-container .card {{
+                        background: #f3f4f6 !important; /* 淺灰底 */
+                        border: 1px solid #d1d5db !important;
+                        color: #000000 !important;
+                        box-shadow: none !important;
+                        border-left: 5px solid #6366f1 !important;
+                    }}
+                    /* 提示框美化 */
+                    #print-container .stAlert {{
+                        background-color: #f9fafb !important;
+                        border: 1px solid #e5e7eb !important;
+                        color: #000000 !important;
+                    }}
+                `;
+                printContainer.appendChild(style);
+                parentDoc.body.appendChild(printContainer);
+
+                // 5. 設定 PDF 參數
                 const opt = {{
-                    margin: [5, 5, 5, 5],
-                    filename: {js_filename}, 
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ scale: 2, useCORS: true, logging: false }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                    margin: [15, 15, 15, 15],
+                    filename: {js_filename},
+                    image: {{ type: 'jpeg', quality: 1.0 }},
+                    html2canvas: {{ 
+                        scale: 2, 
+                        useCORS: true, 
+                        logging: false,
+                        backgroundColor: "#ffffff" // 強制 canvas 背景白
+                    }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }} // 避免切斷文字
                 }};
 
-                // 執行轉換
-                // 注意：這裡是調用 iframe 內的 html2pdf 處理 parent 的 element
-                html2pdf().set(opt).from(element).save().then(function() {{
-                    btn.style.display = 'flex';
-                    if (sidebar) sidebar.style.display = 'block';
+                // 6. 執行轉換
+                html2pdf().set(opt).from(printContainer).save().then(function() {{
+                    // 清理戰場
+                    parentDoc.body.removeChild(printContainer);
+                    btn.innerHTML = "📄";
+                    btn.disabled = false;
                 }}).catch(function(err) {{
-                    console.error('PDF Error:', err);
-                    btn.style.display = 'flex';
-                    if (sidebar) sidebar.style.display = 'block';
+                    console.error(err);
+                    if(document.getElementById('print-container')) {{
+                        parentDoc.body.removeChild(printContainer);
+                    }}
+                    btn.innerHTML = "❌";
+                    setTimeout(() => btn.innerHTML = "📄", 2000);
+                    btn.disabled = false;
                 }});
             }};
 
             parentDoc.body.appendChild(btn);
         }}
 
-        // 延遲執行以確保 DOM 載入
         setTimeout(createPdfButton, 1000);
     </script>
     """
-    # 這裡 height=0 是正確的，因為我們用 JS 把按鈕搬運到外層了
     st.components.v1.html(pdf_export_html, height=0)
-
 # ==========================================
 # 5. 登入頁面
 # ==========================================
