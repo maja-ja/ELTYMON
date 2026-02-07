@@ -705,7 +705,7 @@ def main_app():
             st.info("尚無戰績，快去隨機驗收刷一波！")
 
     # E. 預埋考點 (管理員 - Temp 0.5)
-    elif choice == "🔬 預埋考點" and st.session_state.role == "admin" or "pro":
+     elif choice == "🔬 預埋考點" and (st.session_state.role == "admin" or user_row.iloc[0].get('membership', 'free') == 'pro'):
         st.title("🔬 AI 考點預埋 (上帝模式)")
         c1, c2 = st.columns([3, 1])
         inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
@@ -741,7 +741,7 @@ def main_app():
                     st.rerun()
 
     # F. 考題開發 (管理員)
-    elif choice == "🧪 考題開發" and st.session_state.role == "admin" or "pro":
+    elif choice == "🧪 考題開發" and (st.session_state.role == "admin" or user_row.iloc[0].get('membership', 'free') == 'pro'):
         st.title("🧪 AI 考題開發")
         if c_df.empty: st.warning("請先預埋考點")
         else:
@@ -770,15 +770,22 @@ def main_app():
                     st.rerun()
     # G. 使用者管理 (管理員)
     elif choice == "👤 使用者管理" and st.session_state.role == "admin":
-        st.title("👤 使用者權限與能量管理")
+        st.title("👤 使用者管理")
         for i, row in users_df.iterrows():
             if row['role'] == "admin": continue
-            c1, c2, c3 = st.columns([2, 2, 1])
+            c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
             c1.write(f"**{row['username']}**")
-            c2.write(f"已用能量：{row['ai_usage']}")
-            if c3.button("能量補滿", key=f"reset_{i}"):
-                update_user_data(row['username'], "ai_usage", 0)
-                st.rerun()
+            c2.write(f"等級：{row['membership']}")
+            
+            # 升級 PRO 按鈕
+            if row['membership'] == 'free':
+                if c3.button("升級 PRO", key=f"up_{i}"):
+                    update_user_data(row['username'], "membership", "pro")
+                    st.rerun()
+            else:
+                if c3.button("降級 FREE", key=f"down_{i}"):
+                    update_user_data(row['username'], "membership", "free")
+                    st.rerun()
 
 # ==========================================
 # 7. 執行入口
