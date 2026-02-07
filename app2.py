@@ -506,6 +506,7 @@ def main_app():
     # B. AI 邏輯補給站 (生內容 + PDF)
     elif choice == "🧪 AI 邏輯補給站":
         st.title("🧪 AI 邏輯補給站")
+        
         if not is_admin:
             st.markdown(f'<div class="quota-box"><h4>🔋 剩餘教學能量：{max(0, 10 - ai_usage)} / 10</h4></div>', unsafe_allow_html=True)
 
@@ -515,25 +516,32 @@ def main_app():
             concept_list = c_df['word'].unique().tolist() if not c_df.empty else []
             selected = st.selectbox("選擇你想秒懂的概念：", ["--- 請選擇 ---"] + concept_list)
             
+            # 1. 點擊生成按鈕
             if selected != "--- 請選擇 ---":
                 db_row = c_df[c_df['word'] == selected].iloc[0]
                 if st.button("🚀 啟動學長深度教學", use_container_width=True):
                     with st.spinner(f"正在解析「{selected}」的底層邏輯..."):
-                        # 免費版使用 free 線路
+                        # 呼叫 AI
                         explanation = ai_explain_from_db(db_row)
-                        st.markdown("---")
-                        st.markdown(explanation)
+                        # 將結果存入 session_state 確保重新整理後還在
+                        st.session_state.current_explanation = explanation
+                        st.session_state.current_selected = selected
                         
                         if not is_admin:
                             update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
-                        
-                        if explanation:
-                            # 觸發精美 PDF 匯出
-                            add_pdf_export_button(
-                                filename=f"{selected}_複習筆記.pdf", 
-                                title=selected, 
-                                content=explanation
-                            )
+                            st.toast("消耗 1 點能量", icon="🔋")
+
+            # 2. 只要 session_state 裡有內容，就顯示出來
+            if "current_explanation" in st.session_state and st.session_state.current_selected == selected:
+                st.markdown("---")
+                st.markdown(st.session_state.current_explanation)
+                
+                # 在這裡呼叫 PDF 按鈕，它就不會因為頁面重新整理而不見了
+                add_pdf_export_button(
+                    filename=f"{selected}_複習筆記.pdf", 
+                    title=selected, 
+                    content=st.session_state.current_explanation
+                )
 
     # E. 預埋考點 (PRO/ADMIN 貢獻模式)
     elif choice == "🔬 預埋考點" and (is_admin or is_pro):
