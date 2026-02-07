@@ -120,16 +120,21 @@ def show_concept(row):
     st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="float:right;color:gray;">{contrib}</span>
     <h2>{row['word']}</h2><p><b>💡 秒懂：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
-    with c1: st.info(f"🧬 **核心邏輯**\n\n{row['roots']}"); st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
-    with c2: st.warning(f"🚩 **雷區**\n\n{row['native_vibe']}"); with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
-
+    with c1:
+        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
+        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
+    with c2:
+        st.warning(f"🚩 **雷區**\n\n{row['native_vibe']}")
+        with st.expander("🔍 詳細拆解"):
+            st.write(row['breakdown'])
 def show_pro_paper_with_download(title, content):
     js_title, js_content = json.dumps(title, ensure_ascii=False), json.dumps(content, ensure_ascii=False)
     div_id = f"paper_{int(time.time())}"
     html_code = f"""
     <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:20px; border-radius:15px; border:1px solid #333; color:white;">
-        <div id="{div_id}_content">載入中...</div>
-        <hr><button id="{div_id}_btn" style="width:100%; padding:12px; background:#6366f1; color:white; border:none; border-radius:10px; cursor:pointer;">📥 下載精美講義 (PDF)</button>
+        <div id="{div_id}_content" style="margin-bottom:20px;">載入中...</div>
+        <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
+        <button id="{div_id}_btn" style="width:100%; padding:12px; background:#6366f1; color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold;">📥 下載此篇精美講義 (PDF)</button>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -142,16 +147,41 @@ def show_pro_paper_with_download(title, content):
             const display = document.getElementById("{div_id}_content");
             display.innerHTML = marked.parse(content);
             renderMathInElement(display, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
+            
             document.getElementById("{div_id}_btn").onclick = function() {{
+                this.innerHTML = "⏳ 正在排版...";
                 const container = document.createElement('div');
-                container.style.cssText = "width:210mm; background:white; color:black; padding:20mm; font-family:sans-serif;";
-                container.innerHTML = `<h1 style="color:#1e3a8a; border-bottom:2px solid #6366f1;">⚡ 116 講義: ${{title}}</h1><br>${{marked.parse(content)}}`;
+                container.style.cssText = "width:210mm; background:white; color:black; padding:25mm; font-family:sans-serif;";
+                container.innerHTML = `
+                    <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
+                        <h1 style="color:#1e3a8a; margin:0;">⚡ 116 數位戰情室</h1>
+                        <p style="color:#666; margin:5px 0;">主題：${{title}} | 專屬複習講義</p>
+                    </div>
+                    <div style="line-height:1.8; font-size:14px;">${{marked.parse(content)}}</div>
+                    <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
+                        Kadowsella 116 AI 內部資料
+                    </div>
+                `;
+                document.body.appendChild(container);
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
-                html2pdf().set({{ margin:10, filename: title+".pdf", jsPDF:{{format:'a4'}} }}).from(container).save();
+                
+                const opt = {{
+                    margin: 0,
+                    filename: title + "_116講義.pdf",
+                    image: {{ type: 'jpeg', quality: 1 }},
+                    html2canvas: {{ scale: 2, useCORS: true }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                }};
+                
+                html2pdf().set(opt).from(container).save().then(() => {{
+                    document.body.removeChild(container);
+                    this.innerHTML = "📥 下載完成！";
+                    setTimeout(() => this.innerHTML = "📥 下載此篇精美講義 (PDF)", 3000);
+                }});
             }};
         }})();
     </script>"""
-    st.components.v1.html(html_code, height=500, scrolling=True)
+    st.components.v1.html(html_code, height=600, scrolling=True)
 
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
