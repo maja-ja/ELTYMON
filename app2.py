@@ -205,101 +205,56 @@ def show_pro_paper_with_download(title, content):
         <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
         <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px;">📥 下載精美複習講義 (PDF)</button>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
     <script>
         (function() {{
-            const content = {js_content}; 
-            const title = {js_title};
+            const content = {js_content}; const title = {js_title};
             const display = document.getElementById("{div_id}_content");
-            
-            // 設定 Markdown 解析
             display.innerHTML = marked.parse(content);
             renderMathInElement(display, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
             
             document.getElementById("{div_id}_btn").onclick = function() {{
-                const btn = this;
-                btn.innerHTML = "⏳ 正在排版並產生 PDF...";
-                btn.disabled = true;
-
-                // 建立隱藏的 PDF 容器
+                this.innerHTML = "⏳ 正在排版...";
                 const container = document.createElement('div');
-                container.style.position = 'fixed';
-                container.style.left = '-9999px';
-                container.style.top = '0';
-                container.style.width = '190mm'; // 略小於 A4 寬度以確保安全邊距
-                container.style.background = 'white';
-                container.style.color = 'black';
-                container.style.boxSizing = 'border-box';
-                
-                // 加入專為 PDF 優化的 CSS
+                // 調參1：調整寬度為 170mm 並設定 box-sizing 確保 padding 不會撐開寬度
+                container.style.cssText = "width:170mm; background:white; color:black; padding:15mm; font-family:sans-serif; box-sizing:content-box; position:absolute; left:0; top:0; z-index:-1;";
                 container.innerHTML = `
-                    <style>
-                        .pdf-body {{ font-family: "Microsoft JhengHei", sans-serif; padding: 20px; }}
-                        .pdf-header {{ border-left: 8px solid #6366f1; padding-left: 20px; margin-bottom: 30px; }}
-                        h1 {{ color: #1e3a8a; font-size: 24pt; margin: 0; }}
-                        h2 {{ border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 20px; color: #333; }}
-                        p, li {{ line-height: 1.8; font-size: 11pt; text-align: justify; }}
-                        table {{ width: 100%; border-collapse: collapse; margin: 15px 0; }}
-                        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-                        th {{ background-color: #f8f9fa; }}
-                        code {{ background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: monospace; }}
-                        img {{ max-width: 100%; height: auto; }}
-                        .footer {{ margin-top: 50px; border-top: 1px dashed #ccc; padding-top: 10px; text-align: center; color: #999; font-size: 9pt; }}
-                        .katex-display {{ margin: 1em 0; overflow-x: hidden; overflow-y: hidden; }}
-                    </style>
-                    <div class="pdf-body">
-                        <div class="pdf-header">
-                            <h1>⚡ 116 級數位戰情室</h1>
-                            <p style="color:#666; margin:5px 0; font-size:12pt;">重點主題：${{title}} | 專屬複習講義</p>
-                        </div>
-                        <div class="pdf-content">${{marked.parse(content)}}</div>
-                        <div class="footer">
-                            Kadowsella 116 AI 模組化知識庫 | 此份文件僅供內部學習使用 | 生成時間：${{new Date().toLocaleString()}}
-                        </div>
+                    <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
+                        <h1 style="color:#1e3a8a; margin:0; font-size:28px;">⚡ 116 級數位戰情室</h1>
+                        <p style="color:#666; margin:5px 0; font-size:16px;">重點主題：${{title}} | 專屬複習講義</p>
+                    </div>
+                    <div style="line-height:1.8; font-size:14px; word-wrap:break-word;">${{marked.parse(content)}}</div>
+                    <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
+                        Kadowsella 116 AI 模組化知識庫 | 此份文件僅供內部學習使用
                     </div>
                 `;
-                
                 document.body.appendChild(container);
-
-                // 渲染數學公式
-                renderMathInElement(container, {{ 
-                    delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
-                }});
-
-                // 設定 html2pdf 選項
-                const opt = {{
-                    margin: [15, 15, 15, 15], // 上, 左, 下, 右 的邊距 (mm)
-                    filename: title + "_116講義.pdf",
-                    image: {{ type: 'jpeg', quality: 0.98 }},
+                renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
+                
+                // 調參2：margin 設定為 10, html2canvas 加入 scrollY:0 與 windowWidth
+                html2pdf().set({{ 
+                    margin: 10, 
+                    filename: title+"_116講義.pdf", 
+                    image: {{type:'jpeg', quality:1}}, 
                     html2canvas: {{ 
                         scale: 2, 
                         useCORS: true, 
-                        letterRendering: true,
-                        scrollY: 0
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }} // 防止元件被切斷
-                }};
-
-                // 等待圖片與 KaTeX 渲染的一小段時間後執行
-                setTimeout(() => {{
-                    html2pdf().set(opt).from(container).save().then(() => {{
-                        document.body.removeChild(container);
-                        btn.innerHTML = "📥 下載成功！";
-                        btn.disabled = false;
-                        setTimeout(() => {{ btn.innerHTML = "📥 下載精美複習講義 (PDF)"; }}, 3000);
-                    }});
-                }}, 500);
+                        scrollY: 0, 
+                        windowWidth: 1000 
+                    }}, 
+                    jsPDF: {{unit:'mm', format:'a4', orientation:'portrait'}} 
+                }})
+                .from(container).save().then(() => {{ 
+                    document.body.removeChild(container); 
+                    this.innerHTML = "📥 下載成功！"; 
+                }});
             }};
         }})();
-    </script>
-    """
+    </script>"""
     import streamlit.components.v1 as components
     components.html(html_code, height=600, scrolling=True)
 # ==========================================
