@@ -207,19 +207,20 @@ def show_pro_paper_with_download(title, content):
     div_id = f"paper_{int(time.time())}"
     
     html_code = f"""
-    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:25px; border-radius:15px; border:1px solid #333; color:white; margin:20px 0; font-family: sans-serif;">
-        <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6;">載入內容中...</div>
-        <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
-        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px;">📥 下載精美複習講義 (PDF)</button>
+    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:20px; border-radius:15px; border:1px solid #333; color:white; font-family:sans-serif;">
+        <!-- 預覽區：設定固定高度與捲動，防止撐破 Streamlit -->
+        <div id="{div_id}_content" style="height:400px; overflow-y:auto; margin-bottom:20px; padding:15px; background:#2d2d2d; border-radius:10px; line-height:1.6; border:1px solid #444;">
+            載入內容中...
+        </div>
+        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px; transition: 0.3s;">
+            📥 下載完整講義 (PDF)
+        </button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-    <!-- 使用最新穩定版 html2pdf -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
     <script>
@@ -228,7 +229,7 @@ def show_pro_paper_with_download(title, content):
             const title = {js_title};
             const display = document.getElementById("{div_id}_content");
             
-            // 渲染 Markdown
+            // 渲染預覽
             display.innerHTML = marked.parse(content);
             renderMathInElement(display, {{ 
                 delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
@@ -236,70 +237,58 @@ def show_pro_paper_with_download(title, content):
 
             document.getElementById("{div_id}_btn").onclick = async function() {{
                 const btn = this;
-                btn.innerHTML = "⏳ 正在排版 (請勿關閉)...";
+                btn.innerHTML = "⏳ 正在處理長文件...";
+                btn.style.opacity = "0.7";
                 btn.disabled = true;
 
-                // 創建一個完全可見但移出視區的容器
-                const container = document.createElement('div');
-                container.style.position = 'absolute';
-                container.style.left = '-9999px';
-                container.style.top = '0';
-                container.style.width = '700px'; // 固定的寬度有利於截圖
-                container.style.background = '#ffffff';
-                container.style.color = '#000000';
-                container.style.padding = '40px';
-                container.style.boxSizing = 'border-box';
+                // 創建一個「隱形但巨大」的容器來裝載所有內容
+                const printContainer = document.createElement('div');
+                printContainer.style.cssText = "position:absolute; left:-9999px; top:0; width:800px; background:white; color:black; padding:40px;";
                 
-                // 注入樣式與內容
-                container.innerHTML = `
-                    <div style="font-family: sans-serif; background: white;">
-                        <div style="border-left:10px solid #6366f1; padding-left:20px; margin-bottom:30px;">
-                            <h1 style="margin:0; color:#1e3a8a; font-size:28px;">⚡ 116 級數位戰情室</h1>
-                            <p style="color:#666; font-size:16px;">主題：${{title}}</p>
+                printContainer.innerHTML = `
+                    <div style="font-family: 'Microsoft JhengHei', sans-serif;">
+                        <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
+                            <h1 style="margin:0; color:#1e3a8a;">⚡ 116 級數位戰情室</h1>
+                            <p style="color:#666;">主題：${{title}}</p>
                         </div>
-                        <div id="pdf-render-area" style="font-size:15px; line-height:1.8;">
+                        <div style="font-size:16px; line-height:1.8;">
                             ${{marked.parse(content)}}
-                        </div>
-                        <div style="margin-top:50px; border-top:1px solid #eee; padding-top:10px; text-align:center; color:#bbb; font-size:12px;">
-                            Kadowsella 116 AI 模組化知識庫 | 僅供內部學習使用
                         </div>
                     </div>
                 `;
-                
-                document.body.appendChild(container);
+                document.body.appendChild(printContainer);
 
-                // 再次渲染數學公式
-                renderMathInElement(container, {{ 
+                // 渲染數學公式 (針對列印容器)
+                renderMathInElement(printContainer, {{ 
                     delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
                 }});
 
-                // 等待渲染完成
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                // 等待圖片與字體
                 await document.fonts.ready;
+                await new Promise(r => setTimeout(r, 1000));
 
                 const opt = {{
-                    margin: 10,
+                    margin: 15,
                     filename: title + ".pdf",
                     image: {{ type: 'jpeg', quality: 0.98 }},
                     html2canvas: {{ 
                         scale: 2, 
                         useCORS: true, 
                         logging: false,
-                        backgroundColor: '#ffffff', // 強制背景為白色，防止透明變黑或空白
                         scrollY: 0,
-                        windowWidth: 700
+                        windowWidth: 800 
                     }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
                     pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
                 }};
 
-                // 使用 html2pdf 的 worker 模式確保穩定性
-                html2pdf().set(opt).from(container).toPdf().get('pdf').save().then(() => {{
-                    document.body.removeChild(container);
+                // 執行下載
+                html2pdf().set(opt).from(printContainer).save().then(() => {{
+                    document.body.removeChild(printContainer);
                     btn.innerHTML = "📥 下載成功！";
                     btn.disabled = false;
+                    btn.style.opacity = "1";
                 }}).catch(err => {{
-                    console.error(err);
                     btn.innerHTML = "❌ 下載失敗";
                     btn.disabled = false;
                 }});
@@ -307,8 +296,8 @@ def show_pro_paper_with_download(title, content):
         }})();
     </script>
     """
-    # 這裡的 height 必須大於按鈕所在位置，建議給 800 以上
-    components.html(html_code, height=800, scrolling=True)
+    # 這裡的 height 只需要固定給 600 左右，因為內文會在裡面捲動
+    components.html(html_code, height=600)
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
 # ==========================================
