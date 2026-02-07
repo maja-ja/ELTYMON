@@ -93,33 +93,29 @@ def get_api_keys():
         return [keys]
     
     return keys if keys else []
-
 def robust_json_parse(json_str):
-    """
-    三階段 JSON 解析器：標準 -> 正則修復 -> Python AST
-    """
     if not json_str: return None
     
-    # 0. 基礎清理
-    json_str = json_str.replace("```json", "").replace("```", "").strip()
+    # 清理 Markdown 標記
+    json_str = re.sub(r'^```json\s*|```$', '', json_str.strip(), flags=re.MULTILINE)
     
-    # 1. 嘗試直接解析
     try:
         return json.loads(json_str)
-    except:
-        pass
-
-    # 2. 正則修復 (LaTeX 反斜線與引號)
-    fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
-    # 修復未加引號的鍵
-    fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', fixed_str)
-    # 修復單引號的鍵
-    fixed_str = re.sub(r"([{,]\s*)'([^']*)'\s*:", r'\1"\2":', fixed_str)
-
-    try:
-        return json.loads(fixed_str)
-    except:
-        pass
+    except json.JSONDecodeError:
+        # 核心修復：處理 LaTeX 中常見的單個反斜線
+        # 將不在轉義序列中的 \ 替換為 \\
+        fixed_str = re.sub(r'\\(?![nuartbf"\'\\/])', r'\\\\', json_str)
+        try:
+            return json.loads(fixed_str)
+        except:
+            # 最後一招：使用 ast 解析
+            try:
+                # 處理常見的 JSON 布林與空值轉 Python
+                safe_py = fixed_str.replace('true', 'True').replace('false', 'False').replace('null', 'None')
+                return ast.literal_eval(safe_py)
+            except Exception as e:
+                st.error(f"解析失敗：{e}")
+                return None
 
     # 3. AST 解析 (處理 Python 風格字典)
     py_str = json_str.replace("true", "True").replace("false", "False").replace("null", "None")
@@ -129,15 +125,11 @@ def robust_json_parse(json_str):
         print(f"JSON 解析最終失敗: {e}")
         return None
 
-def ai_generate_question_from_db(db_row):
-    """
-    (支援多 Key 輪替) 根據資料庫生成題目
-    """
-    all_keys = get_api_keys()
+def ai_generate_question_from_db(db_row, api_key=None): # 新增 api_key 參數
+    all_keys = [api_key] if api_key else get_api_keys()
     if not all_keys:
-        st.error("❌ 找不到 API Keys，請檢查 secrets.toml")
+        st.error("❌ 找不到 API Keys")
         return None
-
     # 隨機打亂順序，實現負載平衡
     random.shuffle(all_keys)
 
@@ -689,13 +681,11 @@ def main_app():
             
      # E. 預埋考點 (管理員 & PRO 會員解鎖)
     elif choice == "🔬 預埋考點":
-        # 權限檢查邏輯優化
         is_admin = st.session_state.get('role') == "admin"
         is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
     
         if is_admin or is_pro:
-            st.title("🔬 AI 考點預埋 (工程師/PRO 模式)")
-            
+            st.title("🔬 AI 考點預埋")
             c1, c2 = st.columns([3, 1])
             inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
             sub = c2.selectbox("所屬科目", SUBJECTS)
@@ -705,73 +695,38 @@ def main_app():
                     st.warning("請先輸入概念名稱！")
                 else:
                     with st.spinner(f"正在拆解「{inp}」..."):
-                        # 選擇正確的 API Key
-                        target_key = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
-                        api_key = st.secrets.get(target_key)
+                        target_key_name = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
+                        api_key = st.secrets.get(target_key_name)
                         
                         if not api_key:
-                            st.error(f"找不到 API Key: {target_key}，請檢查 Secrets 設定。")
-                            st.stop()
-                        
-                        # 配置 AI
+                            api_key = get_api_keys()[0] # 備案
+
                         genai.configure(api_key=api_key)
-                        # 修正模型名稱
-                        model = genai.GenerativeModel('gemini-2.5-flash') 
+                        model = genai.GenerativeModel('gemini-2.5-flash') # 建議用 2.5 系列
                         
-                        sys_prompt = f"""
-                        你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。
-                        請嚴格遵守以下 JSON 格式輸出：
-                        {{
-                            "roots": "核心公式(LaTeX)或字源邏輯",
-                            "definition": "108 課綱標準定義",
-                            "breakdown": "條列式重點拆解(使用 \\n 換行)",
-                            "memory_hook": "創意口訣或諧音聯想",
-                            "native_vibe": "學長姐叮嚀",
-                            "star": 5
-                        }}
-                        """
+                        sys_prompt = f"""請針對「{sub}」的概念「{inp}」進行深度解析。
+                        必須嚴格以 JSON 格式回傳，LaTeX 公式務必使用雙反斜線轉義。"""
                         
-                        try:
-                            response = model.generate_content(sys_prompt)
-                            res_text = response.text
-                            
-                            # 使用正規表達式提取 JSON 部分
-                            match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                            if match:
-                                res_data = json.loads(match.group(0))
-                                res_data.update({"word": inp, "category": sub})
-                                st.session_state.temp_concept = res_data
-                                st.success("解析完成！已存入暫存區。")
-                                st.json(res_data) # 預覽結果
-                            else:
-                                st.error("AI 回傳格式不符，請再試一次。")
-                        except Exception as e:
-                            st.error(f"AI 生成失敗: {e}")
-        else:
-            st.error("此功能僅限 PRO 會員或管理員使用。")
+                        response = model.generate_content(sys_prompt)
+                        # 使用強健解析
+                        res_data = robust_json_parse(response.text)
+                        
+                        if res_data:
+                            res_data.update({"word": inp, "category": sub})
+                            st.session_state.temp_concept = res_data
+                            st.success("解析完成！")
+                            show_concept(res_data) # 顯示預覽
+                        else:
+                            st.error("AI 回傳格式解析失敗。內容如下：")
+                            st.code(response.text)
+
+            # 儲存按鈕邏輯
             if "temp_concept" in st.session_state:
-                show_concept(st.session_state.temp_concept)
-                
-                # --- 關鍵修改 1: 獲取貢獻者名稱 ---
-                contributor_name = st.session_state.username # 登入者就是貢獻者
-                
-                if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
-                    if save_to_db(st.session_state.temp_concept, "Sheet1"):
-                        st.balloons()
-                        del st.session_state.temp_concept
-                        st.rerun()
-                    # 這裡需要修改 save_to_db 邏輯或直接在外部處理儲存資料
-                    
-                    # 因為你用的是 streamlit_gsheets 函式庫，通常需要修改 save_to_db 讓它能接受額外欄位
-                    # 在此假設 save_to_db 可以接受 'contributor' 欄位
-                    # *** (請確保你的 save_to_db 邏輯有更新，能寫入 contributor 欄位) ***
-                    
-                    # 修正：直接在儲存前把 contributor 資訊加到資料字典裡
+                if st.button("💾 存入雲端資料庫", type="primary"):
                     data_to_save = st.session_state.temp_concept.copy()
-                    data_to_save['contributor'] = contributor_name # 填入使用者名稱
-                    
+                    data_to_save['contributor'] = st.session_state.username
                     if save_to_db(data_to_save, "Sheet1"):
-                        st.balloons()
+                        st.success("已成功存入！")
                         del st.session_state.temp_concept
                         st.rerun()
 
