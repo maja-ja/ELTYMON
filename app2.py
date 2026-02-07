@@ -169,13 +169,22 @@ def ai_generate_question_from_db(db_row, api_key=None): # 新增 api_key 參數
             response = model.generate_content(prompt)
             res_text = response.text
             match = re.search(r'\{.*\}', res_text, re.DOTALL)
-            
             if match:
-                return robust_json_parse(match.group(0))
-            else:
-                print(f"Key ...{key[-4:]} 生成格式錯誤，嘗試下一個 Key")
-                continue # 格式錯了換下一個試試
-
+                # 使用你之前寫的 robust_json_parse
+                res_data = robust_json_parse(match.group(0))
+                
+                if isinstance(res_data, dict):
+                    # 強制補齊欄位，確保 show_concept 不會噴錯
+                    res_data.update({"word": inp, "category": sub})
+                    
+                    # 存入 session_state
+                    st.session_state.temp_concept = res_data
+                    
+                    st.success("解析完成！")
+                    # 呼叫修正後的函式
+                    show_concept(res_data) 
+                else:
+                    st.error("JSON 解析後不是字典格式")
         except Exception as e:
             last_error = e
             print(f"⚠️ Key ...{key[-4:]} 失敗: {e} -> 切換下一個")
@@ -270,15 +279,34 @@ def inject_css():
     """, unsafe_allow_html=True)
 
 def show_concept(row):
-    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
-    <h2 style="margin-top:10px;">{row['word']}</h2><p><b>💡 秒懂定義：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
+    # 使用 .get() 並提供預設值，避免 KeyError
+    category = row.get('category', '一般')
+    star_count = int(row.get('star', 3))
+    word = row.get('word', '未命名概念')
+    definition = row.get('definition', '暫無定義')
+    roots = row.get('roots', '無')
+    hook = row.get('memory_hook', '無')
+    vibe = row.get('native_vibe', '無')
+    breakdown = row.get('breakdown', '無')
+
+    # 使用 st.markdown 渲染 HTML 時，先處理定義內容
+    st.markdown(f"""
+        <div class="card">
+            <span class="tag">{category}</span> 
+            <span style="color:#f59e0b;">{'★' * star_count}</span>
+            <h2 style="margin-top:10px;">{word}</h2>
+            <p><b>💡 秒懂定義：</b>{definition}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
     c1, c2 = st.columns(2)
     with c1:
-        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
-        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
+        st.info(f"🧬 **核心邏輯**\n\n{roots}")
+        st.success(f"🧠 **記憶點**\n\n{hook}")
     with c2:
-        st.warning(f"🚩 **學長姐雷區**\n\n{row['native_vibe']}")
-        with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
+        st.warning(f"🚩 **學長姐雷區**\n\n{vibe}")
+        with st.expander("🔍 詳細拆解"): 
+            st.write(breakdown)
 
 # ==========================================
 # 4.5. 新增：PDF 匯出功能 ( now accepts filename )
