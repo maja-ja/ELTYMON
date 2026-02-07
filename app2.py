@@ -98,13 +98,82 @@ def ai_call(system_instruction, user_input="", temp=0.7, tier="free"):
     return "🚨 所有線路忙碌中"
 
 def ai_generate_question_from_db(db_row, tier="free"):
-    prompt = f"你現在是命題委員。請根據概念「{db_row['word']}」出題。要求：LaTeX 格式、情境化、JSON 輸出。"
-    return ai_call("JSON 格式輸出題目", prompt, tier=tier)
+    """
+    (支援多 Key 輪替) 你現在是台灣大考中心命題委員。
+    """
+    prompt = f"""
+    你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
+    
+    【參考資料】：
+    概念：{db_row['word']}
+    科目：{db_row['category']}
+    定義：{db_row['definition']}
+    核心邏輯：{db_row.get('roots', '無')}
+    
+    【重要規範】：
+    1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
+    2. 題目必須包含「情境描述」與「問題內容」。
+    
+    請嚴格輸出 JSON 格式：
+    {{
+        "concept": "{db_row['word']}",
+        "subject": "{db_row['category']}",
+        "q_type": "素養選擇題",
+        "listening_script": "無",
+        "content": "### 📝 情境描述\\n[情境文字]\\n\\n### ❓ 題目\\n[題目文字]\\n(A) [選項]\\n(B) [選項]\\n(C) [選項]\\n(D) [選項]",
+        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[解析內容]",
+        "translation": "無"
+    }}
+    """
+    return ai_call("你必須嚴格輸出標準 JSON 格式。", prompt, tier=tier)
+
+def ai_decode_concept(input_text, subject):
+    """
+    台大醫學系學霸深度拆解邏輯
+    """
+    sys_prompt = f"""
+    【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。
+    你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
+    請輸出 JSON：
+    {{ 
+        "roots": "核心公式(LaTeX)或字源邏輯", 
+        "definition": "一句話秒懂定義", 
+        "breakdown": "重點深度拆解(使用\\n換行)", 
+        "memory_hook": "諧音口訣或記憶點", 
+        "native_vibe": "學長姐血淚叮嚀/雷區警告", 
+        "star": 5 
+    }}
+    """
+    return ai_call(sys_prompt, temp=0.5, tier="paid") # 邏輯拆解用付費線路
 
 def ai_explain_from_db(db_row):
-    prompt = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']}。請深度教學。"
-    return ai_call(prompt, tier="free")
+    """
+    親切且邏輯清晰的台大學霸深度導讀
+    """
+    context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row.get('roots', '無')} | 口訣：{db_row.get('memory_hook', '無')}"
+    prompt = f"""
+    你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切、幽默且邏輯清晰。
+    
+    資料：{context}
+    
+    要求：
+    1. 所有的數學公式、符號、根號、座標，請務必使用 LaTeX 格式（單個 $ 包裹）。
+    2. 內容要包含：原理解析、生活實例、以及「為什麼考這個」。
+    3. 最後要有一個充滿能量的結語。
+    """
+    return ai_call(prompt, temp=0.7, tier="free")
 
+def ai_generate_social_post(concept_data):
+    """
+    Threads 發瘋的 116 技術宅 (脆文)
+    """
+    sys_prompt = f"""
+    你是一個在 Threads (脆) 上發瘋的 116 學測技術宅。
+    你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
+    請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。
+    多用💀、謝了、116、這邏輯絕了。
+    """
+    return ai_call(sys_prompt, str(concept_data), temp=1.5, tier="free")
 # ==========================================
 # 4. UI 與 PDF 組件
 # ==========================================
