@@ -265,13 +265,34 @@ def show_concept(row):
 # ==========================================
 # 4.5. 新增：PDF 匯出功能 ( now accepts filename )
 # ==========================================
-def add_pdf_export_button(filename="116講義.pdf", title="重點筆記", content=""):
-    import json
-    js_filename = json.dumps(filename, ensure_ascii=False)
+def show_pro_paper_with_download(title, content):
+    """
+    在網頁上直接顯示精美講義，並在下方附帶下載按鈕。
+    解決按鈕消失、LaTeX 不美觀、排版混亂三大問題。
+    """
     js_title = json.dumps(title, ensure_ascii=False)
     js_content = json.dumps(content, ensure_ascii=False)
+    
+    # 產生唯一的 ID 避免衝突
+    div_id = f"paper_{int(time.time())}"
 
-    pdf_html = f"""
+    html_code = f"""
+    <div id="{div_id}_wrapper" style="background: var(--secondary-background-color); padding: 20px; border-radius: 15px; border: 1px solid var(--border-color); margin: 20px 0;">
+        <!-- 內容顯示區 -->
+        <div id="{div_id}_content" style="color: inherit; font-family: inherit; line-height: 1.6;">
+            載入中...
+        </div>
+        
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+        
+        <!-- 下載按鈕 (直接長在內容下方) -->
+        <button id="{div_id}_btn" style="
+            width: 100%; padding: 12px; background-color: #6366f1; color: white; 
+            border: none; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold;
+        ">📥 下載此篇精美講義 (PDF)</button>
+    </div>
+
+    <!-- 載入必要函式庫 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -279,70 +300,60 @@ def add_pdf_export_button(filename="116講義.pdf", title="重點筆記", conten
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
     <script>
-        function createPdfButton() {{
-            const parentDoc = window.parent.document;
-            const existingBtn = parentDoc.getElementById('export-pdf-btn');
-            if (existingBtn) existingBtn.remove();
+        (function() {{
+            const rawContent = {js_content};
+            const title = {js_title};
+            const displayDiv = document.getElementById("{div_id}_content");
+            const btn = document.getElementById("{div_id}_btn");
 
-            const btn = parentDoc.createElement("button");
-            btn.id = "export-pdf-btn";
-            btn.innerHTML = "📄";
-            Object.assign(btn.style, {{
-                position: "fixed", bottom: "30px", right: "30px", width: "60px", height: "60px",
-                borderRadius: "50%", backgroundColor: "#6366f1", color: "white", border: "none",
-                fontSize: "24px", cursor: "pointer", boxShadow: "0 4px 15px rgba(0,0,0,0.3)", z-index: "999999"
+            // 1. 渲染畫面上的 Markdown 與 LaTeX
+            displayDiv.innerHTML = marked.parse(rawContent);
+            renderMathInElement(displayDiv, {{
+                delimiters: [
+                    {{left: "$$", right: "$$", display: true}},
+                    {{left: "$", right: "$", display: false}}
+                ]
             }});
 
+            // 2. 下載邏輯
             btn.onclick = function() {{
-                btn.innerHTML = "⏳";
-                const container = document.createElement('div');
-                container.style.cssText = "position:fixed; top:-9999px; width:210mm; background:white; padding:25mm; font-family:'Segoe UI', 'Microsoft JhengHei', sans-serif;";
-                
-                // 渲染 Markdown
-                const htmlBody = marked.parse({js_content});
+                btn.innerHTML = "⏳ 正在排版並生成 PDF...";
+                btn.disabled = true;
 
+                // 建立專屬排版容器
+                const container = document.createElement('div');
+                container.style.cssText = "width:210mm; background:white; color:black; padding:20mm; font-family:sans-serif;";
                 container.innerHTML = `
-                    <div style="border-left: 8px solid #6366f1; padding-left: 20px; margin-bottom: 30px;">
+                    <div style="border-left: 10px solid #6366f1; padding-left: 20px; margin-bottom: 30px;">
                         <h1 style="font-size: 28px; color: #1e3a8a; margin: 0;">⚡ 116 級數位戰情室</h1>
-                        <p style="font-size: 16px; color: #4b5563; margin: 5px 0;">專屬複習講義：${{{js_title}}}</p>
+                        <p style="font-size: 16px; color: #6b7280; margin: 5px 0;">學習重點：${{title}}</p>
                     </div>
-                    <div style="line-height: 1.8; font-size: 14px; color: #1f2937;">
-                        ${{htmlBody}}
-                    </div>
-                    <div style="margin-top: 50px; border-top: 1px dashed #d1d5db; padding-top: 10px; text-align: center; color: #9ca3af; font-size: 10px;">
-                        Kadowsella 116 AI 模組化知識庫 | 嚴禁未經授權翻印
-                    </div>
+                    <div style="font-size: 14px; line-height: 1.8;">${{marked.parse(rawContent)}}</div>
                 `;
-                
-                // 專屬 CSS
-                const style = document.createElement('style');
-                style.innerHTML = `
-                    h1, h2 {{ color: #1e3a8a; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px; margin-top: 30px; }}
-                    strong {{ color: #6366f1; }}
-                    blockquote {{ background: #f9fafb; border-left: 5px solid #6366f1; padding: 15px; margin: 20px 0; font-style: italic; }}
-                    code {{ background: #f3f4f6; padding: 2px 5px; border-radius: 4px; color: #eb4432; }}
-                `;
-                container.appendChild(style);
                 document.body.appendChild(container);
 
-                // 渲染數學公式
+                // 再次渲染 PDF 內的數學公式
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
 
-                html2pdf().set({{ 
-                    margin: 0, filename: {js_filename}, image: {{ type: 'jpeg', quality: 1 }},
+                const opt = {{
+                    margin: 10, filename: title + "_116重點.pdf",
+                    image: {{ type: 'jpeg', quality: 1 }},
                     html2canvas: {{ scale: 2, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }}).from(container).save().then(() => {{
+                }};
+
+                html2pdf().set(opt).from(container).save().then(() => {{
                     document.body.removeChild(container);
-                    btn.innerHTML = "📄";
+                    btn.innerHTML = "📥 下載成功！";
+                    btn.disabled = false;
+                    setTimeout(() => btn.innerHTML = "📥 下載此篇精美講義 (PDF)", 3000);
                 }});
             }};
-            parentDoc.body.appendChild(btn);
-        }}
-        setTimeout(createPdfButton, 1000);
+        }})();
     </script>
     """
-    st.components.v1.html(pdf_html, height=0)
+    # 設定高度讓它能完整顯示內容
+    st.components.v1.html(html_code, height=600, scrolling=True)
 # ==========================================
 # 5. 登入頁面
 # ==========================================
@@ -533,15 +544,29 @@ def main_app():
 
             # 2. 只要 session_state 裡有內容，就顯示出來
             if "current_explanation" in st.session_state and st.session_state.current_selected == selected:
-                st.markdown("---")
-                st.markdown(st.session_state.current_explanation)
-                
-                # 在這裡呼叫 PDF 按鈕，它就不會因為頁面重新整理而不見了
-                add_pdf_export_button(
-                    filename=f"{selected}_複習筆記.pdf", 
-                    title=selected, 
+            st.markdown("---")
+            # 這裡我們不再用 st.markdown，改用我們的精美組件
+            show_pro_paper_with_download(
+                title=st.session_state.current_selected,
+                content=st.session_state.current_explanation
+            )
+            # 1. 產生 PDF 資料 (放在記憶體內)
+            try:
+                pdf_data = generate_native_pdf(
+                    title=st.session_state.current_selected,
                     content=st.session_state.current_explanation
                 )
+                
+                # 2. 顯示原生下載按鈕 (絕對不會不見)
+                st.download_button(
+                    label="📥 下載專屬複習講義 (PDF)",
+                    data=pdf_data,
+                    file_name=f"{st.session_state.current_selected}_116重點.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"PDF 產生失敗，可能是缺字型檔：{e}")
 
     # E. 預埋考點 (PRO/ADMIN 貢獻模式)
     elif choice == "🔬 預埋考點" and (is_admin or is_pro):
