@@ -76,11 +76,11 @@ def get_api_keys():
 
 def ai_call(system_instruction, user_input="", temp=0.7, tier="free"):
     if tier == "self":
-        target_keys, model_name = [st.secrets.get("GEMINI_SELF_KEY")], "gemini-1.5-pro"
+        target_keys, model_name = [st.secrets.get("GEMINI_SELF_KEY")], "gemini-2.5-pro"
     elif tier == "paid":
-        target_keys, model_name = st.secrets.get("GEMINI_PAID_KEYS", []), "gemini-1.5-pro"
+        target_keys, model_name = st.secrets.get("GEMINI_PAID_KEYS", []), "gemini-2.5-pro"
     else:
-        target_keys, model_name = get_api_keys(), "gemini-1.5-flash"
+        target_keys, model_name = get_api_keys(), "gemini-2.5-flash"
 
     if not target_keys or not target_keys[0]: return "❌ API Key 未設定"
     random.shuffle(target_keys)
