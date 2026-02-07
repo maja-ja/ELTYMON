@@ -9,8 +9,8 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 核心配置 & 116 戰情邏輯
 # ==========================================
 st.set_page_config(
-    page_title="Kadowsella | 116 數位戰情室", 
-    page_icon="⚡", 
+    page_title="Kadowsella | 116 數位戰情室",
+    page_icon="⚡",
     layout="wide",
     menu_items={
         'About': "# Kadowsella 116\n這是一個專屬授權系統，嚴禁未經授權之複製。"
@@ -40,14 +40,14 @@ def load_db(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
-        
+
         # 強制修復欄位缺失問題
         if sheet_name == "users":
             expected_cols = ['username', 'password', 'role', 'can_chat', 'ai_usage', 'created_at']
             for col in expected_cols:
                 if col not in df.columns: df[col] = 0 if col == 'ai_usage' else "無"
             df['ai_usage'] = pd.to_numeric(df['ai_usage'], errors='coerce').fillna(0)
-        
+
         return df.fillna("無")
     except:
         return pd.DataFrame()
@@ -79,12 +79,12 @@ def clean_json_string(json_str):
     """
     # 1. 處理掉可能存在的 Markdown 程式碼區塊標籤
     json_str = json_str.replace("```json", "").replace("```", "").strip()
-    
+
     # 2. 核心修復：將 LaTeX 常見的反斜線進行轉義處理
     # 這裡使用正則表達式，尋找後面不是跟著 (n, r, t, b, f, u, ", \) 的反斜線並補上一個反斜線
     # 但最簡單暴力且有效的方法是針對 LaTeX 關鍵字處理，或直接對所有反斜線做初步處理
     fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
-    
+
     return fixed_str
 def ai_generate_question_from_db(db_row):
     """
@@ -95,24 +95,24 @@ def ai_generate_question_from_db(db_row):
     if not api_key:
         st.error("❌ 找不到 API Key")
         return None
-        
+
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
+    model = genai.GenerativeModel('gemini-1.5-flash')
+
     # 建立針對 108 課綱的命題 Prompt
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
-    
+
     【參考資料】：
     概念：{db_row['word']}
     科目：{db_row['category']}
     定義：{db_row['definition']}
     核心邏輯：{db_row['roots']}
-    
+
     【重要規範】：
     1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
     2. 題目必須包含「情境描述」與「問題內容」。
-    
+
     請嚴格輸出 JSON 格式：
     {{
         "concept": "{db_row['word']}",
@@ -124,7 +124,7 @@ def ai_generate_question_from_db(db_row):
         "translation": "無"
     }}
     """
-    
+
     try:
         response = model.generate_content(prompt)
         res_text = response.text
@@ -142,22 +142,22 @@ def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
+    model = genai.GenerativeModel('gemini-1.5-flash')
+
     try:
         response = model.generate_content(
             system_instruction + "\n\n" + user_input,
             generation_config=genai.types.GenerationConfig(temperature=temp)
         )
         res_text = response.text
-        
+
         if "JSON" in system_instruction:
             # 提取 { ... } 之間的內容
             match = re.search(r'\{.*\}', res_text, re.DOTALL)
             if match:
                 raw_json = match.group(0)
                 # --- 關鍵修復步驟 ---
-                clean_json = clean_json_string(raw_json) 
+                clean_json = clean_json_string(raw_json)
                 try:
                     # 使用 strict=False 可以容忍一些不標準的換行
                     return json.loads(clean_json, strict=False)
@@ -219,14 +219,100 @@ def show_concept(row):
         with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
 
 # ==========================================
+# 4.5. 新增：PDF 匯出功能
+# ==========================================
+def add_pdf_export_button():
+    """在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能"""
+    pdf_export_html = """
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        #export-button {
+            visibility: hidden; /* 初始隱藏，等待頁面載入完成 */
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            background-color: #6366f1;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #export-button:hover {
+            background-color: #4f46e5;
+        }
+    </style>
+
+    <button id="export-button" title="下載本頁為 PDF">📄</button>
+
+    <script>
+        // 確保在 Streamlit 完全渲染後再執行
+        window.addEventListener('load', function () {
+            const exportButton = document.getElementById('export-button');
+            if (exportButton) {
+                exportButton.style.visibility = 'visible'; // 載入完成後顯示按鈕
+
+                exportButton.addEventListener('click', function () {
+                    // 暫時隱藏按鈕和側邊欄，避免出現在 PDF 中
+                    exportButton.style.visibility = 'hidden';
+                    const sidebar = document.querySelector('[data-testid="stSidebar"]');
+                    if (sidebar) {
+                        sidebar.style.display = 'none';
+                    }
+
+                    // 選取要匯出的主要內容區域
+                    const element = document.querySelector('[data-testid="stAppViewContainer"]');
+
+                    const options = {
+                        margin: [10, 10, 10, 10], // 上、左、下、右邊距 (mm)
+                        filename: '116級戰情室-重點進度.pdf',
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: {
+                            scale: 2, // 提高解析度
+                            useCORS: true,
+                            logging: false
+                        },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+
+                    // 執行匯出並在完成後恢復介面
+                    html2pdf().from(element).set(options).save().then(() => {
+                        exportButton.style.visibility = 'visible';
+                        if (sidebar) {
+                            sidebar.style.display = 'block';
+                        }
+                    }).catch((error) => {
+                        console.error('PDF 生成失敗:', error);
+                        // 即使失敗也要確保介面恢復
+                        exportButton.style.visibility = 'visible';
+                        if (sidebar) {
+                            sidebar.style.display = 'block';
+                        }
+                    });
+                });
+            }
+        });
+    </script>
+    """
+    st.components.v1.html(pdf_export_html, height=0, scrolling=False)
+
+
+# ==========================================
 # 5. 登入頁面
 # ==========================================
 def login_page():
     st.title("⚡ Kadowsella 116 登入")
     st.markdown("### 補習班沒教的數位複習法 | 116 級工程師邏輯戰情室")
-    
+
     col1, col2 = st.columns([2, 1])
-    
+
     with col1:
         tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
         with tab1:
@@ -243,7 +329,7 @@ def login_page():
                             st.session_state.role = user.iloc[0]['role']
                             st.rerun()
                         else: st.error("❌ 帳號或密碼錯誤")
-        
+
         with tab2:
             with st.form("reg"):
                 new_u = st.text_input("設定帳號")
@@ -281,16 +367,16 @@ def login_page():
 # ==========================================
 def main_app():
     inject_css()
-    
+
     # --- 1. 資料預加載 ---
     c_df = load_db("Sheet1")      # 知識點資料庫
     q_df = load_db("questions")   # 題庫資料庫
     users_df = load_db("users")   # 使用者資料庫
     l_df = load_db("leaderboard") # 排行榜資料庫
-    
+
     # --- 2. 獲取當前使用者狀態 ---
     user_row = users_df[users_df['username'] == st.session_state.username] if not users_df.empty else pd.DataFrame()
-    
+
     # 安全轉換 ai_usage (防止 "無" 或 NaN 導致崩潰)
     try:
         ai_usage = int(float(user_row.iloc[0]['ai_usage'])) if not user_row.empty else 0
@@ -301,26 +387,26 @@ def main_app():
     with st.sidebar:
         role_tag = " <span class='admin-badge'>ADMIN</span>" if st.session_state.role == "admin" else ""
         st.markdown(f"### 👋 你好, {st.session_state.username}{role_tag}", unsafe_allow_html=True)
-        
+
         if st.session_state.role == "guest":
             st.warning("⚠️ 訪客模式：功能受限")
         else:
             st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
-        
+
         st.metric("距離 116 學測", f"{CYCLE['days_left']} Days", f"Week {CYCLE['week_num']}")
         st.divider()
-        
+
         # 選單定義
         menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
         if st.session_state.role == "admin":
             st.subheader("🛠️ 管理員上帝模式")
             menu.extend(["🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
-        
+
         choice = st.radio("功能導航", menu)
-        
+
         st.divider()
         st.link_button("💬 Discord 戰情室", DISCORD_URL, use_container_width=True)
-        
+
         if st.button("🚪 登出系統", use_container_width=True):
             st.session_state.logged_in = False
             st.rerun()
@@ -332,7 +418,7 @@ def main_app():
         st.title("🚀 116 級本週重點進度")
         st.caption("補習班沒教的數位複習法：用工程師邏輯模組化知識。")
         if not c_df.empty:
-            # 顯示最新的 5 筆或當週資料
+            # 顯示最新的 10 筆或當週資料
             for _, r in c_df.tail(10).iterrows():
                 show_concept(r)
         else:
@@ -342,7 +428,7 @@ def main_app():
     elif choice == "🧪 AI 邏輯補給站":
         st.title("🧪 AI 邏輯補給站")
         MAX_USAGE = 10
-        
+
         if st.session_state.role == "guest":
             st.error("🔒 訪客無法使用 AI 教學，請註冊帳號以解鎖。")
         else:
@@ -360,7 +446,7 @@ def main_app():
                 else:
                     concept_list = c_df['word'].unique().tolist()
                     selected = st.selectbox("請選擇你想秒懂的概念：", ["--- 請選擇 ---"] + concept_list)
-                    
+
                     if selected != "--- 請選擇 ---":
                         db_row = c_df[c_df['word'] == selected].iloc[0]
                         if st.button("🚀 啟動學長深度教學", use_container_width=True):
@@ -368,7 +454,7 @@ def main_app():
                                 explanation = ai_explain_from_db(db_row)
                                 st.markdown("---")
                                 st.markdown(explanation) # 支援 LaTeX
-                                
+
                                 if st.session_state.role != "admin":
                                     update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
                                     st.toast("消耗 1 點能量", icon="🔋")
@@ -381,12 +467,12 @@ def main_app():
         else:
             concept_filter = st.selectbox("篩選測驗概念：", ["全部"] + q_df['concept'].unique().tolist())
             filtered_q = q_df if concept_filter == "全部" else q_df[q_df['concept'] == concept_filter]
-            
+
             for _, row in filtered_q.iterrows():
                 with st.container(border=True):
                     st.markdown(f"**【{row['subject']}】{row['concept']}**")
                     st.markdown(row["content"]) # 這裡會自動渲染 $...$ LaTeX
-                    
+
                     with st.expander("🔓 查看答案與防呆解析"):
                         if row['translation'] != "無":
                             st.caption("🌐 中文翻譯")
@@ -401,7 +487,7 @@ def main_app():
             st.subheader("🔥 全台 Top 10 巔峰榜")
             top_10 = l_df.sort_values(by="score", ascending=False).head(10)
             st.table(top_10[['username', 'subject', 'score', 'created_at']])
-            
+
             my_data = l_df[l_df['username'] == st.session_state.username]
             if not my_data.empty:
                 st.metric("你的平均戰力值", f"{my_data['score'].mean():.1f} %")
@@ -443,7 +529,7 @@ def main_app():
                 db_row = c_df[c_df['word'] == target].iloc[0]
                 res = ai_generate_question_from_db(db_row)
                 if res: st.session_state.temp_q = res
-            
+
             if "temp_q" in st.session_state:
                 st.markdown(st.session_state.temp_q['content'])
                 if st.button("💾 存入題庫"):
@@ -463,6 +549,10 @@ def main_app():
             if c3.button("能量補滿", key=f"reset_{i}"):
                 update_user_data(row['username'], "ai_usage", 0)
                 st.rerun()
+    
+    # --- 5. 在主應用程式結尾加入 PDF 匯出按鈕 ---
+    add_pdf_export_button()
+
 # ==========================================
 # 7. 執行入口
 # ==========================================
