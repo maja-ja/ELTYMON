@@ -135,12 +135,12 @@ def show_pro_paper_with_download(title, content):
     html_code = f"""
     <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:25px; border-radius:15px; border:1px solid #333; color:white; margin:20px 0; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <span style="color:#6366f1; font-weight:bold; font-size:1.2em;">⚡ 數位導讀模式</span>
-            <span style="background:rgba(99,102,241,0.2); color:#a855f7; padding:2px 10px; border-radius:10px; font-size:0.8em; border:1px solid rgba(168,85,247,0.3);">PRO EXCLUSIVE</span>
+            <span style="color:#6366f1; font-weight:bold; font-size:1.2em;">⚡ 戰術講義預覽模式</span>
+            <span style="background:rgba(99,102,241,0.2); color:#a855f7; padding:2px 10px; border-radius:10px; font-size:0.8em; border:1px solid rgba(168,85,247,0.3);">PREMIUM ACCESS</span>
         </div>
-        <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6; font-size:1.05em; color:#e5e7eb;">載入戰術資料中...</div>
+        <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6; font-size:1.05em; color:#e5e7eb;">正在調閱資料庫...</div>
         <hr style="border:0; border-top:1px solid #333; margin:20px 0;">
-        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px; transition: 0.3s; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">📥 下載 116 級專屬戰術講義 (PDF)</button>
+        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px; transition: 0.3s; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">📥 下載 116 級精美戰術講義 (PDF)</button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -152,67 +152,72 @@ def show_pro_paper_with_download(title, content):
     <script>
         (function() {{
             const content = {js_content}; const title = {js_title};
-            const display = document.getElementById("{div_id}_content");
-            display.innerHTML = marked.parse(content);
-            renderMathInElement(display, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
-            
+            const displayDiv = document.getElementById("{div_id}_content");
             const btn = document.getElementById("{div_id}_btn");
-            btn.onclick = function() {{
-                btn.innerHTML = "⏳ 正在校準導讀格式...";
-                btn.style.opacity = "0.7";
 
-                // 建立一個完全獨立的、置頂的列印容器，解決空白頁問題
+            // 1. 先渲染網頁上的預覽內容
+            displayDiv.innerHTML = marked.parse(content);
+            renderMathInElement(displayDiv, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
+            
+            btn.onclick = function() {{
+                btn.innerHTML = "⏳ 正在校準 LaTeX 渲染器...";
+                btn.disabled = true;
+
+                // 建立一個「可見但移出視窗」的容器，確保瀏覽器願意渲染它
                 const container = document.createElement('div');
-                container.style.cssText = "position:absolute; left:0; top:0; width:210mm; background:white; color:black; padding:20mm; font-family:sans-serif; z-index:-1000;";
+                container.style.cssText = "position:fixed; left:-9999px; top:0; width:190mm; background:white; color:black; padding:15mm; font-family:'Segoe UI', sans-serif; line-height:1.6;";
                 
                 container.innerHTML = `
-                    <div style="border-left:12px solid #6366f1; padding-left:25px; margin-bottom:40px;">
-                        <h1 style="color:#1e3a8a; margin:0; font-size:32px; letter-spacing:1px;">⚡ 116 級數位戰情室</h1>
-                        <p style="color:#4b5563; margin:8px 0; font-size:18px; font-weight:500;">主題解析：${{title}}</p>
-                        <div style="width:100px; hieght:2px; background:#a855f7; height:3px; margin-top:10px;"></div>
+                    <div style="border-left:10px solid #6366f1; padding-left:25px; margin-bottom:40px;">
+                        <h1 style="color:#1e3a8a; margin:0; font-size:28px; font-weight:900;">⚡ 116 級數位戰情室</h1>
+                        <p style="color:#4b5563; margin:8px 0; font-size:16px;">主題解析：${{title}}</p>
                     </div>
-                    <div id="pdf-body" style="line-height:1.8; font-size:15px; color:#1f2937;">
+                    <div id="pdf-body" style="font-size:14px; color:#1f2937;">
                         ${{marked.parse(content)}}
                     </div>
-                    <div style="margin-top:60px; border-top:2px solid #f3f4f6; padding-top:15px; text-align:center;">
-                        <p style="color:#9ca3af; font-size:11px; margin:0;">本文件由 Kadowsella 116 系統專屬生成</p>
-                        <p style="color:#6366f1; font-size:10px; font-weight:bold; margin-top:5px;">CONFIDENTIAL | PRO MEMBER ACCESS</p>
+                    <div style="margin-top:60px; border-top:1px solid #eee; padding-top:20px; text-align:center;">
+                        <p style="color:#9ca3af; font-size:10px; margin:0;">本文件由 Kadowsella 116 AI 系統生成，僅供 PRO 會員學術參考</p>
+                        <p style="color:#6366f1; font-size:9px; font-weight:bold; margin-top:5px;">CONFIDENTIAL | 116 WAR ROOM</p>
                     </div>
                 `;
                 
                 document.body.appendChild(container);
+                
+                // 再次渲染 PDF 內的 LaTeX
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
                 
-                const opt = {{
-                    margin: 10,
-                    filename: title + "_戰術講義.pdf",
-                    image: {{ type: 'jpeg', quality: 1 }},
-                    html2canvas: {{ 
-                        scale: 2, 
-                        useCORS: true,
-                        scrollY: 0,  // 👈 核心修正：強制從最頂端開始抓，防止空白頁
-                        scrollX: 0,
-                        windowWidth: 800
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                }};
-                
-                html2pdf().set(opt).from(container).save().then(() => {{
-                    document.body.removeChild(container);
-                    btn.innerHTML = "📥 下載成功";
-                    btn.style.opacity = "1";
-                    setTimeout(() => btn.innerHTML = "📥 下載此篇精美講義 (PDF)", 3000);
-                }}).catch(err => {{
-                    console.error(err);
-                    btn.innerHTML = "❌ 下載失敗";
-                    btn.style.opacity = "1";
-                }});
+                // 👈 核心修正：給 KaTeX 500 毫秒的時間完成數學符號繪製
+                setTimeout(() => {{
+                    const opt = {{
+                        margin: 10,
+                        filename: title + "_116重點講義.pdf",
+                        image: {{ type: 'jpeg', quality: 0.98 }},
+                        html2canvas: {{ 
+                            scale: 2, 
+                            useCORS: true,
+                            scrollY: 0, 
+                            windowWidth: 800,
+                            removeContainer: true
+                        }},
+                        jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+                        pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
+                    }};
+                    
+                    html2pdf().set(opt).from(container).save().then(() => {{
+                        document.body.removeChild(container);
+                        btn.innerHTML = "📥 下載完成";
+                        btn.disabled = false;
+                        setTimeout(() => btn.innerHTML = "📥 下載 116 級精美戰術講義 (PDF)", 3000);
+                    }}).catch(err => {{
+                        console.error(err);
+                        btn.innerHTML = "❌ 下載錯誤";
+                        btn.disabled = false;
+                    }});
+                }}, 500); 
             }};
         }})();
     </script>"""
     st.components.v1.html(html_code, height=600, scrolling=True)
-
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
 # ==========================================
