@@ -710,7 +710,12 @@ def main_app():
                 if c3.button("降級 FREE", key=f"down_{i}"):
                     update_user_data(row['username'], "membership", "free")
                     st.rerun()
-
+    if "current_explanation" in st.session_state:
+        add_pdf_export_button(
+            filename=f"{st.session_state.current_selected}_筆記.pdf", 
+            title=st.session_state.current_selected, 
+            content=st.session_state.current_explanation
+        )
 # ==========================================
 # 7. 執行入口
 # ==========================================
