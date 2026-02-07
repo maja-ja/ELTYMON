@@ -188,26 +188,57 @@ def show_pro_paper_with_download(title, content):
 # ==========================================
 def login_page():
     st.title("⚡ Kadowsella 116 登入")
-    tab1, tab2 = st.tabs(["🔑 登入", "📝 註冊"])
-    with tab1:
-        with st.form("login"):
-            u, p = st.text_input("帳號"), st.text_input("密碼", type="password")
-            if st.form_submit_button("進入戰情室"):
-                users = load_db("users")
-                user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
-                if not user.empty:
-                    st.session_state.logged_in, st.session_state.username, st.session_state.role = True, u, user.iloc[0]['role']
-                    update_user_data(u, "is_online", "TRUE")
-                    st.rerun()
-                else: st.error("❌ 錯誤")
-    with tab2:
-        with st.form("reg"):
-            nu, np, code = st.text_input("帳號"), st.text_input("密碼", type="password"), st.text_input("邀請碼", type="password")
-            if st.form_submit_button("註冊"):
-                is_admin = (code == st.secrets.get("ADMIN_PASSWORD"))
-                if save_to_db({"username":nu, "password":hash_password(np), "role":"admin" if is_admin else "student", "membership":"pro" if is_admin else "free", "ai_usage":0}, "users"):
-                    st.success("成功")
+    st.markdown("### 補習班沒教的數位複習法 | 116 級工程師邏輯戰情室")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
+        with tab1:
+            with st.form("login"):
+                u = st.text_input("帳號")
+                p = st.text_input("密碼", type="password")
+                if st.form_submit_button("進入戰情室", use_container_width=True):
+                    users = load_db("users")
+                    user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
+                    if not user.empty:
+                        st.session_state.logged_in, st.session_state.username, st.session_state.role = True, u, user.iloc[0]['role']
+                        update_user_data(u, "is_online", "TRUE")
+                        st.rerun()
+                    else: st.error("❌ 帳號或密碼錯誤")
+        
+        with tab2:
+            with st.form("reg"):
+                nu, np, code = st.text_input("設定帳號"), st.text_input("設定密碼", type="password"), st.text_input("管理員邀請碼 (學生免填)", type="password")
+                if st.form_submit_button("完成註冊"):
+                    is_admin = (code == st.secrets.get("ADMIN_PASSWORD"))
+                    user_data = {
+                        "username": nu, "password": hash_password(np), 
+                        "role": "admin" if is_admin else "student",
+                        "membership": "pro" if is_admin else "free", "ai_usage": 0
+                    }
+                    if save_to_db(user_data, "users"):
+                        st.success("註冊成功！請切換至登入分頁。")
 
+    with col2:
+        st.markdown("---")
+        st.write("🚀 **想先看看內容？**")
+        if st.button("🚪 以訪客身分試用", use_container_width=True):
+            st.session_state.logged_in, st.session_state.username, st.session_state.role = True, "訪客", "guest"
+            st.rerun()
+        st.link_button("💬 加入 Discord 社群", DISCORD_URL, use_container_width=True)
+
+    st.markdown("---")
+    with st.expander("⚖️ 使用者條款與免責聲明"):
+        st.markdown("""
+        <div style="font-size: 0.85em; line-height: 1.6; color: gray;">
+            <b>【使用者條款與免責聲明】</b><br><br>
+            <b>1. 隱私保護</b>：本系統採用 SHA-256 加密技術保護密碼。請勿使用真實姓名作為帳號。<br>
+            <b>2. 內容聲明</b>：所有學科解析與題目均由 AI 輔助生成，僅供複習參考，不保證內容絕對正確。<br>
+            <b>3. 非營利性質</b>：本專案為個人開發之教育工具，不收取費用，亦不提供商業服務。<br>
+            <b>4. 著作權說明</b>：本站尊重著作權，若有侵權疑慮請聯繫 kadowsella@gmail.com。
+        </div>
+        """, unsafe_allow_html=True)
 def main_app():
     inject_css()
     c_df, q_df, users_df = load_db("Sheet1"), load_db("questions"), load_db("users")
