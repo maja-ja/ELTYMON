@@ -192,45 +192,58 @@ def ai_generate_question_from_db(db_row):
     st.error(f"所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
     return None
 
-def ai_call(system_instruction, user_input="", temp=0.7):
+def ai_call(system_instruction, user_input="", temp=0.7, tier="free"):
     """
-    (支援多 Key 輪替) 通用 AI 呼叫函式
+    三線分流 AI 呼叫引擎
+    tier: "free" (預設), "paid" (PRO會員), "self" (管理員)
     """
-    all_keys = get_api_keys()
-    if not all_keys: 
-        st.error("❌ 無可用的 API Keys")
-        return None
+    # 1. 根據等級選擇鑰匙池與模型
+    if tier == "self":
+        target_keys = [st.secrets.get("GEMINI_SELF_KEY")]
+        model_name = "gemini-3.0-pro" # 自用給最好的
+    elif tier == "paid":
+        target_keys = st.secrets.get("GEMINI_PAID_KEYS", [])
+        model_name = "gemini-2.5-pro" # 付費版用最強邏輯
+    else:
+        target_keys = st.secrets.get("GEMINI_FREE_KEYS", [])
+        model_name = "gemini-1.5-flash" # 免費版求快求穩
 
-    random.shuffle(all_keys)
+    if not target_keys or not target_keys[0]:
+        return "❌ 系統錯誤：找不到對應等級的 API Key"
 
-    # --- 輪替迴圈 ---
-    for key in all_keys:
+    # 2. 洗牌 (除了自用只有一把不用洗)
+    if len(target_keys) > 1:
+        random.shuffle(target_keys)
+
+    # 3. 輪替重試邏輯
+    for key in target_keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
-
+            model = genai.GenerativeModel(model_name)
+            
             response = model.generate_content(
                 system_instruction + "\n\n" + user_input,
                 generation_config=genai.types.GenerationConfig(temperature=temp)
             )
             res_text = response.text
 
-            # 如果需要 JSON，嘗試解析
+            # JSON 解析處理
             if "JSON" in system_instruction:
                 match = re.search(r'\{.*\}', res_text, re.DOTALL)
                 if match:
                     return robust_json_parse(match.group(0))
             
-            # 如果不是 JSON 需求或解析失敗，直接回傳文字
             return res_text
 
         except Exception as e:
-            print(f"⚠️ Key ...{key[-4:]} 呼叫失敗: {e} -> 自動切換備用線路")
-            continue # 嘗試下一個 Key
-            
-    st.error("🚨 系統忙碌中 (所有 AI 線路皆滿載)，請稍後再試。")
-    return None
+            # 如果是自用 Key 報錯，直接噴
+            if tier == "self": return f"🚨 自用 Key 報錯: {e}"
+            # 其他則印出 log 並試下一把
+            print(f"⚠️ {tier.upper()} 線路 Key 異常: {e} -> 切換中")
+            continue
 
+    return "🚨 所有對應線路皆忙碌中，請稍後再試。"
+    
 def ai_decode_concept(input_text, subject):
     sys_prompt = f"""【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
     請輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
@@ -526,23 +539,34 @@ def main_app():
         ai_usage = 0
 
     # --- 3. 側邊欄導航 (Sidebar) ---
-    with st.sidebar:
-        role_tag = " <span class='admin-badge'>ADMIN</span>" if st.session_state.role == "admin" else ""
-        st.markdown(f"### 👋 你好, {st.session_state.username}{role_tag}", unsafe_allow_html=True)
-
-        if st.session_state.role == "guest":
-            st.warning("⚠️ 訪客模式：功能受限")
-        else:
-            st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
-
-        st.metric("距離 116 學測", f"{CYCLE['days_left']} Days", f"Week {CYCLE['week_num']}")
-        st.divider()
-
-        # 選單定義
-        menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
+   with st.sidebar:
+        # 獲取身分
+        user_membership = user_row.iloc[0].get('membership', 'free') if not user_row.empty else 'free'
+        
+        # 標籤顯示
         if st.session_state.role == "admin":
-            st.subheader("🛠️ 管理員上帝模式")
-            menu.extend(["🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
+            role_label = "（ADMIN）"
+        elif user_membership == "pro":
+            role_label = f"（PRO）：{st.session_state.username}"
+        else:
+            role_label = "" # 一般學生不顯示
+            
+        st.markdown(f"### 👋 你好, {st.session_state.username}")
+        if role_label: st.caption(role_label)
+
+        # 選單清單
+        menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
+        
+        # 管理員或 PRO 會員可以看到開發工具
+        if st.session_state.role == "admin" or user_membership == "pro":
+            st.divider()
+            st.subheader("🛠️ 開發者/PRO 工具")
+            menu.append("🔬 預埋考點")
+            menu.append("🧪 考題開發")
+            
+        # 只有管理員能看到使用者管理
+        if st.session_state.role == "admin":
+            menu.append("👤 使用者管理")
 
         choice = st.radio("功能導航", menu)
 
@@ -649,7 +673,7 @@ def main_app():
             st.info("尚無戰績，快去隨機驗收刷一波！")
 
     # E. 預埋考點 (管理員 - Temp 0.5)
-    elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
+    elif choice == "🔬 預埋考點" and st.session_state.role == "admin" or "pro":
         st.title("🔬 AI 考點預埋 (上帝模式)")
         c1, c2 = st.columns([3, 1])
         inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
@@ -667,14 +691,25 @@ def main_app():
 
         if "temp_concept" in st.session_state:
             show_concept(st.session_state.temp_concept)
-            if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
-                if save_to_db(st.session_state.temp_concept, "Sheet1"):
+            
+            if st.button("💾 確認無誤，存入大資料庫", type="primary"):
+                # --- 核心：打上身分標籤 ---
+                if st.session_state.role == "admin":
+                    tag = "（ADMIN）"
+                else:
+                    tag = f"（PRO）：{st.session_state.username}"
+                
+                # 準備資料
+                final_data = st.session_state.temp_concept.copy()
+                final_data['contributor'] = tag # 寫入資料庫最後一欄
+                
+                if save_to_db(final_data, "Sheet1"):
                     st.balloons()
                     del st.session_state.temp_concept
                     st.rerun()
 
     # F. 考題開發 (管理員)
-    elif choice == "🧪 考題開發" and st.session_state.role == "admin":
+    elif choice == "🧪 考題開發" and st.session_state.role == "admin" or "pro":
         st.title("🧪 AI 考題開發")
         if c_df.empty: st.warning("請先預埋考點")
         else:
@@ -685,13 +720,22 @@ def main_app():
                 if res: st.session_state.temp_q = res
 
             if "temp_q" in st.session_state:
-                st.markdown(st.session_state.temp_q['content'])
-                if st.button("💾 存入題庫"):
-                    if save_to_db(st.session_state.temp_q, "questions"):
-                        st.success("已存入！")
-                        del st.session_state.temp_q
-                        st.rerun()
-
+            st.markdown(st.session_state.temp_q['content'])
+            
+            if st.button("💾 存入大資料庫"):
+                # --- 打上身分標籤 ---
+                if st.session_state.role == "admin":
+                    tag = "（ADMIN）"
+                else:
+                    tag = f"（PRO）：{st.session_state.username}"
+                
+                final_q = st.session_state.temp_q.copy()
+                final_q['contributor'] = tag
+                
+                if save_to_db(final_q, "questions"):
+                    st.success(f"已存入！來源：{tag}")
+                    del st.session_state.temp_q
+                    st.rerun()
     # G. 使用者管理 (管理員)
     elif choice == "👤 使用者管理" and st.session_state.role == "admin":
         st.title("👤 使用者權限與能量管理")
