@@ -544,12 +544,12 @@ def main_app():
 
             # 2. 只要 session_state 裡有內容，就顯示出來
             if "current_explanation" in st.session_state and st.session_state.current_selected == selected:
-            st.markdown("---")
-            # 這裡我們不再用 st.markdown，改用我們的精美組件
-            show_pro_paper_with_download(
-                title=st.session_state.current_selected,
-                content=st.session_state.current_explanation
-            )
+                st.markdown("---")
+                # 這裡我們不再用 st.markdown，改用我們的精美組件
+                show_pro_paper_with_download(
+                    title=st.session_state.current_selected,
+                    content=st.session_state.current_explanation
+                )
             # 1. 產生 PDF 資料 (放在記憶體內)
             try:
                 pdf_data = generate_native_pdf(
