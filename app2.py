@@ -221,8 +221,8 @@ def show_pro_paper_with_download(title, content):
                 this.innerHTML = "⏳ 正在排版...";
                 const container = document.createElement('div');
                 
-                // 【參數調整 1】：使用 border-box 確保 210mm 包含 padding，並強制 position 鎖定座標
-                container.style.cssText = "width:210mm; background:white; color:black; padding:20mm; font-family:sans-serif; box-sizing:border-box; position:absolute; top:0; left:0; z-index:-1;";
+                // 【調參 1】：設定 min-height 確保容器不是 0 高度，並使用 border-box 鎖定寬度
+                container.style.cssText = "width:210mm; min-height:297mm; background:white; color:black; padding:20mm; font-family:sans-serif; box-sizing:border-box; position:absolute; top:0; left:0; z-index:-1; opacity:1;";
                 
                 container.innerHTML = `
                     <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
@@ -237,16 +237,18 @@ def show_pro_paper_with_download(title, content):
                 document.body.appendChild(container);
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
                 
-                // 【參數調整 2】：設定 margin 為 0 (因為 CSS 已有 padding)，關鍵在於 scrollY: 0
+                // 【調參 2】：加入關鍵參數 delay (毫秒)，讓 html2canvas 等待渲染完成再截圖
                 const opt = {{
                     margin: 0,
                     filename: title + "_116講義.pdf",
-                    image: {{ type: 'jpeg', quality: 1 }},
+                    image: {{ type: 'jpeg', quality: 0.98 }},
                     html2canvas: {{ 
                         scale: 2, 
                         useCORS: true, 
-                        scrollY: 0,      // 解決第一頁空白的關鍵
-                        windowWidth: 800 // 鎖定渲染寬度防止跑版
+                        scrollY: 0,
+                        windowWidth: 800,
+                        logging: false,
+                        delay: 1000  // 👈 核心調參：強制等待 1000ms 確保內容已渲染
                     }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
