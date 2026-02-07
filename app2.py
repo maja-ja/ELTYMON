@@ -220,14 +220,14 @@ def show_pro_paper_with_download(title, content):
             document.getElementById("{div_id}_btn").onclick = function() {{
                 this.innerHTML = "⏳ 正在排版...";
                 const container = document.createElement('div');
-                // 調參1：調整寬度為 170mm 並設定 box-sizing 確保 padding 不會撐開寬度
-                container.style.cssText = "width:170mm; background:white; color:black; padding:15mm; font-family:sans-serif; box-sizing:content-box; position:absolute; left:0; top:0; z-index:-1;";
+                // 調參：寬度縮減至 170mm，配合 padding 剛好等於 A4 寬度；加入 position 修正擷取起點
+                container.style.cssText = "width:170mm; background:white; color:black; padding:20mm; font-family:sans-serif; position:absolute; top:0; left:0; z-index:-1;";
                 container.innerHTML = `
                     <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
                         <h1 style="color:#1e3a8a; margin:0; font-size:28px;">⚡ 116 級數位戰情室</h1>
                         <p style="color:#666; margin:5px 0; font-size:16px;">重點主題：${{title}} | 專屬複習講義</p>
                     </div>
-                    <div style="line-height:1.8; font-size:14px; word-wrap:break-word;">${{marked.parse(content)}}</div>
+                    <div style="line-height:1.8; font-size:14px;">${{marked.parse(content)}}</div>
                     <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
                         Kadowsella 116 AI 模組化知識庫 | 此份文件僅供內部學習使用
                     </div>
@@ -235,16 +235,16 @@ def show_pro_paper_with_download(title, content):
                 document.body.appendChild(container);
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
                 
-                // 調參2：margin 設定為 10, html2canvas 加入 scrollY:0 與 windowWidth
+                // 調參：margin 設為 0，html2canvas 加入 scrollY: 0 解決第一頁空白，windowWidth 鎖定排版寬度
                 html2pdf().set({{ 
-                    margin: 10, 
+                    margin: 0, 
                     filename: title+"_116講義.pdf", 
                     image: {{type:'jpeg', quality:1}}, 
                     html2canvas: {{ 
                         scale: 2, 
                         useCORS: true, 
                         scrollY: 0, 
-                        windowWidth: 1000 
+                        windowWidth: 800 
                     }}, 
                     jsPDF: {{unit:'mm', format:'a4', orientation:'portrait'}} 
                 }})
@@ -255,8 +255,8 @@ def show_pro_paper_with_download(title, content):
             }};
         }})();
     </script>"""
-    import streamlit.components.v1 as components
-    components.html(html_code, height=600, scrolling=True)
+    import streamlit as st
+    st.components.v1.html(html_code, height=600, scrolling=True)
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
 # ==========================================
