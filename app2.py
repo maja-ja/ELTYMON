@@ -492,7 +492,7 @@ def login_page():
                 admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
                 if st.form_submit_button("完成註冊"):
                     role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
-                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "can_chat": "FALSE", "membership": free}, "users"):
+                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "can_chat": "FALSE", "membership": "free"}, "users"):
                         st.success(f"註冊成功！身分：{role}。請登入。")
 
     with col2:
