@@ -1,7 +1,6 @@
-import random
 import streamlit as st
 import pandas as pd
-import json, re, io, time, hashlib, urllib.parse, ast
+import json, re, io, time, hashlib, urllib.parse
 from datetime import datetime
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
@@ -10,8 +9,8 @@ from streamlit_gsheets import GSheetsConnection
 # 1. 核心配置 & 116 戰情邏輯
 # ==========================================
 st.set_page_config(
-    page_title="Kadowsella | 116 數位戰情室",
-    page_icon="⚡",
+    page_title="Kadowsella | 116 數位戰情室", 
+    page_icon="⚡", 
     layout="wide",
     menu_items={
         'About': "# Kadowsella 116\n這是一個專屬授權系統，嚴禁未經授權之複製。"
@@ -42,13 +41,13 @@ def load_db(sheet_name):
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
         
+        # 強制修復欄位缺失問題
         if sheet_name == "users":
-            # 強制檢查必要欄位
-            expected_cols = ['username', 'password', 'role', 'membership', 'ai_usage', 'created_at']
+            expected_cols = ['username', 'password', 'role', 'can_chat', 'ai_usage', 'created_at']
             for col in expected_cols:
-                if col not in df.columns:
-                    # 如果沒這欄，自動補上預設值
-                    df[col] = "free" if col == "membership" else (0 if col == "ai_usage" else "無")
+                if col not in df.columns: df[col] = 0 if col == 'ai_usage' else "無"
+            df['ai_usage'] = pd.to_numeric(df['ai_usage'], errors='coerce').fillna(0)
+        
         return df.fillna("無")
     except:
         return pd.DataFrame()
@@ -72,76 +71,44 @@ def update_user_data(username, column, value):
     except: pass
 
 # ==========================================
-# 3. AI 引擎 (強化解析版)
+# 3. AI 引擎
 # ==========================================
-# ==========================================
-# 3. AI 引擎 (多 Key 輪替與容錯版)
-# ==========================================
-
-def get_api_keys():
-    """從 secrets 讀取 Key 列表 (相容單一字串或列表)"""
-    # 嘗試讀取複數設定
-    keys = st.secrets.get("GEMINI_API_KEYS")
+def clean_json_string(json_str):
+    """
+    處理 AI 回傳 JSON 時常見的 LaTeX 反斜線報錯問題
+    """
+    # 1. 處理掉可能存在的 Markdown 程式碼區塊標籤
+    json_str = json_str.replace("```json", "").replace("```", "").strip()
     
-    # 如果找不到複數，嘗試讀取單數 (相容舊設定)
-    if not keys:
-        single_key = st.secrets.get("GEMINI_API_KEY")
-        return [single_key] if single_key else []
+    # 2. 核心修復：將 LaTeX 常見的反斜線進行轉義處理
+    # 這裡使用正則表達式，尋找後面不是跟著 (n, r, t, b, f, u, ", \) 的反斜線並補上一個反斜線
+    # 但最簡單暴力且有效的方法是針對 LaTeX 關鍵字處理，或直接對所有反斜線做初步處理
+    fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
     
-    # 如果使用者在 toml 裡只寫了字串而不是列表，自動轉為列表
-    if isinstance(keys, str):
-        return [keys]
-    
-    return keys if keys else []
-def robust_json_parse(json_str):
-    if not json_str: return None
-    
-    # 清理 Markdown 標記
-    json_str = re.sub(r'^```json\s*|```$', '', json_str.strip(), flags=re.MULTILINE)
-    
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        # 核心修復：處理 LaTeX 中常見的單個反斜線
-        # 將不在轉義序列中的 \ 替換為 \\
-        fixed_str = re.sub(r'\\(?![nuartbf"\'\\/])', r'\\\\', json_str)
-        try:
-            return json.loads(fixed_str)
-        except:
-            # 最後一招：使用 ast 解析
-            try:
-                # 處理常見的 JSON 布林與空值轉 Python
-                safe_py = fixed_str.replace('true', 'True').replace('false', 'False').replace('null', 'None')
-                return ast.literal_eval(safe_py)
-            except Exception as e:
-                st.error(f"解析失敗：{e}")
-                return None
-
-    # 3. AST 解析 (處理 Python 風格字典)
-    py_str = json_str.replace("true", "True").replace("false", "False").replace("null", "None")
-    try:
-        return ast.literal_eval(py_str)
-    except Exception as e:
-        print(f"JSON 解析最終失敗: {e}")
+    return fixed_str
+def ai_generate_question_from_db(db_row):
+    """
+    根據資料庫的一列資料生成素養題目
+    db_row: 來自 Sheet1 的資料 (Series 或 Dict)
+    """
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key:
+        st.error("❌ 找不到 API Key")
         return None
-
-def ai_generate_question_from_db(db_row, api_key=None): # 新增 api_key 參數
-    all_keys = [api_key] if api_key else get_api_keys()
-    if not all_keys:
-        st.error("❌ 找不到 API Keys")
-        return None
-    # 隨機打亂順序，實現負載平衡
-    random.shuffle(all_keys)
-
+        
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    # 建立針對 108 課綱的命題 Prompt
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
-
+    
     【參考資料】：
     概念：{db_row['word']}
     科目：{db_row['category']}
     定義：{db_row['definition']}
     核心邏輯：{db_row['roots']}
-
+    
     【重要規範】：
     1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
     2. 題目必須包含「情境描述」與「問題內容」。
@@ -157,111 +124,73 @@ def ai_generate_question_from_db(db_row, api_key=None): # 新增 api_key 參數
         "translation": "無"
     }}
     """
-
-    last_error = None
-    # --- 輪替迴圈 ---
-    for key in all_keys:
-        try:
-            genai.configure(api_key=key)
-            # 使用 2.5-flash 較穩定，若你有 2.0 權限可改
-            model = genai.GenerativeModel('gemini-2.5-flash') 
-            
-            response = model.generate_content(prompt)
-            res_text = response.text
+    
+    try:
+        response = model.generate_content(prompt)
+        res_text = response.text
+        # 提取 JSON 內容
+        match = re.search(r'\{.*\}', res_text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        else:
+            st.error("AI 回傳格式非 JSON，請重試。")
+            return None
+    except Exception as e:
+        st.error(f"AI 出題發生錯誤: {e}")
+        return None
+def ai_call(system_instruction, user_input="", temp=0.7):
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key: return None
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    try:
+        response = model.generate_content(
+            system_instruction + "\n\n" + user_input,
+            generation_config=genai.types.GenerationConfig(temperature=temp)
+        )
+        res_text = response.text
+        
+        if "JSON" in system_instruction:
+            # 提取 { ... } 之間的內容
             match = re.search(r'\{.*\}', res_text, re.DOTALL)
             if match:
-                # 使用你之前寫的 robust_json_parse
-                res_data = robust_json_parse(match.group(0))
-                
-                if isinstance(res_data, dict):
-                    # 強制補齊欄位，確保 show_concept 不會噴錯
-                    res_data.update({"word": inp, "category": sub})
-                    
-                    # 存入 session_state
-                    st.session_state.temp_concept = res_data
-                    
-                    st.success("解析完成！")
-                    # 呼叫修正後的函式
-                    show_concept(res_data) 
-                else:
-                    st.error("JSON 解析後不是字典格式")
-        except Exception as e:
-            last_error = e
-            print(f"⚠️ Key ...{key[-4:]} 失敗: {e} -> 切換下一個")
-            continue # 報錯了換下一個
-    
-    st.error(f"所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
-    return None
+                raw_json = match.group(0)
+                # --- 關鍵修復步驟 ---
+                clean_json = clean_json_string(raw_json) 
+                try:
+                    # 使用 strict=False 可以容忍一些不標準的換行
+                    return json.loads(clean_json, strict=False)
+                except json.JSONDecodeError as e:
+                    # 如果還是失敗，嘗試最後一次：直接把所有單反斜線換成雙反斜線
+                    try:
+                        last_resort = raw_json.replace('\\', '\\\\').replace('\\\\"', '\\"')
+                        return json.loads(last_resort, strict=False)
+                    except:
+                        st.error(f"JSON 解析最終失敗: {e}")
+                        return None
+        return res_text
+    except Exception as e:
+        st.error(f"AI 呼叫失敗: {e}")
+        return None
 
-def ai_call(system_instruction, user_input="", temp=0.7, tier="free"):
-    """
-    三線分流 AI 呼叫引擎
-    tier: "free" (預設), "paid" (PRO會員), "self" (管理員)
-    """
-    # 1. 根據等級選擇鑰匙池與模型
-    if tier == "self":
-        target_keys = [st.secrets.get("GEMINI_SELF_KEY")]
-        model_name = "gemini-3.0-pro" # 自用給最好的
-    elif tier == "paid":
-        target_keys = st.secrets.get("GEMINI_PAID_KEYS", [])
-        model_name = "gemini-2.5-pro" # 付費版用最強邏輯
-    else:
-        target_keys = st.secrets.get("GEMINI_FREE_KEYS", [])
-        model_name = "gemini-2.5-flash" # 免費版求快求穩
-
-    if not target_keys or not target_keys[0]:
-        return "❌ 系統錯誤：找不到對應等級的 API Key"
-
-    # 2. 洗牌 (除了自用只有一把不用洗)
-    if len(target_keys) > 1:
-        random.shuffle(target_keys)
-
-    # 3. 輪替重試邏輯
-    for key in target_keys:
-        try:
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name)
-            
-            response = model.generate_content(
-                system_instruction + "\n\n" + user_input,
-                generation_config=genai.types.GenerationConfig(temperature=temp)
-            )
-            res_text = response.text
-
-            # JSON 解析處理
-            if "JSON" in system_instruction:
-                match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                if match:
-                    return robust_json_parse(match.group(0))
-            
-            return res_text
-
-        except Exception as e:
-            # 如果是自用 Key 報錯，直接噴
-            if tier == "self": return f"🚨 自用 Key 報錯: {e}"
-            # 其他則印出 log 並試下一把
-            print(f"⚠️ {tier.upper()} 線路 Key 異常: {e} -> 切換中")
-            continue
-
-    return "🚨 所有對應線路皆忙碌中，請稍後再試。"
-    
 def ai_decode_concept(input_text, subject):
-    sys_prompt = f"""【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
-    請輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
-    res = ai_call(sys_prompt, temp=0.5) 
+    sys_prompt = f"""【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
+    請嚴格輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
+    res = ai_call(sys_prompt, temp=0.5) # 邏輯用低溫
     if isinstance(res, dict): res.update({"word": input_text, "category": subject})
     return res
 
 def ai_generate_social_post(concept_data):
-    sys_prompt = f"""你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
+    sys_prompt = f"""【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
     請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。多用💀、謝了、116。"""
-    # 溫度調高一點讓文案更有創意
-    return ai_call(sys_prompt, str(concept_data), temp=2.5) 
+    return ai_call(sys_prompt, str(concept_data), temp=1.5) # 社群文用高溫
 
 def ai_explain_from_db(db_row):
     context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']} | 口訣：{db_row['memory_hook']}"
-    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰，數學公式請使用 LaTeX 格式：\n{context}"
+    prompt = f"【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}"
     return ai_call(prompt, temp=0.7)
+
 
 # ==========================================
 # 4. UI 組件
@@ -279,215 +208,25 @@ def inject_css():
     """, unsafe_allow_html=True)
 
 def show_concept(row):
-    # 使用 .get() 並提供預設值，避免 KeyError
-    category = row.get('category', '一般')
-    star_count = int(row.get('star', 3))
-    word = row.get('word', '未命名概念')
-    definition = row.get('definition', '暫無定義')
-    roots = row.get('roots', '無')
-    hook = row.get('memory_hook', '無')
-    vibe = row.get('native_vibe', '無')
-    breakdown = row.get('breakdown', '無')
-
-    # 使用 st.markdown 渲染 HTML 時，先處理定義內容
-    st.markdown(f"""
-        <div class="card">
-            <span class="tag">{category}</span> 
-            <span style="color:#f59e0b;">{'★' * star_count}</span>
-            <h2 style="margin-top:10px;">{word}</h2>
-            <p><b>💡 秒懂定義：</b>{definition}</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
+    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="color:#f59e0b;">{'★' * int(row.get('star', 3))}</span>
+    <h2 style="margin-top:10px;">{row['word']}</h2><p><b>💡 秒懂定義：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        st.info(f"🧬 **核心邏輯**\n\n{roots}")
-        st.success(f"🧠 **記憶點**\n\n{hook}")
+        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
+        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
     with c2:
-        st.warning(f"🚩 **學長姐雷區**\n\n{vibe}")
-        with st.expander("🔍 詳細拆解"): 
-            st.write(breakdown)
+        st.warning(f"🚩 **學長姐雷區**\n\n{row['native_vibe']}")
+        with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
 
-# ==========================================
-# 4.5. 新增：PDF 匯出功能 ( now accepts filename )
-# ==========================================
-def add_pdf_export_button(filename="重點筆記.pdf", title="AI 邏輯補給", content=""):
-    """
-    生成精美文件版 PDF。
-    不截圖螢幕，而是將 content 文字重新排版成 A4 文件格式。
-    """
-    import json
-    
-    # 1. 資料清洗與編碼
-    # 確保內容是字串，並處理成 JSON 格式以避免引號導致 JS 錯誤
-    js_filename = json.dumps(filename, ensure_ascii=False)
-    js_title = json.dumps(title, ensure_ascii=False)
-    js_content = json.dumps(content, ensure_ascii=False)
-
-    pdf_html = f"""
-    <!-- 引入必要的函式庫：Markdown 解析、數學公式渲染、PDF 生成 -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
-    <script>
-        function createPdfButton() {{
-            const parentDoc = window.parent.document;
-            
-            // 移除舊按鈕
-            const existingBtn = parentDoc.getElementById('export-pdf-btn');
-            if (existingBtn) existingBtn.remove();
-
-            // 建立懸浮按鈕
-            const btn = parentDoc.createElement("button");
-            btn.id = "export-pdf-btn";
-            btn.innerHTML = "📄";
-            btn.title = "下載精美講義";
-            
-            // 按鈕樣式 (藍色圓形)
-            Object.assign(btn.style, {{
-                position: "fixed",
-                bottom: "30px",
-                right: "30px",
-                width: "60px",
-                height: "60px",
-                borderRadius: "50%",
-                backgroundColor: "#6366f1",
-                color: "white",
-                border: "none",
-                fontSize: "24px",
-                cursor: "pointer",
-                boxShadow: "0 4px 15px rgba(99, 102, 241, 0.4)",
-                zIndex: "999999",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "all 0.3s ease"
-            }});
-
-            btn.onmouseover = function() {{ this.style.backgroundColor = "#4f46e5"; }};
-            btn.onmouseout = function() {{ this.style.backgroundColor = "#6366f1"; }};
-
-            btn.onclick = function() {{
-                btn.innerHTML = "⏳";
-                btn.disabled = true;
-
-                // 1. 準備數據
-                const docTitle = {js_title};
-                const rawContent = {js_content};
-
-                // 2. 建立一個隱藏的「文件容器」
-                // 這就是我們要印出來的樣子，完全由我們控制 CSS，與網頁原本長相無關
-                const container = document.createElement('div');
-                container.id = 'pdf-hidden-container';
-                
-                // 設定文件樣式 (仿 Word/講義排版)
-                container.style.cssText = `
-                    position: fixed; 
-                    top: -9999px; 
-                    left: -9999px; 
-                    width: 210mm; /* A4 寬度 */
-                    min-height: 297mm;
-                    background: white; 
-                    color: black;
-                    padding: 20mm;
-                    font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
-                    line-height: 1.6;
-                `;
-
-                // 3. 組合 HTML 內容
-                // 將 Markdown 轉為 HTML
-                const htmlContent = marked.parse(rawContent);
-
-                container.innerHTML = `
-                    <div style="border-bottom: 3px solid #6366f1; padding-bottom: 10px; margin-bottom: 20px;">
-                        <h1 style="color: #1e3a8a; margin: 0; font-size: 24px;">⚡ 116 戰情室重點筆記</h1>
-                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">主題：${{docTitle}}</p>
-                    </div>
-                    <div class="content-body" style="font-size: 14px;">
-                        ${{htmlContent}}
-                    </div>
-                    <div style="margin-top: 30px; text-align: center; color: #9ca3af; font-size: 10px; border-top: 1px solid #e5e7eb; padding-top: 10px;">
-                        此講義由 Kadowsella 116 AI 戰情室生成，僅供學習使用。
-                    </div>
-                `;
-                
-                // 額外的 CSS 美化 Markdown 轉出來的內容
-                const style = document.createElement('style');
-                style.innerHTML = `
-                    #pdf-hidden-container h1, #pdf-hidden-container h2, #pdf-hidden-container h3 {{ color: #1e3a8a; margin-top: 2.5em; }}
-                    #pdf-hidden-container strong {{ color: #d946ef; }} /* 重點強調色 */
-                    #pdf-hidden-container blockquote {{ 
-                        background: #f3f4f6; 
-                        border-left: 4px solid #6366f1; 
-                        padding: 10px; 
-                        margin: 10px 0; 
-                        color: #4b5563;
-                    }}
-                    #pdf-hidden-container code {{ 
-                        background: #f3f4f6; 
-                        padding: 2px 5px; 
-                        border-radius: 4px; 
-                        color: #dc2626;
-                        font-family: monospace;
-                    }}
-                `;
-                container.appendChild(style);
-                document.body.appendChild(container);
-
-                // 4. 渲染數學公式 (KaTeX)
-                renderMathInElement(container, {{
-                    delimiters: [
-                        {{left: "$$", right: "$$", display: true}},
-                        {{left: "$", right: "$", display: false}},
-                        {{left: "\\\\(", right: "\\\\)", display: false}},
-                        {{left: "\\\\[", right: "\\\\]", display: true}}
-                    ],
-                    throwOnError: false
-                }});
-
-                // 5. 生成 PDF
-                const opt = {{
-                    margin: 0, // 我們自己在 container 設定了 padding，這裡設 0
-                    filename: {js_filename},
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ scale: 2, useCORS: true, logging: false }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }};
-
-                html2pdf().set(opt).from(container).save().then(() => {{
-                    // 清理
-                    document.body.removeChild(container);
-                    btn.innerHTML = "📄";
-                    btn.disabled = false;
-                }}).catch(err => {{
-                    console.error(err);
-                    if(document.getElementById('pdf-hidden-container')) {{
-                        document.body.removeChild(container);
-                    }}
-                    btn.innerHTML = "❌";
-                    btn.disabled = false;
-                }});
-            }};
-
-            parentDoc.body.appendChild(btn);
-        }}
-
-        setTimeout(createPdfButton, 1000);
-    </script>
-    """
-    st.components.v1.html(pdf_html, height=0)
 # ==========================================
 # 5. 登入頁面
 # ==========================================
 def login_page():
     st.title("⚡ Kadowsella 116 登入")
     st.markdown("### 補習班沒教的數位複習法 | 116 級工程師邏輯戰情室")
-
+    
     col1, col2 = st.columns([2, 1])
-
+    
     with col1:
         tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
         with tab1:
@@ -504,30 +243,16 @@ def login_page():
                             st.session_state.role = user.iloc[0]['role']
                             st.rerun()
                         else: st.error("❌ 帳號或密碼錯誤")
-
+        
         with tab2:
             with st.form("reg"):
                 new_u = st.text_input("設定帳號")
                 new_p = st.text_input("設定密碼", type="password")
                 admin_code = st.text_input("管理員邀請碼 (學生免填)", type="password")
                 if st.form_submit_button("完成註冊"):
-                    # 判斷身分
-                    is_admin = admin_code == st.secrets.get("ADMIN_PASSWORD")
-                    role = "admin" if is_admin else "student"
-                    # 管理員註冊預設就是 pro 等級，一般人是 free
-                    membership = "pro" if is_admin else "free"
-                    
-                    user_data = {
-                        "username": new_u, 
-                        "password": hash_password(new_p), 
-                        "role": role, 
-                        "membership": membership, # 👈 確保這行有寫入
-                        "ai_usage": 0, 
-                        "can_chat": "FALSE"
-                    }
-                    
-                    if save_to_db(user_data, "users"):
-                        st.success(f"註冊成功！身分：{role}。請切換至登入分頁。")
+                    role = "admin" if admin_code == st.secrets.get("ADMIN_PASSWORD") else "student"
+                    if save_to_db({"username": new_u, "password": hash_password(new_p), "role": role, "ai_usage": 0, "can_chat": "FALSE"}, "users"):
+                        st.success(f"註冊成功！身分：{role}。請登入。")
 
     with col2:
         st.markdown("---")
@@ -556,16 +281,16 @@ def login_page():
 # ==========================================
 def main_app():
     inject_css()
-
+    
     # --- 1. 資料預加載 ---
     c_df = load_db("Sheet1")      # 知識點資料庫
     q_df = load_db("questions")   # 題庫資料庫
     users_df = load_db("users")   # 使用者資料庫
     l_df = load_db("leaderboard") # 排行榜資料庫
-
+    
     # --- 2. 獲取當前使用者狀態 ---
     user_row = users_df[users_df['username'] == st.session_state.username] if not users_df.empty else pd.DataFrame()
-
+    
     # 安全轉換 ai_usage (防止 "無" 或 NaN 導致崩潰)
     try:
         ai_usage = int(float(user_row.iloc[0]['ai_usage'])) if not user_row.empty else 0
@@ -574,40 +299,28 @@ def main_app():
 
     # --- 3. 側邊欄導航 (Sidebar) ---
     with st.sidebar:
-        # 獲取身分
-        user_membership = user_row.iloc[0].get('membership', 'free') if not user_row.empty else 'free'
+        role_tag = " <span class='admin-badge'>ADMIN</span>" if st.session_state.role == "admin" else ""
+        st.markdown(f"### 👋 你好, {st.session_state.username}{role_tag}", unsafe_allow_html=True)
         
-        # 標籤顯示
-        if st.session_state.role == "admin":
-            role_label = "（ADMIN）"
-        elif user_membership == "pro":
-            role_label = f"（PRO）：{st.session_state.username}"
+        if st.session_state.role == "guest":
+            st.warning("⚠️ 訪客模式：功能受限")
         else:
-            role_label = "" # 一般學生不顯示
-            
-        st.markdown(f"### 👋 你好, {st.session_state.username}")
-        if role_label: st.caption(role_label)
-
-        # 選單清單
-        menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
+            st.markdown(f"<div class='streak-badge'>🔥 116 戰力：Lv.1</div>", unsafe_allow_html=True)
         
-        # 管理員或 PRO 會員可以看到開發工具
-        if st.session_state.role == "admin" or user_membership == "pro":
-            st.divider()
-            st.subheader("🛠️ 開發者/PRO 工具")
-            menu.append("🔬 預埋考點")
-            menu.append("🧪 考題開發")
-            
-        # 只有管理員能看到使用者管理
+        st.metric("距離 116 學測", f"{CYCLE['days_left']} Days", f"Week {CYCLE['week_num']}")
+        st.divider()
+        
+        # 選單定義
+        menu = ["📅 本週菜單", "🧪 AI 邏輯補給站", "📝 模擬演練", "🏆 戰力排行榜"]
         if st.session_state.role == "admin":
-            menu.append("👤 使用者管理")
-
+            st.subheader("🛠️ 管理員上帝模式")
+            menu.extend(["🔬 預埋考點", "🧪 考題開發", "👤 使用者管理"])
+        
         choice = st.radio("功能導航", menu)
-
-
+        
         st.divider()
         st.link_button("💬 Discord 戰情室", DISCORD_URL, use_container_width=True)
-
+        
         if st.button("🚪 登出系統", use_container_width=True):
             st.session_state.logged_in = False
             st.rerun()
@@ -619,6 +332,7 @@ def main_app():
         st.title("🚀 116 級本週重點進度")
         st.caption("補習班沒教的數位複習法：用工程師邏輯模組化知識。")
         if not c_df.empty:
+            # 顯示最新的 5 筆或當週資料
             for _, r in c_df.tail(10).iterrows():
                 show_concept(r)
         else:
@@ -628,7 +342,7 @@ def main_app():
     elif choice == "🧪 AI 邏輯補給站":
         st.title("🧪 AI 邏輯補給站")
         MAX_USAGE = 10
-
+        
         if st.session_state.role == "guest":
             st.error("🔒 訪客無法使用 AI 教學，請註冊帳號以解鎖。")
         else:
@@ -646,7 +360,7 @@ def main_app():
                 else:
                     concept_list = c_df['word'].unique().tolist()
                     selected = st.selectbox("請選擇你想秒懂的概念：", ["--- 請選擇 ---"] + concept_list)
-
+                    
                     if selected != "--- 請選擇 ---":
                         db_row = c_df[c_df['word'] == selected].iloc[0]
                         if st.button("🚀 啟動學長深度教學", use_container_width=True):
@@ -654,23 +368,10 @@ def main_app():
                                 explanation = ai_explain_from_db(db_row)
                                 st.markdown("---")
                                 st.markdown(explanation) # 支援 LaTeX
-
+                                
                                 if st.session_state.role != "admin":
                                     update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
                                     st.toast("消耗 1 點能量", icon="🔋")
-
-                                # --- PDF 匯出按鈕 ---
-                                if explanation:
-                                    # 定義檔名
-                                    pdf_filename = f"{selected}_重點筆記.pdf"
-                                    
-                                    # 呼叫新函式，傳入：檔名、標題、以及最重要的「內容字串」
-                                    # 注意：explanation 是 AI 產生出來的那一大段文字
-                                    add_pdf_export_button(
-                                        filename=pdf_filename, 
-                                        title=selected, 
-                                        content=explanation
-                                        )
 
     # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
@@ -680,12 +381,12 @@ def main_app():
         else:
             concept_filter = st.selectbox("篩選測驗概念：", ["全部"] + q_df['concept'].unique().tolist())
             filtered_q = q_df if concept_filter == "全部" else q_df[q_df['concept'] == concept_filter]
-
+            
             for _, row in filtered_q.iterrows():
                 with st.container(border=True):
                     st.markdown(f"**【{row['subject']}】{row['concept']}**")
-                    st.markdown(row["content"])
-
+                    st.markdown(row["content"]) # 這裡會自動渲染 $...$ LaTeX
+                    
                     with st.expander("🔓 查看答案與防呆解析"):
                         if row['translation'] != "無":
                             st.caption("🌐 中文翻譯")
@@ -700,143 +401,68 @@ def main_app():
             st.subheader("🔥 全台 Top 10 巔峰榜")
             top_10 = l_df.sort_values(by="score", ascending=False).head(10)
             st.table(top_10[['username', 'subject', 'score', 'created_at']])
-
+            
             my_data = l_df[l_df['username'] == st.session_state.username]
             if not my_data.empty:
                 st.metric("你的平均戰力值", f"{my_data['score'].mean():.1f} %")
         else:
             st.info("尚無戰績，快去隨機驗收刷一波！")
-            
-     # E. 預埋考點 (管理員 & PRO 會員解鎖)
-    elif choice == "🔬 預埋考點":
-        is_admin = st.session_state.get('role') == "admin"
-        is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
-    
-        if is_admin or is_pro:
-            st.title("🔬 AI 考點預埋")
-            c1, c2 = st.columns([3, 1])
-            inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
-            sub = c2.selectbox("所屬科目", SUBJECTS)
-    
-            if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
-                if not inp:
-                    st.warning("請先輸入概念名稱！")
-                else:
-                    with st.spinner(f"正在拆解「{inp}」..."):
-                        target_key_name = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
-                        api_key = st.secrets.get(target_key_name)
-                        
-                        if not api_key:
-                            api_key = get_api_keys()[0] # 備案
 
-                        genai.configure(api_key=api_key)
-                        model = genai.GenerativeModel('gemini-2.5-flash') # 建議用 2.5 系列
-                        
-                        sys_prompt = f"""請針對「{sub}」的概念「{inp}」進行深度解析。
-                        必須嚴格以 JSON 格式回傳，LaTeX 公式務必使用雙反斜線轉義。"""
-                        
-                        response = model.generate_content(sys_prompt)
-                        # 使用強健解析
-                        res_data = robust_json_parse(response.text)
-                        
-                        if res_data:
-                            res_data.update({"word": inp, "category": sub})
-                            st.session_state.temp_concept = res_data
-                            st.success("解析完成！")
-                            show_concept(res_data) # 顯示預覽
-                        else:
-                            st.error("AI 回傳格式解析失敗。內容如下：")
-                            st.code(response.text)
+    # E. 預埋考點 (管理員 - Temp 0.5)
+    elif choice == "🔬 預埋考點" and st.session_state.role == "admin":
+        st.title("🔬 AI 考點預埋 (上帝模式)")
+        c1, c2 = st.columns([3, 1])
+        inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
+        sub = c2.selectbox("所屬科目", SUBJECTS)
 
-            # 儲存按鈕邏輯
-            if "temp_concept" in st.session_state:
-                if st.button("💾 存入雲端資料庫", type="primary"):
-                    data_to_save = st.session_state.temp_concept.copy()
-                    data_to_save['contributor'] = st.session_state.username
-                    if save_to_db(data_to_save, "Sheet1"):
-                        st.success("已成功存入！")
-                        del st.session_state.temp_concept
-                        st.rerun()
+        if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
+            if inp:
+                with st.spinner(f"正在拆解「{inp}」..."):
+                    sys_prompt = f"你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。請嚴格輸出 JSON：{{ \"roots\": \"公式\", \"definition\": \"定義\", \"breakdown\": \"拆解\", \"memory_hook\": \"口訣\", \"native_vibe\": \"叮嚀\", \"star\": 5 }}"
+                    res = ai_call(sys_prompt, temp=0.5)
+                    if res:
+                        res.update({"word": inp, "category": sub})
+                        st.session_state.temp_concept = res
+            else: st.warning("請輸入內容")
 
-# F. 考題開發 (管理員 & PRO 會員解鎖)
-    elif choice == "🧪 考題開發":
-        # 1. 權限前置檢查，避免 iloc[0] 報錯
-        is_admin = st.session_state.get('role') == "admin"
-        is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
-    
-        if is_admin or is_pro:
-            st.title("🧪 AI 考題開發")
-            
-            # 2. 檢查是否有預埋的概念資料 (c_df)
-            if c_df.empty:
-                st.warning("請先去「🔬 預埋考點」新增概念，才能根據概念出題。")
-            else:
-                # 取得不重複的概念清單
-                concept_list = c_df['word'].unique().tolist()
-                target_concept = st.selectbox("選擇要命題的概念：", concept_list)
-                
-                if st.button("🪄 根據此概念生成素養題", use_container_width=True):
-                    # 取得選定概念的完整資料列
-                    db_row = c_df[c_df['word'] == target_concept].iloc[0]
-                    
-                    with st.spinner(f"命題委員正在針對「{target_concept}」構思情境..."):
-                        # 3. 確保 API Key 邏輯與上一段一致
-                        # 假設你的 ai_generate_question_from_db 內部會用到 API
-                        # 你可能需要傳入選定的 API Key
-                        target_key_name = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
-                        selected_api_key = st.secrets.get(target_key_name)
-                        
-                        if not selected_api_key:
-                            st.error(f"找不到 API Key: {target_key_name}，請檢查設定。")
-                            st.stop()
-                        
-                        # 執行生成 (建議將 api_key 作為參數傳入，除非你的函數內部已處理)
-                        new_q = ai_generate_question_from_db(db_row, api_key=selected_api_key)
-                        
-                        if new_q:
-                            st.session_state.temp_q = new_q
-                            st.success("題目生成成功！請檢查下方預覽。")
-                            # 建議在這裡加一個展示區域
-                            with st.expander("📝 題目預覽", expanded=True):
-                                st.write(new_q)
-                        else:
-                            st.error("AI 命題失敗，請稍後再試。")
+        if "temp_concept" in st.session_state:
+            show_concept(st.session_state.temp_concept)
+            if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
+                if save_to_db(st.session_state.temp_concept, "Sheet1"):
+                    st.balloons()
+                    del st.session_state.temp_concept
+                    st.rerun()
+
+    # F. 考題開發 (管理員)
+    elif choice == "🧪 考題開發" and st.session_state.role == "admin":
+        st.title("🧪 AI 考題開發")
+        if c_df.empty: st.warning("請先預埋考點")
         else:
-            st.error("🚫 此功能僅限 PRO 會員或管理員使用。")
-            st.info("若您已是 PRO 會員卻看到此訊息，請確認您的帳號狀態。")
-    
+            target = st.selectbox("選擇要命題的概念：", c_df['word'].unique().tolist())
+            if st.button("🪄 生成素養題"):
+                db_row = c_df[c_df['word'] == target].iloc[0]
+                res = ai_generate_question_from_db(db_row)
+                if res: st.session_state.temp_q = res
+            
             if "temp_q" in st.session_state:
                 st.markdown(st.session_state.temp_q['content'])
                 if st.button("💾 存入題庫"):
-                    
-                    # --- 關鍵修改 2: 準備儲存資料 ---
-                    data_to_save = st.session_state.temp_q.copy()
-                    data_to_save['contributor'] = st.session_state.username # 填入使用者名稱
-                    
-                    if save_to_db(data_to_save, "questions"):
+                    if save_to_db(st.session_state.temp_q, "questions"):
                         st.success("已存入！")
                         del st.session_state.temp_q
                         st.rerun()
-                        
+
     # G. 使用者管理 (管理員)
     elif choice == "👤 使用者管理" and st.session_state.role == "admin":
-        st.title("👤 使用者管理")
+        st.title("👤 使用者權限與能量管理")
         for i, row in users_df.iterrows():
             if row['role'] == "admin": continue
-            c1, c2, c3, c4 = st.columns([2, 2, 1, 1])
+            c1, c2, c3 = st.columns([2, 2, 1])
             c1.write(f"**{row['username']}**")
-            c2.write(f"等級：{row['membership']}")
-            
-            # 升級 PRO 按鈕
-            if row['membership'] == 'free':
-                if c3.button("升級 PRO", key=f"up_{i}"):
-                    update_user_data(row['username'], "membership", "pro")
-                    st.rerun()
-            else:
-                if c3.button("降級 FREE", key=f"down_{i}"):
-                    update_user_data(row['username'], "membership", "free")
-                    st.rerun()
-
+            c2.write(f"已用能量：{row['ai_usage']}")
+            if c3.button("能量補滿", key=f"reset_{i}"):
+                update_user_data(row['username'], "ai_usage", 0)
+                st.rerun()
 # ==========================================
 # 7. 執行入口
 # ==========================================
