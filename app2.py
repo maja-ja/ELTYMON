@@ -553,7 +553,7 @@ def main_app():
         ai_usage = 0
 
     # --- 3. 側邊欄導航 (Sidebar) ---
-   with st.sidebar:
+    with st.sidebar:
         # 獲取身分
         user_membership = user_row.iloc[0].get('membership', 'free') if not user_row.empty else 'free'
         
