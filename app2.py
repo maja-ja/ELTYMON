@@ -233,15 +233,27 @@ def show_concept(row):
 # ==========================================
 # 4.5. 新增：PDF 匯出功能 ( now accepts filename )
 # ==========================================
-def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
+def add_pdf_export_button(filename="重點筆記.pdf", title="AI 邏輯補給", content=""):
     """
-    在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能。
-    修正版：使用「即時樣式覆蓋」技術，解決 PDF 空白問題。
+    生成精美文件版 PDF。
+    不截圖螢幕，而是將 content 文字重新排版成 A4 文件格式。
     """
+    import json
+    
+    # 1. 資料清洗與編碼
+    # 確保內容是字串，並處理成 JSON 格式以避免引號導致 JS 錯誤
     js_filename = json.dumps(filename, ensure_ascii=False)
+    js_title = json.dumps(title, ensure_ascii=False)
+    js_content = json.dumps(content, ensure_ascii=False)
 
-    pdf_export_html = f"""
+    pdf_html = f"""
+    <!-- 引入必要的函式庫：Markdown 解析、數學公式渲染、PDF 生成 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <script>
         function createPdfButton() {{
             const parentDoc = window.parent.document;
@@ -250,13 +262,13 @@ def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
             const existingBtn = parentDoc.getElementById('export-pdf-btn');
             if (existingBtn) existingBtn.remove();
 
-            // 創建按鈕
+            // 建立懸浮按鈕
             const btn = parentDoc.createElement("button");
             btn.id = "export-pdf-btn";
             btn.innerHTML = "📄";
             btn.title = "下載精美講義";
             
-            // 按鈕樣式
+            // 按鈕樣式 (藍色圓形)
             Object.assign(btn.style, {{
                 position: "fixed",
                 bottom: "30px",
@@ -284,93 +296,111 @@ def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
                 btn.innerHTML = "⏳";
                 btn.disabled = true;
 
-                // 1. 注入強制白底黑字的 CSS
-                const styleTag = parentDoc.createElement('style');
-                styleTag.id = 'pdf-print-style';
-                styleTag.innerHTML = `
-                    /* 強制背景全白，文字全黑 */
-                    [data-testid="stAppViewContainer"], .stApp, body {{
-                        background-color: #ffffff !important;
-                        color: #000000 !important;
+                // 1. 準備數據
+                const docTitle = {js_title};
+                const rawContent = {js_content};
+
+                // 2. 建立一個隱藏的「文件容器」
+                // 這就是我們要印出來的樣子，完全由我們控制 CSS，與網頁原本長相無關
+                const container = document.createElement('div');
+                container.id = 'pdf-hidden-container';
+                
+                // 設定文件樣式 (仿 Word/講義排版)
+                container.style.cssText = `
+                    position: fixed; 
+                    top: -9999px; 
+                    left: -9999px; 
+                    width: 210mm; /* A4 寬度 */
+                    min-height: 297mm;
+                    background: white; 
+                    color: black;
+                    padding: 20mm;
+                    font-family: "Microsoft JhengHei", "Segoe UI", sans-serif;
+                    line-height: 1.6;
+                `;
+
+                // 3. 組合 HTML 內容
+                // 將 Markdown 轉為 HTML
+                const htmlContent = marked.parse(rawContent);
+
+                container.innerHTML = `
+                    <div style="border-bottom: 3px solid #6366f1; padding-bottom: 10px; margin-bottom: 20px;">
+                        <h1 style="color: #1e3a8a; margin: 0; font-size: 24px;">⚡ 116 戰情室重點筆記</h1>
+                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">主題：${{docTitle}}</p>
+                    </div>
+                    <div class="content-body" style="font-size: 14px;">
+                        ${{htmlContent}}
+                    </div>
+                    <div style="margin-top: 30px; text-align: center; color: #9ca3af; font-size: 10px; border-top: 1px solid #e5e7eb; padding-top: 10px;">
+                        此講義由 Kadowsella 116 AI 戰情室生成，僅供學習使用。
+                    </div>
+                `;
+                
+                // 額外的 CSS 美化 Markdown 轉出來的內容
+                const style = document.createElement('style');
+                style.innerHTML = `
+                    #pdf-hidden-container h1, #pdf-hidden-container h2, #pdf-hidden-container h3 {{ color: #1e3a8a; margin-top: 1.5em; }}
+                    #pdf-hidden-container strong {{ color: #d946ef; }} /* 重點強調色 */
+                    #pdf-hidden-container blockquote {{ 
+                        background: #f3f4f6; 
+                        border-left: 4px solid #6366f1; 
+                        padding: 10px; 
+                        margin: 10px 0; 
+                        color: #4b5563;
                     }}
-                    /* 修正文字顏色 */
-                    p, h1, h2, h3, h4, h5, h6, li, span, div, label {{
-                        color: #000000 !important;
-                        text-shadow: none !important;
-                    }}
-                    /* 修正數學公式顏色 */
-                    .katex, .katex-display {{
-                        color: #000000 !important;
-                    }}
-                    /* 隱藏側邊欄、按鈕、選單、頂部導航 */
-                    [data-testid="stSidebar"], 
-                    header, 
-                    [data-testid="stToolbar"],
-                    .stSelectbox, 
-                    #export-pdf-btn,
-                    footer {{
-                        display: none !important;
-                    }}
-                    /* 卡片樣式轉為列印版 */
-                    .card {{
-                        background-color: #f9fafb !important;
-                        border: 1px solid #ccc !important;
-                        color: #000000 !important;
-                        box-shadow: none !important;
-                    }}
-                    /* 修正 Markdown 內的程式碼區塊或引言 */
-                    code, blockquote {{
-                        background-color: #f0f0f0 !important;
-                        color: #000000 !important;
+                    #pdf-hidden-container code {{ 
+                        background: #f3f4f6; 
+                        padding: 2px 5px; 
+                        border-radius: 4px; 
+                        color: #dc2626;
+                        font-family: monospace;
                     }}
                 `;
-                parentDoc.head.appendChild(styleTag);
+                container.appendChild(style);
+                document.body.appendChild(container);
 
-                // 2. 稍微等待樣式應用，並捲動到頂部
-                setTimeout(() => {{
-                    const element = parentDoc.querySelector('[data-testid="stAppViewContainer"]');
-                    
-                    // 設定 PDF 參數
-                    const opt = {{
-                        margin: [10, 10, 10, 10],
-                        filename: {js_filename},
-                        image: {{ type: 'jpeg', quality: 0.98 }},
-                        html2canvas: {{ 
-                            scale: 2, 
-                            useCORS: true, 
-                            logging: true,
-                            scrollY: 0, // 強制從頭開始截圖
-                            windowWidth: 1200 // 設定虛擬寬度，避免手機版跑版
-                        }},
-                        jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                        pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                    }};
+                // 4. 渲染數學公式 (KaTeX)
+                renderMathInElement(container, {{
+                    delimiters: [
+                        {{left: "$$", right: "$$", display: true}},
+                        {{left: "$", right: "$", display: false}},
+                        {{left: "\\\\(", right: "\\\\)", display: false}},
+                        {{left: "\\\\[", right: "\\\\]", display: true}}
+                    ],
+                    throwOnError: false
+                }});
 
-                    // 3. 執行生成
-                    html2pdf().set(opt).from(element).save().then(() => {{
-                        // 4. 恢復原狀
-                        parentDoc.head.removeChild(styleTag);
-                        btn.innerHTML = "📄";
-                        btn.disabled = false;
-                    }}).catch((err) => {{
-                        console.error(err);
-                        // 發生錯誤也要恢復原狀
-                        if (parentDoc.getElementById('pdf-print-style')) {{
-                            parentDoc.head.removeChild(styleTag);
-                        }}
-                        btn.innerHTML = "❌";
-                        btn.disabled = false;
-                    }});
-                }}, 500); // 等待 0.5 秒讓 CSS 生效
+                // 5. 生成 PDF
+                const opt = {{
+                    margin: 0, // 我們自己在 container 設定了 padding，這裡設 0
+                    filename: {js_filename},
+                    image: {{ type: 'jpeg', quality: 0.98 }},
+                    html2canvas: {{ scale: 2, useCORS: true, logging: false }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                }};
+
+                html2pdf().set(opt).from(container).save().then(() => {{
+                    // 清理
+                    document.body.removeChild(container);
+                    btn.innerHTML = "📄";
+                    btn.disabled = false;
+                }}).catch(err => {{
+                    console.error(err);
+                    if(document.getElementById('pdf-hidden-container')) {{
+                        document.body.removeChild(container);
+                    }}
+                    btn.innerHTML = "❌";
+                    btn.disabled = false;
+                }});
             }};
 
             parentDoc.body.appendChild(btn);
         }}
 
-        setTimeout(createPdfButton, 1500);
+        setTimeout(createPdfButton, 1000);
     </script>
     """
-    st.components.v1.html(pdf_export_html, height=0)
+    st.components.v1.html(pdf_html, height=0)
 # ==========================================
 # 5. 登入頁面
 # ==========================================
@@ -527,12 +557,15 @@ def main_app():
 
                                 # --- PDF 匯出按鈕 ---
                                 if explanation:
-                                    # 組合檔名：例如 "光電效應_116戰情室筆記.pdf"
-                                    # selected 是您上面 selectbox 選到的概念名稱
-                                    dynamic_filename = f"{selected}_116戰情室筆記.pdf"
+                                    # 定義檔名
+                                    pdf_filename = f"{selected}_重點筆記.pdf"
                                     
-                                    # 呼叫函式並傳入檔名
-                                    add_pdf_export_button(dynamic_filename)
+                                    # 呼叫新函式，傳入：檔名、標題、以及最重要的「內容字串」
+                                    # 注意：explanation 是 AI 產生出來的那一大段文字
+                                    add_pdf_export_button(
+                                        filename=pdf_filename, 
+                                        title=selected, 
+                                        content=explanation
     # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
         st.title("📝 素養模擬演練")
