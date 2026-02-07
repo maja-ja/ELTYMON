@@ -233,78 +233,97 @@ def show_concept(row):
 # ==========================================
 # 4.5. 新增：PDF 匯出功能 ( now accepts filename )
 # ==========================================
-def add_pdf_export_button(filename="116級戰情室-文件.pdf"):
-    """在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能，可自訂檔名。"""
-    # Safely encode filename for JavaScript string literal
+def add_pdf_export_button(filename="116級戰情室-重點筆記.pdf"):
+    """
+    在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能。
+    參數 filename: 下載時的檔案名稱 (例如: "光電效應_重點筆記.pdf")
+    """
+    # 將檔名轉為 JSON 字串格式，確保特殊字元或中文不會導致 JS 錯誤
     js_filename = json.dumps(filename, ensure_ascii=False)
 
     pdf_export_html = f"""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <style>
-        #export-button {{
-            visibility: hidden; /* 初始隱藏，等待頁面載入完成 */
-            position: fixed;
-            bottom: 25px;
-            right: 25px;
-            background-color: #6366f1;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            font-size: 24px;
-            cursor: pointer;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }}
-        #export-button:hover {{
-            background-color: #4f46e5;
-        }}
-    </style>
-
-    <button id="export-button" title="下載本頁為 PDF">📄</button>
-
     <script>
-        window.addEventListener('load', function () {{
-            const exportButton = document.getElementById('export-button');
-            const pdfFilename = {js_filename};
-
-            if (exportButton) {{
-                exportButton.style.visibility = 'visible'; 
-
-                exportButton.addEventListener('click', function () {{
-                    exportButton.style.visibility = 'hidden';
-                    const sidebar = document.querySelector('[data-testid="stSidebar"]');
-                    if (sidebar) {{ sidebar.style.display = 'none'; }}
-
-                    const element = document.querySelector('[data-testid="stAppViewContainer"]');
-
-                    const options = {{
-                        margin: [10, 10, 10, 10], 
-                        filename: pdfFilename, 
-                        image: {{ type: 'jpeg', quality: 0.98 }},
-                        html2canvas: {{ scale: 2, useCORS: true, logging: false }},
-                        jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                    }};
-
-                    html2pdf().from(element).set(options).save().then(() => {{
-                        exportButton.style.visibility = 'visible';
-                        if (sidebar) {{ sidebar.style.display = 'block'; }}
-                    }}).catch((error) => {{
-                        console.error('PDF 生成失敗:', error);
-                        exportButton.style.visibility = 'visible';
-                        if (sidebar) {{ sidebar.style.display = 'block'; }}
-                    }});
-                }});
+        function createPdfButton() {{
+            const parentDoc = window.parent.document;
+            
+            // 1. 先移除舊按鈕 (確保檔名更新時按鈕也會更新)
+            const existingBtn = parentDoc.getElementById('export-pdf-btn');
+            if (existingBtn) {{
+                existingBtn.remove();
             }}
-        }});
+
+            // 2. 創建新按鈕
+            const btn = parentDoc.createElement("button");
+            btn.id = "export-pdf-btn";
+            btn.innerHTML = "📄";
+            btn.title = "下載本頁為 PDF";
+            
+            // 3. 設定樣式 (右下角懸浮)
+            Object.assign(btn.style, {{
+                position: "fixed",
+                bottom: "30px",
+                right: "30px",
+                width: "60px",
+                height: "60px",
+                borderRadius: "50%",
+                backgroundColor: "#6366f1",
+                color: "white",
+                border: "none",
+                fontSize: "24px",
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                zIndex: "999999",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "background 0.3s"
+            }});
+
+            // 4. 互動效果
+            btn.onmouseover = function() {{ this.style.backgroundColor = "#4f46e5"; }};
+            btn.onmouseout = function() {{ this.style.backgroundColor = "#6366f1"; }};
+
+            // 5. 點擊事件
+            btn.onclick = function() {{
+                // 暫時隱藏按鈕與側邊欄
+                btn.style.display = 'none';
+                const sidebar = parentDoc.querySelector('[data-testid="stSidebar"]');
+                if (sidebar) sidebar.style.display = 'none';
+
+                // 抓取主要內容區
+                const element = parentDoc.querySelector('[data-testid="stAppViewContainer"]');
+
+                // 設定 PDF 參數，這裡使用傳入的 js_filename
+                const opt = {{
+                    margin: [5, 5, 5, 5],
+                    filename: {js_filename}, 
+                    image: {{ type: 'jpeg', quality: 0.98 }},
+                    html2canvas: {{ scale: 2, useCORS: true, logging: false }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                }};
+
+                // 執行轉換
+                // 注意：這裡是調用 iframe 內的 html2pdf 處理 parent 的 element
+                html2pdf().set(opt).from(element).save().then(function() {{
+                    btn.style.display = 'flex';
+                    if (sidebar) sidebar.style.display = 'block';
+                }}).catch(function(err) {{
+                    console.error('PDF Error:', err);
+                    btn.style.display = 'flex';
+                    if (sidebar) sidebar.style.display = 'block';
+                }});
+            }};
+
+            parentDoc.body.appendChild(btn);
+        }}
+
+        // 延遲執行以確保 DOM 載入
+        setTimeout(createPdfButton, 1000);
     </script>
     """
-    st.components.v1.html(pdf_export_html, height=0, scrolling=False)
-
+    # 這裡 height=0 是正確的，因為我們用 JS 把按鈕搬運到外層了
+    st.components.v1.html(pdf_export_html, height=0)
 
 # ==========================================
 # 5. 登入頁面
@@ -462,9 +481,12 @@ def main_app():
 
                                 # --- PDF 匯出按鈕 ---
                                 if explanation:
-                                    pdf_filename = f"{selected}-AI邏輯補給.pdf"
-                                    add_pdf_export_button(pdf_filename)
-
+                                    # 組合檔名：例如 "光電效應_116戰情室筆記.pdf"
+                                    # selected 是您上面 selectbox 選到的概念名稱
+                                    dynamic_filename = f"{selected}_116戰情室筆記.pdf"
+                                    
+                                    # 呼叫函式並傳入檔名
+                                    add_pdf_export_button(dynamic_filename)
     # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
         st.title("📝 素養模擬演練")
