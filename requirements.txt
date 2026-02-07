@@ -3,3 +3,4 @@ pandas
 google-generativeai
 st-gsheets-connection
 gTTS
+fpdf2
