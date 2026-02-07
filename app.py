@@ -611,54 +611,61 @@ def page_learn_search(df):
 
     tab_card, tab_list = st.tabs(["🎲 隨機探索", "🔍 搜尋與列表"])
     
-    # --- Tab 1: 隨機探索 (保持原樣) ---
+    # --- Tab 1: 隨機探索 (保持不變) ---
     with tab_card:
+        # ... (這部分維持你原本的程式碼)
         cats = ["全部"] + sorted(df['category'].unique().tolist())
         sel_cat = st.selectbox("選擇學習分類", cats, key="learn_cat_select")
         f_df = df if sel_cat == "全部" else df[df['category'] == sel_cat]
-
-        if 'curr_w' not in st.session_state:
-            st.session_state.curr_w = None
-
+        if 'curr_w' not in st.session_state: st.session_state.curr_w = None
         if st.button("🎲 隨機探索下一字 (Next Word)", use_container_width=True, type="primary"):
             if not f_df.empty:
                 st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
                 st.rerun()
-
         if st.session_state.curr_w is None and not f_df.empty:
             st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
-
         if st.session_state.curr_w:
             show_encyclopedia_card(st.session_state.curr_w)
 
-    # --- Tab 2: 搜尋與列表 (這是我們要修改的地方) ---
+    # --- Tab 2: 搜尋與列表 (精確搜尋邏輯) ---
     with tab_list:
-        search = st.text_input("🔍 搜尋書架內容...", placeholder="輸入關鍵字（單字、定義或字根）...")
+        col_search, col_mode = st.columns([3, 1])
         
-        if search:
-            # 執行搜尋過濾
-            mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
+        with col_search:
+            search_query = st.text_input("🔍 搜尋內容...", placeholder="輸入單字名稱...")
+        
+        with col_mode:
+            search_mode = st.radio("搜尋模式", ["精確匹配", "關鍵字包含"], horizontal=True)
+
+        if search_query:
+            query_clean = search_query.strip().lower() # 清除空格並轉小寫
+            
+            if search_mode == "精確匹配":
+                # 邏輯：word 欄位必須完全等於輸入內容
+                mask = df['word'].str.strip().str.lower() == query_clean
+            else:
+                # 邏輯：任何欄位包含輸入內容 (你原本的邏輯)
+                mask = df.astype(str).apply(lambda x: x.str.contains(query_clean, case=False)).any(axis=1)
+            
             display_df = df[mask]
             
             if not display_df.empty:
-                st.info(f"💡 找到 {len(display_df)} 筆相關資料：")
-                
-                # 遍歷搜尋結果，呼叫你寫好的字卡函式
+                st.info(f"💡 找到 {len(display_df)} 筆「{search_mode}」結果：")
                 for index, row in display_df.iterrows():
-                    # 使用 st.container(border=True) 讓多張字卡排隊時有明顯邊界
                     with st.container(border=True):
                         show_encyclopedia_card(row)
-                    st.write(" ") # 增加一些垂直間距
             else:
-                st.warning("查無資料，請嘗試其他關鍵字。")
+                st.warning(f"❌ 找不到與「{search_query}」精確匹配的內容。")
+                # 如果精確搜尋不到，自動提示相似結果
+                if search_mode == "精確匹配":
+                    fuzzy_mask = df['word'].str.contains(query_clean, case=False)
+                    suggestions = df[fuzzy_mask]['word'].tolist()
+                    if suggestions:
+                        st.caption(f"你是不是在找：{', '.join(suggestions[:5])}？")
         else:
-            # 當使用者還沒輸入搜尋內容時，顯示簡要表格方便快速瀏覽
-            st.caption("請在上方輸入框輸入關鍵字以查看詳細字卡，或參考下方目錄：")
-            st.dataframe(
-                df[['word', 'definition', 'category', 'roots']], 
-                use_container_width=True, 
-                hide_index=True
-            )
+            # 無搜尋時顯示快速清單
+            st.caption("請在上方輸入框輸入單字。")
+            st.dataframe(df[['word', 'definition', 'category']], use_container_width=True, hide_index=True)
 def page_quiz(df):
     st.title("🧠 字根記憶挑戰")
     if df.empty: return
