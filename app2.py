@@ -197,92 +197,44 @@ def show_concept(row):
         with st.expander("🔍 詳細拆解"):
             st.write(row['breakdown'])
 def show_pro_paper_with_download(title, content):
-    js_title = json.dumps(title, ensure_ascii=False)
-    js_content = json.dumps(content, ensure_ascii=False)
+    js_title, js_content = json.dumps(title, ensure_ascii=False), json.dumps(content, ensure_ascii=False)
     div_id = f"paper_{int(time.time())}"
-    
     html_code = f"""
     <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:25px; border-radius:15px; border:1px solid #333; color:white; margin:20px 0;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-            <span style="color:#6366f1; font-weight:bold; font-size:1.2em;">⚡ 戰術講義系統</span>
-            <span style="background:rgba(99,102,241,0.2); color:#a855f7; padding:2px 10px; border-radius:10px; font-size:0.8em; border:1px solid rgba(168,85,247,0.3);">PRO ACCESS</span>
-        </div>
-        <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6; color:#e5e7eb;">正在載入...</div>
-        <hr style="border:0; border-top:1px solid #333; margin:20px 0;">
-        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px;">📥 下載 116 級精美戰術講義 (PDF)</button>
+        <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6;">載入內容中...</div>
+        <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
+        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px;">📥 下載精美複習講義 (PDF)</button>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
     <script>
         (function() {{
             const content = {js_content}; const title = {js_title};
-            const displayDiv = document.getElementById("{div_id}_content");
-            const btn = document.getElementById("{div_id}_btn");
-
-            displayDiv.innerHTML = marked.parse(content);
-            renderMathInElement(displayDiv, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
+            const display = document.getElementById("{div_id}_content");
+            display.innerHTML = marked.parse(content);
+            renderMathInElement(display, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
             
-            btn.onclick = function() {{
-                btn.innerHTML = "⏳ 正在執行精密排版...";
-                btn.disabled = true;
-
-                // 建立一個完全獨立的、且強制置頂在座標 (0,0) 的容器
+            document.getElementById("{div_id}_btn").onclick = function() {{
+                this.innerHTML = "⏳ 正在排版...";
                 const container = document.createElement('div');
-                container.id = 'pdf-container';
-                container.style.cssText = "position:fixed; left:0; top:0; width:190mm; background:white; color:black; padding:20mm; font-family:sans-serif; z-index:9999; visibility:hidden;";
-                
+                container.style.cssText = "width:210mm; background:white; color:black; padding:25mm; font-family:sans-serif;";
                 container.innerHTML = `
-                    <div style="border-left:12px solid #6366f1; padding-left:25px; margin-bottom:40px;">
-                        <h1 style="color:#1e3a8a; margin:0; font-size:32px; font-weight:900;">⚡ 116 級數位戰情室</h1>
-                        <p style="color:#4b5563; margin:8px 0; font-size:16px;">主題解析：${{title}}</p>
+                    <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
+                        <h1 style="color:#1e3a8a; margin:0; font-size:28px;">⚡ 116 級數位戰情室</h1>
+                        <p style="color:#666; margin:5px 0; font-size:16px;">重點主題：${{title}} | 專屬複習講義</p>
                     </div>
-                    <div style="font-size:14px; line-height:1.8; color:#1f2937;">
-                        ${{marked.parse(content)}}
-                    </div>
-                    <div style="margin-top:60px; border-top:1px solid #eee; padding-top:20px; text-align:center; color:#9ca3af; font-size:10px;">
-                        Kadowsella 116 戰情室專屬講義 | PRO MEMBER ONLY
+                    <div style="line-height:1.8; font-size:14px;">${{marked.parse(content)}}</div>
+                    <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
+                        Kadowsella 116 AI 模組化知識庫 | 此份文件僅供內部學習使用
                     </div>
                 `;
-                
                 document.body.appendChild(container);
                 renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
-                
-                // 強制等待渲染完成
-                setTimeout(() => {{
-                    const opt = {{
-                        margin: 0,
-                        filename: title + "_116重點.pdf",
-                        image: {{ type: 'jpeg', quality: 1 }},
-                        html2canvas: {{ 
-                            scale: 2, 
-                            useCORS: true,
-                            logging: false,
-                            scrollY: -window.scrollY, // 👈 核心中的核心：抵銷 iframe 的位移
-                            windowHeight: container.offsetHeight,
-                            onclone: (clonedDoc) => {{
-                                // 在克隆出的文件中強制把 container 顯示出來
-                                clonedDoc.getElementById('pdf-container').style.visibility = 'visible';
-                            }}
-                        }},
-                        jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                        pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                    }};
-                    
-                    html2pdf().set(opt).from(container).save().then(() => {{
-                        document.body.removeChild(container);
-                        btn.innerHTML = "📥 下載完成";
-                        btn.disabled = false;
-                    }}).catch(err => {{
-                        console.error(err);
-                        btn.innerHTML = "❌ 下載錯誤";
-                        btn.disabled = false;
-                    }});
-                }}, 600); 
+                html2pdf().set({{ margin:0, filename: title+"_116講義.pdf", image:{{type:'jpeg', quality:1}}, html2canvas:{{scale:2, useCORS:true}}, jsPDF:{{unit:'mm', format:'a4', orientation:'portrait'}} }})
+                .from(container).save().then(() => {{ document.body.removeChild(container); this.innerHTML = "📥 下載成功！"; }});
             }};
         }})();
     </script>"""
