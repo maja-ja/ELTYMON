@@ -688,153 +688,153 @@ def main_app():
             st.info("尚無戰績，快去隨機驗收刷一波！")
             
      # E. 預埋考點 (管理員 & PRO 會員解鎖)
-elif choice == "🔬 預埋考點":
-    # 權限檢查邏輯優化
-    is_admin = st.session_state.get('role') == "admin"
-    is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
-
-    if is_admin or is_pro:
-        st.title("🔬 AI 考點預埋 (工程師/PRO 模式)")
-        
-        c1, c2 = st.columns([3, 1])
-        inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
-        sub = c2.selectbox("所屬科目", SUBJECTS)
-
-        if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
-            if not inp:
-                st.warning("請先輸入概念名稱！")
-            else:
-                with st.spinner(f"正在拆解「{inp}」..."):
-                    # 選擇正確的 API Key
-                    target_key = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
-                    api_key = st.secrets.get(target_key)
-                    
-                    if not api_key:
-                        st.error(f"找不到 API Key: {target_key}，請檢查 Secrets 設定。")
-                        st.stop()
-                    
-                    # 配置 AI
-                    genai.configure(api_key=api_key)
-                    # 修正模型名稱
-                    model = genai.GenerativeModel('gemini-2.5-flash') 
-                    
-                    sys_prompt = f"""
-                    你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。
-                    請嚴格遵守以下 JSON 格式輸出：
-                    {{
-                        "roots": "核心公式(LaTeX)或字源邏輯",
-                        "definition": "108 課綱標準定義",
-                        "breakdown": "條列式重點拆解(使用 \\n 換行)",
-                        "memory_hook": "創意口訣或諧音聯想",
-                        "native_vibe": "學長姐叮嚀",
-                        "star": 5
-                    }}
-                    """
-                    
-                    try:
-                        response = model.generate_content(sys_prompt)
-                        res_text = response.text
+    elif choice == "🔬 預埋考點":
+        # 權限檢查邏輯優化
+        is_admin = st.session_state.get('role') == "admin"
+        is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
+    
+        if is_admin or is_pro:
+            st.title("🔬 AI 考點預埋 (工程師/PRO 模式)")
+            
+            c1, c2 = st.columns([3, 1])
+            inp = c1.text_input("輸入要拆解的概念", placeholder="例如：光電效應...")
+            sub = c2.selectbox("所屬科目", SUBJECTS)
+    
+            if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
+                if not inp:
+                    st.warning("請先輸入概念名稱！")
+                else:
+                    with st.spinner(f"正在拆解「{inp}」..."):
+                        # 選擇正確的 API Key
+                        target_key = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
+                        api_key = st.secrets.get(target_key)
                         
-                        # 使用正規表達式提取 JSON 部分
-                        match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                        if match:
-                            res_data = json.loads(match.group(0))
-                            res_data.update({"word": inp, "category": sub})
-                            st.session_state.temp_concept = res_data
-                            st.success("解析完成！已存入暫存區。")
-                            st.json(res_data) # 預覽結果
-                        else:
-                            st.error("AI 回傳格式不符，請再試一次。")
-                    except Exception as e:
-                        st.error(f"AI 生成失敗: {e}")
-    else:
-        st.error("此功能僅限 PRO 會員或管理員使用。")
-        if "temp_concept" in st.session_state:
-            show_concept(st.session_state.temp_concept)
-            
-            # --- 關鍵修改 1: 獲取貢獻者名稱 ---
-            contributor_name = st.session_state.username # 登入者就是貢獻者
-            
-            if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
-                if save_to_db(st.session_state.temp_concept, "Sheet1"):
-                    st.balloons()
-                    del st.session_state.temp_concept
-                    st.rerun()
-                # 這裡需要修改 save_to_db 邏輯或直接在外部處理儲存資料
+                        if not api_key:
+                            st.error(f"找不到 API Key: {target_key}，請檢查 Secrets 設定。")
+                            st.stop()
+                        
+                        # 配置 AI
+                        genai.configure(api_key=api_key)
+                        # 修正模型名稱
+                        model = genai.GenerativeModel('gemini-2.5-flash') 
+                        
+                        sys_prompt = f"""
+                        你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。
+                        請嚴格遵守以下 JSON 格式輸出：
+                        {{
+                            "roots": "核心公式(LaTeX)或字源邏輯",
+                            "definition": "108 課綱標準定義",
+                            "breakdown": "條列式重點拆解(使用 \\n 換行)",
+                            "memory_hook": "創意口訣或諧音聯想",
+                            "native_vibe": "學長姐叮嚀",
+                            "star": 5
+                        }}
+                        """
+                        
+                        try:
+                            response = model.generate_content(sys_prompt)
+                            res_text = response.text
+                            
+                            # 使用正規表達式提取 JSON 部分
+                            match = re.search(r'\{.*\}', res_text, re.DOTALL)
+                            if match:
+                                res_data = json.loads(match.group(0))
+                                res_data.update({"word": inp, "category": sub})
+                                st.session_state.temp_concept = res_data
+                                st.success("解析完成！已存入暫存區。")
+                                st.json(res_data) # 預覽結果
+                            else:
+                                st.error("AI 回傳格式不符，請再試一次。")
+                        except Exception as e:
+                            st.error(f"AI 生成失敗: {e}")
+        else:
+            st.error("此功能僅限 PRO 會員或管理員使用。")
+            if "temp_concept" in st.session_state:
+                show_concept(st.session_state.temp_concept)
                 
-                # 因為你用的是 streamlit_gsheets 函式庫，通常需要修改 save_to_db 讓它能接受額外欄位
-                # 在此假設 save_to_db 可以接受 'contributor' 欄位
-                # *** (請確保你的 save_to_db 邏輯有更新，能寫入 contributor 欄位) ***
+                # --- 關鍵修改 1: 獲取貢獻者名稱 ---
+                contributor_name = st.session_state.username # 登入者就是貢獻者
                 
-                # 修正：直接在儲存前把 contributor 資訊加到資料字典裡
-                data_to_save = st.session_state.temp_concept.copy()
-                data_to_save['contributor'] = contributor_name # 填入使用者名稱
-                
-                if save_to_db(data_to_save, "Sheet1"):
-                    st.balloons()
-                    del st.session_state.temp_concept
-                    st.rerun()
+                if st.button("💾 確認無誤，存入雲端資料庫", type="primary"):
+                    if save_to_db(st.session_state.temp_concept, "Sheet1"):
+                        st.balloons()
+                        del st.session_state.temp_concept
+                        st.rerun()
+                    # 這裡需要修改 save_to_db 邏輯或直接在外部處理儲存資料
+                    
+                    # 因為你用的是 streamlit_gsheets 函式庫，通常需要修改 save_to_db 讓它能接受額外欄位
+                    # 在此假設 save_to_db 可以接受 'contributor' 欄位
+                    # *** (請確保你的 save_to_db 邏輯有更新，能寫入 contributor 欄位) ***
+                    
+                    # 修正：直接在儲存前把 contributor 資訊加到資料字典裡
+                    data_to_save = st.session_state.temp_concept.copy()
+                    data_to_save['contributor'] = contributor_name # 填入使用者名稱
+                    
+                    if save_to_db(data_to_save, "Sheet1"):
+                        st.balloons()
+                        del st.session_state.temp_concept
+                        st.rerun()
 
 # F. 考題開發 (管理員 & PRO 會員解鎖)
-elif choice == "🧪 考題開發":
-    # 1. 權限前置檢查，避免 iloc[0] 報錯
-    is_admin = st.session_state.get('role') == "admin"
-    is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
-
-    if is_admin or is_pro:
-        st.title("🧪 AI 考題開發")
-        
-        # 2. 檢查是否有預埋的概念資料 (c_df)
-        if c_df.empty:
-            st.warning("請先去「🔬 預埋考點」新增概念，才能根據概念出題。")
-        else:
-            # 取得不重複的概念清單
-            concept_list = c_df['word'].unique().tolist()
-            target_concept = st.selectbox("選擇要命題的概念：", concept_list)
+    elif choice == "🧪 考題開發":
+        # 1. 權限前置檢查，避免 iloc[0] 報錯
+        is_admin = st.session_state.get('role') == "admin"
+        is_pro = not user_row.empty and user_row.iloc[0].get('membership') == 'pro'
+    
+        if is_admin or is_pro:
+            st.title("🧪 AI 考題開發")
             
-            if st.button("🪄 根據此概念生成素養題", use_container_width=True):
-                # 取得選定概念的完整資料列
-                db_row = c_df[c_df['word'] == target_concept].iloc[0]
+            # 2. 檢查是否有預埋的概念資料 (c_df)
+            if c_df.empty:
+                st.warning("請先去「🔬 預埋考點」新增概念，才能根據概念出題。")
+            else:
+                # 取得不重複的概念清單
+                concept_list = c_df['word'].unique().tolist()
+                target_concept = st.selectbox("選擇要命題的概念：", concept_list)
                 
-                with st.spinner(f"命題委員正在針對「{target_concept}」構思情境..."):
-                    # 3. 確保 API Key 邏輯與上一段一致
-                    # 假設你的 ai_generate_question_from_db 內部會用到 API
-                    # 你可能需要傳入選定的 API Key
-                    target_key_name = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
-                    selected_api_key = st.secrets.get(target_key_name)
+                if st.button("🪄 根據此概念生成素養題", use_container_width=True):
+                    # 取得選定概念的完整資料列
+                    db_row = c_df[c_df['word'] == target_concept].iloc[0]
                     
-                    if not selected_api_key:
-                        st.error(f"找不到 API Key: {target_key_name}，請檢查設定。")
-                        st.stop()
+                    with st.spinner(f"命題委員正在針對「{target_concept}」構思情境..."):
+                        # 3. 確保 API Key 邏輯與上一段一致
+                        # 假設你的 ai_generate_question_from_db 內部會用到 API
+                        # 你可能需要傳入選定的 API Key
+                        target_key_name = "GEMINI_PAID_KEYS" if is_admin else "GEMINI_SELF_KEY"
+                        selected_api_key = st.secrets.get(target_key_name)
+                        
+                        if not selected_api_key:
+                            st.error(f"找不到 API Key: {target_key_name}，請檢查設定。")
+                            st.stop()
+                        
+                        # 執行生成 (建議將 api_key 作為參數傳入，除非你的函數內部已處理)
+                        new_q = ai_generate_question_from_db(db_row, api_key=selected_api_key)
+                        
+                        if new_q:
+                            st.session_state.temp_q = new_q
+                            st.success("題目生成成功！請檢查下方預覽。")
+                            # 建議在這裡加一個展示區域
+                            with st.expander("📝 題目預覽", expanded=True):
+                                st.write(new_q)
+                        else:
+                            st.error("AI 命題失敗，請稍後再試。")
+        else:
+            st.error("🚫 此功能僅限 PRO 會員或管理員使用。")
+            st.info("若您已是 PRO 會員卻看到此訊息，請確認您的帳號狀態。")
+    
+            if "temp_q" in st.session_state:
+                st.markdown(st.session_state.temp_q['content'])
+                if st.button("💾 存入題庫"):
                     
-                    # 執行生成 (建議將 api_key 作為參數傳入，除非你的函數內部已處理)
-                    new_q = ai_generate_question_from_db(db_row, api_key=selected_api_key)
+                    # --- 關鍵修改 2: 準備儲存資料 ---
+                    data_to_save = st.session_state.temp_q.copy()
+                    data_to_save['contributor'] = st.session_state.username # 填入使用者名稱
                     
-                    if new_q:
-                        st.session_state.temp_q = new_q
-                        st.success("題目生成成功！請檢查下方預覽。")
-                        # 建議在這裡加一個展示區域
-                        with st.expander("📝 題目預覽", expanded=True):
-                            st.write(new_q)
-                    else:
-                        st.error("AI 命題失敗，請稍後再試。")
-    else:
-        st.error("🚫 此功能僅限 PRO 會員或管理員使用。")
-        st.info("若您已是 PRO 會員卻看到此訊息，請確認您的帳號狀態。")
-
-        if "temp_q" in st.session_state:
-            st.markdown(st.session_state.temp_q['content'])
-            if st.button("💾 存入題庫"):
-                
-                # --- 關鍵修改 2: 準備儲存資料 ---
-                data_to_save = st.session_state.temp_q.copy()
-                data_to_save['contributor'] = st.session_state.username # 填入使用者名稱
-                
-                if save_to_db(data_to_save, "questions"):
-                    st.success("已存入！")
-                    del st.session_state.temp_q
-                    st.rerun()
-                    
+                    if save_to_db(data_to_save, "questions"):
+                        st.success("已存入！")
+                        del st.session_state.temp_q
+                        st.rerun()
+                        
     # G. 使用者管理 (管理員)
     elif choice == "👤 使用者管理" and st.session_state.role == "admin":
         st.title("👤 使用者管理")
