@@ -196,72 +196,117 @@ def show_concept(row):
         st.warning(f"🚩 **雷區**\n\n{row['native_vibe']}")
         with st.expander("🔍 詳細拆解"):
             st.write(row['breakdown'])
+import streamlit as st
+import streamlit.components.v1 as components
+import json
+import time
+
 def show_pro_paper_with_download(title, content):
-    js_title, js_content = json.dumps(title, ensure_ascii=False), json.dumps(content, ensure_ascii=False)
+    js_title = json.dumps(title, ensure_ascii=False)
+    js_content = json.dumps(content, ensure_ascii=False)
     div_id = f"paper_{int(time.time())}"
+    
     html_code = f"""
-    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:25px; border-radius:15px; border:1px solid #333; color:white; margin:20px 0;">
+    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:25px; border-radius:15px; border:1px solid #333; color:white; margin:20px 0; font-family: sans-serif;">
         <div id="{div_id}_content" style="margin-bottom:20px; line-height:1.6;">載入內容中...</div>
         <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
         <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px;">📥 下載精美複習講義 (PDF)</button>
     </div>
+
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
     <script>
         (function() {{
-            const content = {js_content}; const title = {js_title};
+            const content = {js_content}; 
+            const title = {js_title};
             const display = document.getElementById("{div_id}_content");
-            display.innerHTML = marked.parse(content);
-            renderMathInElement(display, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
             
+            // 配置 Marked
+            display.innerHTML = marked.parse(content);
+            
+            // 初次渲染數學公式
+            renderMathInElement(display, {{ 
+                delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
+            }});
+
             document.getElementById("{div_id}_btn").onclick = function() {{
-                this.innerHTML = "⏳ 正在排版...";
+                const btn = this;
+                btn.innerHTML = "⏳ 正在排版並準備下載...";
+                btn.disabled = true;
+
                 const container = document.createElement('div');
-                
-                // 【調參 1】：設定 min-height 確保容器不是 0 高度，並使用 border-box 鎖定寬度
-                container.style.cssText = "width:210mm; min-height:297mm; background:white; color:black; padding:20mm; font-family:sans-serif; box-sizing:border-box; position:absolute; top:0; left:0; z-index:-1; opacity:1;";
-                
-                container.innerHTML = `
-                    <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
-                        <h1 style="color:#1e3a8a; margin:0; font-size:28px;">⚡ 116 級數位戰情室</h1>
-                        <p style="color:#666; margin:5px 0; font-size:16px;">重點主題：${{title}} | 專屬複習講義</p>
-                    </div>
-                    <div style="line-height:1.8; font-size:14px; width:100%;">${{marked.parse(content)}}</div>
-                    <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
-                        Kadowsella 116 AI 模組化知識庫 | 此份文件僅供內部學習使用
+                // 注入 PDF 專用樣式 (解決表格、列表樣式丟失問題)
+                const pdfStyles = `
+                    <style>
+                        .pdf-body {{ font-family: "Microsoft JhengHei", sans-serif; color: #333; }}
+                        h1, h2, h3 {{ color: #1e3a8a; }}
+                        table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
+                        th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+                        th {{ background-color: #f2f2f2; }}
+                        pre {{ background: #f4f4f4; padding: 10px; border-radius: 5px; white-space: pre-wrap; }}
+                        code {{ font-family: monospace; background: #eee; padding: 2px 4px; }}
+                        li {{ margin-bottom: 5px; }}
+                    </style>
+                `;
+
+                container.style.cssText = "width:190mm; padding:10mm; background:white; position:absolute; top:-9999px; left:-9999px;";
+                container.innerHTML = pdfStyles + `
+                    <div class="pdf-body">
+                        <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
+                            <h1 style="margin:0; font-size:24px;">⚡ 116 級數位戰情室</h1>
+                            <p style="color:#666; margin:5px 0; font-size:14px;">主題：${{title}} | 專屬複習講義</p>
+                        </div>
+                        <div id="pdf-main-content">${{marked.parse(content)}}</div>
+                        <div style="margin-top:50px; border-top:1px dashed #ccc; padding-top:10px; text-align:center; color:#999; font-size:10px;">
+                            Kadowsella 116 AI 模組化知識庫 | 生成時間：${{new Date().toLocaleString()}}
+                        </div>
                     </div>
                 `;
-                document.body.appendChild(container);
-                renderMathInElement(container, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
                 
-                // 【調參 2】：加入關鍵參數 delay (毫秒)，讓 html2canvas 等待渲染完成再截圖
+                document.body.appendChild(container);
+                
+                // 針對 PDF 容器再次渲染數學公式
+                renderMathInElement(container, {{ 
+                    delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
+                }});
+
                 const opt = {{
-                    margin: 0,
-                    filename: title + "_116講義.pdf",
-                    image: {{ type: 'jpeg', quality: 0.98 }},
+                    margin: 10,
+                    filename: title + "_複習講義.pdf",
+                    image: {{ type: 'jpeg', quality: 0.95 }},
                     html2canvas: {{ 
                         scale: 2, 
                         useCORS: true, 
-                        scrollY: 0,
-                        windowWidth: 800,
-                        logging: false,
-                        delay: 1000  // 👈 核心調參：強制等待 1000ms 確保內容已渲染
+                        letterRendering: true,
+                        scrollY: 0
                     }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
                 }};
 
-                html2pdf().set(opt).from(container).save().then(() => {{ 
-                    document.body.removeChild(container); 
-                    this.innerHTML = "📥 下載成功！"; 
-                }});
+                // 給予足夠時間讓 KaTeX 和 DOM 穩定
+                setTimeout(() => {{
+                    html2pdf().set(opt).from(container).save().then(() => {{
+                        document.body.removeChild(container);
+                        btn.innerHTML = "📥 下載成功！";
+                        btn.disabled = false;
+                        setTimeout(() => {{ btn.innerHTML = "📥 下載精美複習講義 (PDF)"; }}, 3000);
+                    }}).catch(err => {{
+                        console.error(err);
+                        btn.innerHTML = "❌ 下載失敗";
+                        btn.disabled = false;
+                    }});
+                }}, 1500);
             }};
         }})();
-    </script>"""
-    import streamlit.components.v1 as components
-    components.html(html_code, height=600, scrolling=True)
+    </script>
+    """
+    # 增加高度以防止內容被截斷，或使用 scrolling=True
+    components.html(html_code, height=800, scrolling=True)
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
 # ==========================================
