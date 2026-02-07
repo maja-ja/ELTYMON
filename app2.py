@@ -97,7 +97,7 @@ def ai_generate_question_from_db(db_row):
         return None
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash') # Updated to gemini-1.5-flash
+    model = genai.GenerativeModel('gemini-2.5-flash') # Updated to gemini-1.5-flash
 
     # 建立針對 108 課綱的命題 Prompt
     prompt = f"""
@@ -142,7 +142,7 @@ def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash') # Updated to gemini-1.5-flash
+    model = genai.GenerativeModel('gemini-2.5-flash') # Updated to gemini-1.5-flash
 
     try:
         response = model.generate_content(
@@ -180,11 +180,6 @@ def ai_decode_concept(input_text, subject):
     res = ai_call(sys_prompt, temp=0.5) # 邏輯用低溫
     if isinstance(res, dict): res.update({"word": input_text, "category": subject})
     return res
-
-def ai_generate_social_post(concept_data):
-    sys_prompt = f"""【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
-    請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。多用💀、謝了、116。"""
-    return ai_call(sys_prompt, str(concept_data), temp=1.5) # 社群文用高溫
 
 def ai_explain_from_db(db_row):
     context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']} | 口訣：{db_row['memory_hook']}"
