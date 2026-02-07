@@ -555,7 +555,25 @@ def main_app():
     # --- 3. 側邊欄導航 (Sidebar) ---
    with st.sidebar:
         # 獲取身分
-        user_membership = user_row.iloc[0].get('membership', 'free') if not user_row.empty else 'free'
+        user_row = users_df[users_df['username'] == st.session_state.username]
+    if not user_row.empty:
+        curr_membership = user_row.iloc[0].get('membership', 'free')
+        curr_role = user_row.iloc[0].get('role', 'student')
+    else:
+        curr_membership = 'free'
+        curr_role = 'student'
+
+    with st.sidebar:
+        # 製作顯示標籤
+        if curr_role == "admin":
+            label = "（ADMIN）"
+        elif curr_membership == "pro":
+            label = f"（PRO）：{st.session_state.username}"
+        else:
+            label = "（學生）" # 一般學生顯示這個，或是照你要求留 (空白)
+            
+        st.markdown(f"### 👋 你好, {st.session_state.username}")
+        st.caption(label) # 👈 這行會把（PRO）或（ADMIN）顯示在名字下面
         
         # 標籤顯示
         if st.session_state.role == "admin":
