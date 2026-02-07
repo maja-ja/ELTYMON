@@ -562,7 +562,7 @@ def main_app():
                                     
                                     # 呼叫新函式，傳入：檔名、標題、以及最重要的「內容字串」
                                     # 注意：explanation 是 AI 產生出來的那一大段文字
-                                    add_pdf_export_button(
+                                    add_pdf_export_button()
                                         filename=pdf_filename, 
                                         title=selected, 
                                         content=explanation
