@@ -1,3 +1,4 @@
+import random
 import streamlit as st
 import pandas as pd
 import json, re, io, time, hashlib, urllib.parse, ast
@@ -73,14 +74,32 @@ def update_user_data(username, column, value):
 # ==========================================
 # 3. AI 引擎 (強化解析版)
 # ==========================================
+# ==========================================
+# 3. AI 引擎 (多 Key 輪替與容錯版)
+# ==========================================
+
+def get_api_keys():
+    """從 secrets 讀取 Key 列表 (相容單一字串或列表)"""
+    # 嘗試讀取複數設定
+    keys = st.secrets.get("GEMINI_API_KEYS")
+    
+    # 如果找不到複數，嘗試讀取單數 (相容舊設定)
+    if not keys:
+        single_key = st.secrets.get("GEMINI_API_KEY")
+        return [single_key] if single_key else []
+    
+    # 如果使用者在 toml 裡只寫了字串而不是列表，自動轉為列表
+    if isinstance(keys, str):
+        return [keys]
+    
+    return keys if keys else []
 
 def robust_json_parse(json_str):
     """
-    三階段 JSON 解析器：
-    1. 標準 JSON
-    2. 正則修復後的 JSON
-    3. Python AST (處理單引號 dict)
+    三階段 JSON 解析器：標準 -> 正則修復 -> Python AST
     """
+    if not json_str: return None
+    
     # 0. 基礎清理
     json_str = json_str.replace("```json", "").replace("```", "").strip()
     
@@ -90,13 +109,11 @@ def robust_json_parse(json_str):
     except:
         pass
 
-    # 2. 針對 LaTeX 反斜線與未加引號的鍵進行正則修復
-    # 修復 LaTeX 反斜線 (避免 \f 被視為 form feed)
+    # 2. 正則修復 (LaTeX 反斜線與引號)
     fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
-    
-    # 嘗試修復未加引號的鍵: { key: "val" } -> { "key": "val" }
+    # 修復未加引號的鍵
     fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', fixed_str)
-    # 嘗試修復單引號的鍵: { 'key': "val" } -> { "key": "val" }
+    # 修復單引號的鍵
     fixed_str = re.sub(r"([{,]\s*)'([^']*)'\s*:", r'\1"\2":', fixed_str)
 
     try:
@@ -104,24 +121,25 @@ def robust_json_parse(json_str):
     except:
         pass
 
-    # 3. 最終手段：使用 ast.literal_eval 處理 Python 風格的字典 (支援單引號)
-    # 需先將 JSON 的 true/false/null 轉換為 Python 的 True/False/None
+    # 3. AST 解析 (處理 Python 風格字典)
     py_str = json_str.replace("true", "True").replace("false", "False").replace("null", "None")
     try:
         return ast.literal_eval(py_str)
     except Exception as e:
-        st.error(f"解析失敗，原始資料結構異常: {e}")
-        st.code(json_str, language='json') # 顯示原始資料供除錯
+        print(f"JSON 解析最終失敗: {e}")
         return None
 
 def ai_generate_question_from_db(db_row):
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        st.error("❌ 找不到 API Key")
+    """
+    (支援多 Key 輪替) 根據資料庫生成題目
+    """
+    all_keys = get_api_keys()
+    if not all_keys:
+        st.error("❌ 找不到 API Keys，請檢查 secrets.toml")
         return None
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # 隨機打亂順序，實現負載平衡
+    random.shuffle(all_keys)
 
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
@@ -136,7 +154,7 @@ def ai_generate_question_from_db(db_row):
     1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
     2. 題目必須包含「情境描述」與「問題內容」。
     
-    請嚴格輸出 JSON 格式 (不要使用 Markdown 程式碼區塊，直接輸出 JSON)：
+    請嚴格輸出 JSON 格式：
     {{
         "concept": "{db_row['word']}",
         "subject": "{db_row['category']}",
@@ -148,45 +166,72 @@ def ai_generate_question_from_db(db_row):
     }}
     """
 
-    try:
-        response = model.generate_content(prompt)
-        res_text = response.text
-        match = re.search(r'\{.*\}', res_text, re.DOTALL)
-        if match:
-            return robust_json_parse(match.group(0))
-        else:
-            st.error("AI 回傳格式非 JSON，請重試。")
-            return None
-    except Exception as e:
-        st.error(f"AI 出題發生錯誤: {e}")
-        return None
+    last_error = None
+    # --- 輪替迴圈 ---
+    for key in all_keys:
+        try:
+            genai.configure(api_key=key)
+            # 使用 1.5-flash 較穩定，若你有 2.0 權限可改
+            model = genai.GenerativeModel('gemini-1.5-flash') 
+            
+            response = model.generate_content(prompt)
+            res_text = response.text
+            match = re.search(r'\{.*\}', res_text, re.DOTALL)
+            
+            if match:
+                return robust_json_parse(match.group(0))
+            else:
+                print(f"Key ...{key[-4:]} 生成格式錯誤，嘗試下一個 Key")
+                continue # 格式錯了換下一個試試
+
+        except Exception as e:
+            last_error = e
+            print(f"⚠️ Key ...{key[-4:]} 失敗: {e} -> 切換下一個")
+            continue # 報錯了換下一個
+    
+    st.error(f"所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
+    return None
 
 def ai_call(system_instruction, user_input="", temp=0.7):
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return None
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-
-    try:
-        response = model.generate_content(
-            system_instruction + "\n\n" + user_input,
-            generation_config=genai.types.GenerationConfig(temperature=temp)
-        )
-        res_text = response.text
-
-        if "JSON" in system_instruction:
-            match = re.search(r'\{.*\}', res_text, re.DOTALL)
-            if match:
-                raw_json = match.group(0)
-                # 使用強化的解析器
-                return robust_json_parse(raw_json)
-        return res_text
-    except Exception as e:
-        st.error(f"AI 呼叫失敗: {e}")
+    """
+    (支援多 Key 輪替) 通用 AI 呼叫函式
+    """
+    all_keys = get_api_keys()
+    if not all_keys: 
+        st.error("❌ 無可用的 API Keys")
         return None
 
+    random.shuffle(all_keys)
+
+    # --- 輪替迴圈 ---
+    for key in all_keys:
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+
+            response = model.generate_content(
+                system_instruction + "\n\n" + user_input,
+                generation_config=genai.types.GenerationConfig(temperature=temp)
+            )
+            res_text = response.text
+
+            # 如果需要 JSON，嘗試解析
+            if "JSON" in system_instruction:
+                match = re.search(r'\{.*\}', res_text, re.DOTALL)
+                if match:
+                    return robust_json_parse(match.group(0))
+            
+            # 如果不是 JSON 需求或解析失敗，直接回傳文字
+            return res_text
+
+        except Exception as e:
+            print(f"⚠️ Key ...{key[-4:]} 呼叫失敗: {e} -> 自動切換備用線路")
+            continue # 嘗試下一個 Key
+            
+    st.error("🚨 系統忙碌中 (所有 AI 線路皆滿載)，請稍後再試。")
+    return None
+
 def ai_decode_concept(input_text, subject):
-    # 提示詞中加入 "請使用標準雙引號 JSON" 以降低錯誤率
     sys_prompt = f"""【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
     請輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
     res = ai_call(sys_prompt, temp=0.5) 
@@ -196,13 +241,13 @@ def ai_decode_concept(input_text, subject):
 def ai_generate_social_post(concept_data):
     sys_prompt = f"""你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
     請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。多用💀、謝了、116。"""
-    return ai_call(sys_prompt, str(concept_data), temp=2.5) 
+    # 溫度調高一點讓文案更有創意
+    return ai_call(sys_prompt, str(concept_data), temp=1.5) 
 
 def ai_explain_from_db(db_row):
     context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']} | 口訣：{db_row['memory_hook']}"
     prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰，數學公式請使用 LaTeX 格式：\n{context}"
     return ai_call(prompt, temp=0.7)
-
 
 # ==========================================
 # 4. UI 組件
