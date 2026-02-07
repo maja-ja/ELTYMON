@@ -78,7 +78,7 @@ def clean_json_string(json_str):
     處理 AI 回傳 JSON 時常見的 LaTeX 反斜線報錯問題
     """
     # 1. 處理掉可能存在的 Markdown 程式碼區塊標籤
-    json_str = json_str.replace("```json", "").replace("```", "").strip()
+    json_str = json.replace("```json", "").replace("```", "").strip()
 
     # 2. 核心修復：將 LaTeX 常見的反斜線進行轉義處理
     # 這裡使用正則表達式，尋找後面不是跟著 (n, r, t, b, f, u, ", \) 的反斜線並補上一個反斜線
@@ -97,7 +97,7 @@ def ai_generate_question_from_db(db_row):
         return None
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash') # Updated to gemini-1.5-flash
 
     # 建立針對 108 課綱的命題 Prompt
     prompt = f"""
@@ -142,7 +142,7 @@ def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash') # Updated to gemini-1.5-flash
 
     try:
         response = model.generate_content(
@@ -219,14 +219,17 @@ def show_concept(row):
         with st.expander("🔍 詳細拆解"): st.write(row['breakdown'])
 
 # ==========================================
-# 4.5. 新增：PDF 匯出功能
+# 4.5. 新增：PDF 匯出功能 ( now accepts filename )
 # ==========================================
-def add_pdf_export_button():
-    """在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能"""
-    pdf_export_html = """
+def add_pdf_export_button(filename="116級戰情室-文件.pdf"):
+    """在頁面注入一個懸浮按鈕，用於觸發 PDF 下載功能，可自訂檔名。"""
+    # Safely encode filename for JavaScript string literal
+    js_filename = json.dumps(filename, ensure_ascii=False)
+
+    pdf_export_html = f"""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        #export-button {
+        #export-button {{ /* Use double braces to escape f-string for CSS */
             visibility: hidden; /* 初始隱藏，等待頁面載入完成 */
             position: fixed;
             bottom: 25px;
@@ -244,61 +247,63 @@ def add_pdf_export_button():
             display: flex;
             align-items: center;
             justify-content: center;
-        }
-        #export-button:hover {
+        }}
+        #export-button:hover {{
             background-color: #4f46e5;
-        }
+        }}
     </style>
 
     <button id="export-button" title="下載本頁為 PDF">📄</button>
 
     <script>
         // 確保在 Streamlit 完全渲染後再執行
-        window.addEventListener('load', function () {
+        window.addEventListener('load', function () {{
             const exportButton = document.getElementById('export-button');
-            if (exportButton) {
+            const pdfFilename = {js_filename}; // Dynamically set filename
+
+            if (exportButton) {{
                 exportButton.style.visibility = 'visible'; // 載入完成後顯示按鈕
 
-                exportButton.addEventListener('click', function () {
+                exportButton.addEventListener('click', function () {{
                     // 暫時隱藏按鈕和側邊欄，避免出現在 PDF 中
                     exportButton.style.visibility = 'hidden';
                     const sidebar = document.querySelector('[data-testid="stSidebar"]');
-                    if (sidebar) {
+                    if (sidebar) {{
                         sidebar.style.display = 'none';
-                    }
+                    }}
 
                     // 選取要匯出的主要內容區域
                     const element = document.querySelector('[data-testid="stAppViewContainer"]');
 
-                    const options = {
+                    const options = {{
                         margin: [10, 10, 10, 10], // 上、左、下、右邊距 (mm)
-                        filename: '116級戰情室-重點進度.pdf',
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: {
+                        filename: pdfFilename, // Use the dynamic filename
+                        image: {{ type: 'jpeg', quality: 0.98 }},
+                        html2canvas: {{
                             scale: 2, // 提高解析度
                             useCORS: true,
                             logging: false
-                        },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                    };
+                        }},
+                        jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                    }};
 
                     // 執行匯出並在完成後恢復介面
-                    html2pdf().from(element).set(options).save().then(() => {
+                    html2pdf().from(element).set(options).save().then(() => {{
                         exportButton.style.visibility = 'visible';
-                        if (sidebar) {
+                        if (sidebar) {{
                             sidebar.style.display = 'block';
-                        }
-                    }).catch((error) => {
+                        }}
+                    }}).catch((error) => {{
                         console.error('PDF 生成失敗:', error);
                         // 即使失敗也要確保介面恢復
                         exportButton.style.visibility = 'visible';
-                        if (sidebar) {
+                        if (sidebar) {{
                             sidebar.style.display = 'block';
-                        }
-                    });
-                });
-            }
-        });
+                        }}
+                    }});
+                }});
+            }}
+        }});
     </script>
     """
     st.components.v1.html(pdf_export_html, height=0, scrolling=False)
@@ -459,6 +464,12 @@ def main_app():
                                     update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
                                     st.toast("消耗 1 點能量", icon="🔋")
 
+                                # --- 在這裡呼叫 PDF 匯出按鈕 ---
+                                if explanation: # 僅在有成功生成解釋時才顯示 PDF 按鈕
+                                    pdf_filename = f"{selected}-AI邏輯補給.pdf"
+                                    add_pdf_export_button(pdf_filename)
+                                # ---------------------------------
+
     # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
         st.title("📝 素養模擬演練")
@@ -549,9 +560,6 @@ def main_app():
             if c3.button("能量補滿", key=f"reset_{i}"):
                 update_user_data(row['username'], "ai_usage", 0)
                 st.rerun()
-    
-    # --- 5. 在主應用程式結尾加入 PDF 匯出按鈕 ---
-    add_pdf_export_button()
 
 # ==========================================
 # 7. 執行入口
