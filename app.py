@@ -610,43 +610,55 @@ def page_learn_search(df):
         st.warning("目前書架是空的。")
         return
 
-    tab_card, tab_list = st.tabs(["🎲 隨機探索", "🔍 資料庫列表"])
+    tab_card, tab_list = st.tabs(["🎲 隨機探索", "🔍 搜尋與列表"])
     
+    # --- Tab 1: 隨機探索 (保持不變) ---
     with tab_card:
         cats = ["全部"] + sorted(df['category'].unique().tolist())
-        sel_cat = st.selectbox("選擇學習分類", cats)
+        sel_cat = st.selectbox("選擇學習分類", cats, key="search_cat_select")
         f_df = df if sel_cat == "全部" else df[df['category'] == sel_cat]
 
-        # --- [關鍵修正] Session State 鎖定邏輯 ---
-        # 1. 初始化 State
         if 'curr_w' not in st.session_state:
             st.session_state.curr_w = None
 
-        # 2. 只有按鈕點擊時才更新 State (換題)
         if st.button("🎲 隨機探索下一字 (Next Word)", use_container_width=True, type="primary"):
             if not f_df.empty:
                 st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
-                st.rerun() # 強制刷新以顯示新卡片
-            else:
-                st.warning("此分類目前沒有資料。")
+                st.rerun()
 
-        # 3. 初始載入 (如果原本是空的)
         if st.session_state.curr_w is None and not f_df.empty:
             st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
 
-        # 4. 顯示卡片 (speak 函式已內建在 show_encyclopedia_card 中)
         if st.session_state.curr_w:
             show_encyclopedia_card(st.session_state.curr_w)
 
+    # --- Tab 2: 搜尋與列表 (這裡做大幅修改) ---
     with tab_list:
-        search = st.text_input("🔍 搜尋書架內容...")
+        search = st.text_input("🔍 搜尋書架內容 (輸入單字、意思或字根)...", placeholder="搜尋關鍵字...")
+        
         if search:
+            # 執行搜尋過濾
             mask = df.astype(str).apply(lambda x: x.str.contains(search, case=False)).any(axis=1)
             display_df = df[mask]
+            
+            if not display_df.empty:
+                st.write(f"共找到 {len(display_df)} 個結果：")
+                # 遍歷搜尋結果，逐一顯示字卡
+                for index, row in display_df.iterrows():
+                    # 使用 st.container(border=True) 讓搜尋到的多張字卡有邊界感
+                    with st.container(border=True):
+                        show_encyclopedia_card(row)
+                    st.write(" ") # 增加間隔
+            else:
+                st.warning("找不到相符的內容，換個關鍵字試試看？")
         else:
-            display_df = df.head(50)
-        st.dataframe(display_df[['word', 'definition', 'roots', 'category', 'native_vibe']], use_container_width=True)
-
+            # 當沒有搜尋時，預設顯示簡略表格，避免一次載入幾百張字卡導致網頁當掉
+            st.info("請在上方輸入框輸入關鍵字，或查看下方完整清單：")
+            st.dataframe(
+                df[['word', 'definition', 'roots', 'category']], 
+                use_container_width=True,
+                hide_index=True
+            )
 def page_quiz(df):
     st.title("🧠 字根記憶挑戰")
     if df.empty: return
