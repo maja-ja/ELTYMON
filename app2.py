@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import json, re, io, time, hashlib, urllib.parse
+import json, re, io, time, hashlib, urllib.parse, ast
 from datetime import datetime
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
@@ -71,36 +71,58 @@ def update_user_data(username, column, value):
     except: pass
 
 # ==========================================
-# 3. AI 引擎
+# 3. AI 引擎 (強化解析版)
 # ==========================================
-def clean_json_string(json_str):
+
+def robust_json_parse(json_str):
     """
-    處理 AI 回傳 JSON 時常見的 LaTeX 反斜線報錯問題
+    三階段 JSON 解析器：
+    1. 標準 JSON
+    2. 正則修復後的 JSON
+    3. Python AST (處理單引號 dict)
     """
-    # 1. 處理掉可能存在的 Markdown 程式碼區塊標籤
-    # 修正：將 json.replace 改為 json_str.replace
+    # 0. 基礎清理
     json_str = json_str.replace("```json", "").replace("```", "").strip()
+    
+    # 1. 嘗試直接解析
+    try:
+        return json.loads(json_str)
+    except:
+        pass
 
-    # 2. 核心修復：將 LaTeX 常見的反斜線進行轉義處理
-    # 這裡使用正則表達式，尋找後面不是跟著 (n, r, t, b, f, u, ", \) 的反斜線並補上一個反斜線
-    # 但最簡單暴力且有效的方法是針對 LaTeX 關鍵字處理，或直接對所有反斜線做初步處理
+    # 2. 針對 LaTeX 反斜線與未加引號的鍵進行正則修復
+    # 修復 LaTeX 反斜線 (避免 \f 被視為 form feed)
     fixed_str = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
+    
+    # 嘗試修復未加引號的鍵: { key: "val" } -> { "key": "val" }
+    fixed_str = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', fixed_str)
+    # 嘗試修復單引號的鍵: { 'key': "val" } -> { "key": "val" }
+    fixed_str = re.sub(r"([{,]\s*)'([^']*)'\s*:", r'\1"\2":', fixed_str)
 
-    return fixed_str
+    try:
+        return json.loads(fixed_str)
+    except:
+        pass
+
+    # 3. 最終手段：使用 ast.literal_eval 處理 Python 風格的字典 (支援單引號)
+    # 需先將 JSON 的 true/false/null 轉換為 Python 的 True/False/None
+    py_str = json_str.replace("true", "True").replace("false", "False").replace("null", "None")
+    try:
+        return ast.literal_eval(py_str)
+    except Exception as e:
+        st.error(f"解析失敗，原始資料結構異常: {e}")
+        st.code(json_str, language='json') # 顯示原始資料供除錯
+        return None
+
 def ai_generate_question_from_db(db_row):
-    """
-    根據資料庫的一列資料生成素養題目
-    db_row: 來自 Sheet1 的資料 (Series 或 Dict)
-    """
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
         st.error("❌ 找不到 API Key")
         return None
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash') # 使用 gemini-2.5-flash
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
-    # 建立針對 108 課綱的命題 Prompt
     prompt = f"""
     你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
 
@@ -113,8 +135,8 @@ def ai_generate_question_from_db(db_row):
     【重要規範】：
     1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
     2. 題目必須包含「情境描述」與「問題內容」。
-
-    請嚴格輸出 JSON 格式：
+    
+    請嚴格輸出 JSON 格式 (不要使用 Markdown 程式碼區塊，直接輸出 JSON)：
     {{
         "concept": "{db_row['word']}",
         "subject": "{db_row['category']}",
@@ -129,21 +151,21 @@ def ai_generate_question_from_db(db_row):
     try:
         response = model.generate_content(prompt)
         res_text = response.text
-        # 提取 JSON 內容
         match = re.search(r'\{.*\}', res_text, re.DOTALL)
         if match:
-            return json.loads(match.group(0))
+            return robust_json_parse(match.group(0))
         else:
             st.error("AI 回傳格式非 JSON，請重試。")
             return None
     except Exception as e:
         st.error(f"AI 出題發生錯誤: {e}")
         return None
+
 def ai_call(system_instruction, user_input="", temp=0.7):
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash') # 使用 gemini-2.5-flash
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
     try:
         response = model.generate_content(
@@ -153,43 +175,32 @@ def ai_call(system_instruction, user_input="", temp=0.7):
         res_text = response.text
 
         if "JSON" in system_instruction:
-            # 提取 { ... } 之間的內容
             match = re.search(r'\{.*\}', res_text, re.DOTALL)
             if match:
                 raw_json = match.group(0)
-                # --- 關鍵修復步驟 ---
-                clean_json = clean_json_string(raw_json)
-                try:
-                    # 使用 strict=False 可以容忍一些不標準的換行
-                    return json.loads(clean_json, strict=False)
-                except json.JSONDecodeError as e:
-                    # 如果還是失敗，嘗試最後一次：直接把所有單反斜線換成雙反斜線
-                    try:
-                        last_resort = raw_json.replace('\\', '\\\\').replace('\\\\"', '\\"')
-                        return json.loads(last_resort, strict=False)
-                    except:
-                        st.error(f"JSON 解析最終失敗: {e}")
-                        return None
+                # 使用強化的解析器
+                return robust_json_parse(raw_json)
         return res_text
     except Exception as e:
         st.error(f"AI 呼叫失敗: {e}")
         return None
 
 def ai_decode_concept(input_text, subject):
-    sys_prompt = f"""【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
-    請嚴格輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
-    res = ai_call(sys_prompt, temp=0.5) # 邏輯用低溫
+    # 提示詞中加入 "請使用標準雙引號 JSON" 以降低錯誤率
+    sys_prompt = f"""【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
+    請輸出 JSON：{{ "roots": "核心公式(LaTeX)", "definition": "一句話定義", "breakdown": "重點拆解", "memory_hook": "諧音口訣", "native_vibe": "學長姐叮嚀", "star": 5 }}"""
+    res = ai_call(sys_prompt, temp=0.5) 
     if isinstance(res, dict): res.update({"word": input_text, "category": subject})
     return res
 
 def ai_generate_social_post(concept_data):
-    sys_prompt = f"""【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
+    sys_prompt = f"""你是一個在 Threads 上發瘋的 116 學測技術宅。你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
     請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。多用💀、謝了、116。"""
-    return ai_call(sys_prompt, str(concept_data), temp=2.5) # 社群文用高溫
+    return ai_call(sys_prompt, str(concept_data), temp=1.5) 
 
 def ai_explain_from_db(db_row):
     context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row['roots']} | 口訣：{db_row['memory_hook']}"
-    prompt = f"【重要】在輸出 JSON 時，所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)，以符合標準 JSON 格式，否則解析會失敗。你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰：\n{context}"
+    prompt = f"你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切且邏輯清晰，數學公式請使用 LaTeX 格式：\n{context}"
     return ai_call(prompt, temp=0.7)
 
 
@@ -230,7 +241,7 @@ def add_pdf_export_button(filename="116級戰情室-文件.pdf"):
     pdf_export_html = f"""
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        #export-button {{ /* Use double braces to escape f-string for CSS */
+        #export-button {{
             visibility: hidden; /* 初始隱藏，等待頁面載入完成 */
             position: fixed;
             bottom: 25px;
@@ -257,50 +268,35 @@ def add_pdf_export_button(filename="116級戰情室-文件.pdf"):
     <button id="export-button" title="下載本頁為 PDF">📄</button>
 
     <script>
-        // 確保在 Streamlit 完全渲染後再執行
         window.addEventListener('load', function () {{
             const exportButton = document.getElementById('export-button');
-            const pdfFilename = {js_filename}; // Dynamically set filename
+            const pdfFilename = {js_filename};
 
             if (exportButton) {{
-                exportButton.style.visibility = 'visible'; // 載入完成後顯示按鈕
+                exportButton.style.visibility = 'visible'; 
 
                 exportButton.addEventListener('click', function () {{
-                    // 暫時隱藏按鈕和側邊欄，避免出現在 PDF 中
                     exportButton.style.visibility = 'hidden';
                     const sidebar = document.querySelector('[data-testid="stSidebar"]');
-                    if (sidebar) {{
-                        sidebar.style.display = 'none';
-                    }}
+                    if (sidebar) {{ sidebar.style.display = 'none'; }}
 
-                    // 選取要匯出的主要內容區域
                     const element = document.querySelector('[data-testid="stAppViewContainer"]');
 
                     const options = {{
-                        margin: [10, 10, 10, 10], // 上、左、下、右邊距 (mm)
-                        filename: pdfFilename, // Use the dynamic filename
+                        margin: [10, 10, 10, 10], 
+                        filename: pdfFilename, 
                         image: {{ type: 'jpeg', quality: 0.98 }},
-                        html2canvas: {{
-                            scale: 2, // 提高解析度
-                            useCORS: true,
-                            logging: false
-                        }},
+                        html2canvas: {{ scale: 2, useCORS: true, logging: false }},
                         jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                     }};
 
-                    // 執行匯出並在完成後恢復介面
                     html2pdf().from(element).set(options).save().then(() => {{
                         exportButton.style.visibility = 'visible';
-                        if (sidebar) {{
-                            sidebar.style.display = 'block';
-                        }}
+                        if (sidebar) {{ sidebar.style.display = 'block'; }}
                     }}).catch((error) => {{
                         console.error('PDF 生成失敗:', error);
-                        // 即使失敗也要確保介面恢復
                         exportButton.style.visibility = 'visible';
-                        if (sidebar) {{
-                            sidebar.style.display = 'block';
-                        }}
+                        if (sidebar) {{ sidebar.style.display = 'block'; }}
                     }});
                 }});
             }}
@@ -424,7 +420,6 @@ def main_app():
         st.title("🚀 116 級本週重點進度")
         st.caption("補習班沒教的數位複習法：用工程師邏輯模組化知識。")
         if not c_df.empty:
-            # 顯示最新的 10 筆或當週資料
             for _, r in c_df.tail(10).iterrows():
                 show_concept(r)
         else:
@@ -465,11 +460,10 @@ def main_app():
                                     update_user_data(st.session_state.username, "ai_usage", ai_usage + 1)
                                     st.toast("消耗 1 點能量", icon="🔋")
 
-                                # --- 在這裡呼叫 PDF 匯出按鈕 ---
-                                if explanation: # 僅在有成功生成解釋時才顯示 PDF 按鈕
+                                # --- PDF 匯出按鈕 ---
+                                if explanation:
                                     pdf_filename = f"{selected}-AI邏輯補給.pdf"
                                     add_pdf_export_button(pdf_filename)
-                                # ---------------------------------
 
     # C. 模擬演練 (支援 LaTeX)
     elif choice == "📝 模擬演練":
@@ -483,7 +477,7 @@ def main_app():
             for _, row in filtered_q.iterrows():
                 with st.container(border=True):
                     st.markdown(f"**【{row['subject']}】{row['concept']}**")
-                    st.markdown(row["content"]) # 這裡會自動渲染 $...$ LaTeX
+                    st.markdown(row["content"])
 
                     with st.expander("🔓 查看答案與防呆解析"):
                         if row['translation'] != "無":
@@ -516,7 +510,7 @@ def main_app():
         if st.button("🚀 啟動 AI 深度解碼", use_container_width=True):
             if inp:
                 with st.spinner(f"正在拆解「{inp}」..."):
-                    sys_prompt = f"你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。請嚴格輸出 JSON：{{ \"roots\": \"公式\", \"definition\": \"定義\", \"breakdown\": \"拆解\", \"memory_hook\": \"口訣\", \"native_vibe\": \"叮嚀\", \"star\": 5 }}"
+                    sys_prompt = f"你現在是台灣高中名師。請針對「{sub}」的概念「{inp}」進行深度解析。請嚴格輸出 JSON：{{ \"roots\": \"核心公式(LaTeX)\", \"definition\": \"一句話定義\", \"breakdown\": \"重點拆解\", \"memory_hook\": \"諧音口訣\", \"native_vibe\": \"叮嚀\", \"star\": 5 }}"
                     res = ai_call(sys_prompt, temp=0.5)
                     if res:
                         res.update({"word": inp, "category": sub})
