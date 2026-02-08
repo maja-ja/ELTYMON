@@ -5,3 +5,4 @@ st-gsheets-connection
 gTTS
 fpdf2
 Pillow
+markdown
