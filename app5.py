@@ -640,7 +640,137 @@ def page_ai_lab():
                             st.balloons()
                             st.success(f"🎉 「{new_word}」已成功存入書架！")
                             del st.session_state.last_ai # 存完清除暫存
+def page_admin_center():
+    """最高規格管理員後台：具備即時編輯與數據監控功能"""
+    
+    st.markdown("""
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 30px;">
+            <h1 style="margin: 0;">👑 上帝模式：戰略指揮中心</h1>
+            <span style="background: #ef4444; color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 800; letter-spacing: 1px;">GOD MODE</span>
+        </div>
+    """, unsafe_allow_html=True)
 
+    # 1. 核心數據監控 (Metrics)
+    users_df = load_sheet("users")
+    vocab_df = load_sheet("vocabulary")
+    
+    # 讀取 metrics 分頁 (假設你在 Section 2 有實作 track_intent)
+    try:
+        metrics_df = load_sheet("metrics")
+        total_clicks = metrics_df['count'].sum() if not metrics_df.empty else 0
+    except:
+        total_clicks = 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("👥 總註冊用戶", len(users_df))
+    c2.metric("💎 Pro 會員數", len(users_df[users_df['membership'] == 'pro']))
+    c3.metric("🚩 待修復單字", len(vocab_df[vocab_df['term'] == 1]))
+    c4.metric("🖱️ 總互動次數", total_clicks)
+
+    st.write("---")
+
+    # 2. 功能分頁
+    tab_users, tab_content, tab_system = st.tabs(["👤 用戶調度", "🛠️ 內容修復", "⚙️ 系統維護"])
+
+    # --- Tab 1: 用戶調度 (Data Editor) ---
+    with tab_users:
+        st.subheader("用戶權限與能量管理")
+        st.caption("提示：您可以直接在表格中修改資料，完成後點擊右上方「儲存變更」。")
+        
+        # 排除敏感資訊 (如密碼) 供編輯
+        display_users = users_df.drop(columns=['password']) if 'password' in users_df.columns else users_df
+        
+        edited_users = st.data_editor(
+            display_users,
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "membership": st.column_config.SelectboxColumn(
+                    "會員等級", options=["free", "pro"], help="升級用戶為 Pro 以解鎖 AI 功能"
+                ),
+                "role": st.column_config.SelectboxColumn(
+                    "角色", options=["student", "admin", "guest"]
+                ),
+                "ai_usage": st.column_config.NumberColumn(
+                    "AI 消耗量", help="手動調整用戶已使用的 AI 次數"
+                )
+            },
+            key="user_editor"
+        )
+        
+        if st.button("💾 儲存用戶變更", type="primary"):
+            with st.spinner("正在同步用戶權限..."):
+                # 這裡需要將密碼補回去再存入
+                if 'password' in users_df.columns:
+                    edited_users['password'] = users_df['password']
+                if update_sheet(edited_users, "users"):
+                    st.success("用戶資料已更新！")
+                    st.balloons()
+
+    # --- Tab 2: 內容修復 (處理 term=1) ---
+    with tab_content:
+        st.subheader("🚩 待修復單字清單")
+        error_vocab = vocab_df[vocab_df['term'] == 1]
+        
+        if error_vocab.empty:
+            st.success("目前沒有任何回報錯誤的單字，資料庫非常健康！")
+        else:
+            st.warning(f"發現 {len(error_vocab)} 筆資料需要校對。")
+            for idx, row in error_vocab.iterrows():
+                with st.expander(f"校對：{row['word']} (分類：{row['category']})"):
+                    # 顯示當前內容
+                    st.write("**當前定義：**", row['definition'])
+                    st.write("**當前拆解：**", row['breakdown'])
+                    
+                    col_fix1, col_fix2 = st.columns(2)
+                    if col_fix1.button("✅ 標記為已修復", key=f"fix_{idx}"):
+                        vocab_df.at[idx, 'term'] = 0
+                        if update_sheet(vocab_df, "vocabulary"):
+                            st.success(f"{row['word']} 已恢復正常狀態")
+                            st.rerun()
+                            
+                    if col_fix2.button("🗑️ 刪除此單字", key=f"del_{idx}"):
+                        vocab_df = vocab_df.drop(idx)
+                        if update_sheet(vocab_df, "vocabulary"):
+                            st.error(f"{row['word']} 已從資料庫移除")
+                            st.rerun()
+
+    # --- Tab 3: 系統維護 ---
+    with tab_system:
+        st.subheader("系統核心控制")
+        
+        col_sys1, col_sys2 = st.columns(2)
+        
+        with col_sys1:
+            with st.container(border=True):
+                st.markdown("#### 🧹 快取管理")
+                st.write("如果雲端資料更新後 App 沒反應，請執行強制刷新。")
+                if st.button("清除全域快取 (Clear Cache)", use_container_width=True):
+                    st.cache_data.clear()
+                    st.success("快取已清空，下次載入將讀取最新雲端數據。")
+        
+        with col_sys2:
+            with st.container(border=True):
+                st.markdown("#### 🤖 AI 狀態檢查")
+                api_key = st.secrets.get("GEMINI_API_KEY", "未設定")
+                st.write(f"**API Key 狀態：** {'✅ 已配置' if api_key != '未設定' else '❌ 缺失'}")
+                if st.button("測試 AI 連線", use_container_width=True):
+                    test_res = ai_call("請回覆『Pong』", "Ping", tier="free")
+                    if test_res:
+                        st.success(f"AI 回應正常：{test_res}")
+                    else:
+                        st.error("AI 連線失敗，請檢查 API Key 或配額。")
+
+        st.write("")
+        with st.expander("📥 資料庫備份 (JSON 格式)"):
+            json_vocab = vocab_df.to_json(orient='records', force_ascii=False)
+            st.download_button(
+                label="下載完整單字庫備份",
+                data=json_vocab,
+                file_name=f"vocab_backup_{datetime.now().strftime('%Y%m%d')}.json",
+                mime="application/json",
+                use_container_width=True
+            )
 # ==========================================
 # 6. 主程式入口 (旗艦級：智慧導航與全域路由)
 # ==========================================
@@ -719,11 +849,17 @@ def main():
         }
         
         # 根據登入狀態解鎖功能
+        # 在 main() 函式的導航選單部分修改：
         if st.session_state.logged_in:
             nav_items.update({
                 "🔬 AI 解碼實驗室": "ai_lab",
                 "📄 Pro 講義生成": "pdf_gen"
             })
+            # 如果是管理員，解鎖上帝模式
+            if st.session_state.role == "admin":
+                nav_items.update({
+                    "👑 管理員中心": "admin_center"
+                })
         else:
             nav_items.update({
                 "🔒 AI 解碼 (Pro)": "locked",
@@ -827,6 +963,12 @@ def main():
         if st.button("了解 Pro 會員開通方案", use_container_width=True, type="primary"):
             st.balloons()
             st.info("請聯繫管理員或加入 Discord 社群獲取邀請碼！")
+    elif choice == "👑 管理員中心":
+    if st.session_state.role == "admin":
+        page_admin_center()
+    else:
+        st.error("權限不足")
+
 
 # --- 執行入口 ---
 if __name__ == "__main__":
