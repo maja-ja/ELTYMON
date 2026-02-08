@@ -10,20 +10,21 @@ import markdown
 import re
 
 # ==========================================
-# 1. 核心設定
+# 1. 核心介面配置
 # ==========================================
-st.set_page_config(page_title="AI 名師講義編輯器 Pro", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="AI 講義分頁大師", layout="wide", page_icon="📄")
 
 st.markdown("""
     <style>
-        .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
+        .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', 'Courier New', monospace; }
         .stButton button { width: 100%; border-radius: 8px; font-weight: bold; height: 3em; }
-        .hint-text { color: #4f46e5; font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; }
+        .hint-card { background-color: #eef2ff; border-left: 5px solid #4f46e5; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+        .hint-text { color: #4f46e5; font-size: 0.85rem; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 工具函式
+# 2. 核心工具函式
 # ==========================================
 
 def fix_image_orientation(image):
@@ -47,8 +48,8 @@ def ai_generate_content(image, manual_input, instruction):
 
     prompt = """
     你是一位專業的高中教師。請撰寫講義。
-    【格式規範】使用 $...$ 或 $$...$$。
-    【分頁建議】請使用 ## (二級標題) 作為每個大題或章節的開頭，系統會自動在標題處換頁。
+    使用 $...$ 或 $$...$$ 撰寫 LaTeX。
+    建議使用 ## 作為大題標題，這會觸發自動分頁。
     """
     parts = [prompt]
     if manual_input: parts.append(f"【補充內容】：{manual_input}")
@@ -56,21 +57,20 @@ def ai_generate_content(image, manual_input, instruction):
     if image: parts.append(image)
 
     try:
-        with st.spinner("🤖 AI 正在智能編排分頁內容..."):
+        with st.spinner("🤖 AI 正在進行深度解析與排版..."):
             response = model.generate_content(parts)
             return response.text
     except Exception as e:
         return f"AI 異常：{str(e)}"
 
 # ==========================================
-# 3. 專業級 PDF/HTML 模板 (標題自動分頁版)
+# 3. 虛擬 A4 分頁預覽模板 (核心邏輯)
 # ==========================================
 def generate_printable_html(title, text_content, img_b64, img_width_percent):
-    # 1. 處理手動換頁與 LaTeX 修正
+    # 處理標籤與 LaTeX
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
     processed_content = processed_content.replace('\\\\', '\\')
     
-    # 2. 轉換 Markdown
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     
@@ -91,62 +91,101 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
         
         <style>
             @page {{ size: A4; margin: 0; }}
+            
             body {{ 
                 font-family: 'Noto Sans TC', sans-serif; 
                 line-height: 1.8; 
                 padding: 0; margin: 0;
-                background: #f4f4f9; 
+                background: #525659; /* 模擬 PDF 閱讀器的深色背景 */
+                display: flex;
+                flex-direction: column;
+                align-items: center;
             }}
             
             #printable-area {{ 
-                background: white; width: 210mm; margin: 0 auto; 
-                padding: 25mm; box-sizing: border-box; 
-                box-shadow: 0 0 10px rgba(0,0,0,0.1);
+                background: white; 
+                width: 210mm; 
+                min-height: 297mm;
+                margin: 20px 0; 
+                padding: 25mm; 
+                box-sizing: border-box; 
+                position: relative;
+                
+                /* 【核心】虛擬分頁線導引 - 每 297mm 畫一條紅線 */
+                background-image: linear-gradient(to bottom, 
+                    transparent 0%, 
+                    transparent calc(297mm - 1px), 
+                    #ff4d4d calc(297mm - 1px), 
+                    #ff4d4d 297mm, 
+                    transparent 297mm
+                );
+                background-size: 100% 297mm;
             }}
 
-            /* 【核心修正：標題即分頁】 */
+            /* 預覽模式下的分頁標籤 */
+            #printable-area::after {{
+                content: "--- 以上為第一頁 ---";
+                position: absolute;
+                top: 293mm;
+                left: 50%;
+                transform: translateX(-50%);
+                color: #ff4d4d;
+                font-size: 10px;
+                font-weight: bold;
+                pointer-events: none;
+            }}
+
+            /* 標題自動分頁 */
             .content h2 {{
-                page-break-before: always; /* 強制在標題前換頁 */
-                padding-top: 10px;
-                margin-top: 30px;
+                page-break-before: always;
                 color: #1a237e;
                 border-bottom: 2px solid #e8eaf6;
-                padding-bottom: 5px;
+                margin-top: 30px;
             }}
+            .content h2:first-child {{ page-break-before: avoid !important; margin-top: 0; }}
 
-            /* 防止第一個標題導致開頭空白 */
-            .content h2:first-child {{
-                page-break-before: avoid !important;
-                margin-top: 0;
-            }}
+            .manual-page-break {{ page-break-before: always; height: 1px; }}
 
-            .manual-page-break {{ page-break-before: always; height: 0; }}
-
-            /* 智慧避讓：防止段落或公式被切一半 */
+            /* 智慧避讓 */
             .content p, .content li, .img-wrapper, mjx-container, table {{
                 page-break-inside: avoid;
                 break-inside: avoid;
             }}
-            
-            h2, h3 {{ page-break-after: avoid; break-after: avoid; }}
 
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
             .img-wrapper {{ text-align: center; margin: 30px 0; }}
             mjx-container {{ margin: 5px 2px !important; vertical-align: middle !important; display: inline-block !important; }}
-            .content {{ font-size: 16px; text-align: justify; }}
             
-            #btn-container {{ text-align: center; padding: 20px; position: sticky; top: 0; background: #f4f4f9; z-index: 100; }}
-            .download-btn {{ background: #1a237e; color: white; border: none; padding: 15px 40px; border-radius: 30px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+            #btn-container {{ 
+                text-align: center; padding: 15px; width: 100%;
+                position: sticky; top: 0; background: #323639; z-index: 1000;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            }}
+            .download-btn {{ 
+                background: #4f46e5; color: white; border: none; padding: 12px 50px; 
+                border-radius: 5px; font-size: 16px; font-weight: bold; cursor: pointer; 
+            }}
+
+            /* 【重要】下載 PDF 時隱藏輔助線 */
+            @media print {{
+                body {{ background: white !important; }}
+                #printable-area {{ 
+                    margin: 0 !important; 
+                    box-shadow: none !important; 
+                    background-image: none !important; /* 移除紅線 */
+                }}
+                #printable-area::after {{ display: none; }}
+                #btn-container {{ display: none; }}
+            }}
         </style>
     </head>
     <body>
         <div id="btn-container">
-            <button class="download-btn" onclick="downloadPDF()">📥 生成 PDF (每題自動分頁)</button>
+            <button class="download-btn" onclick="downloadPDF()">📥 下載正式 PDF (不含導引線)</button>
         </div>
 
         <div id="printable-area">
-            <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666; margin-bottom:10px;">日期：{date_str}</div>
+            <h1 style="text-align:center; color:#1a237e;">{title}</h1>
+            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
         </div>
@@ -158,7 +197,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                     margin: 0,
                     filename: '{title}.pdf',
                     image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 3, useCORS: true, logging: false }},
+                    html2canvas: {{ scale: 3, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
                     pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
                 }};
@@ -166,7 +205,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                 MathJax.typesetPromise().then(() => {{
                     setTimeout(() => {{
                         html2pdf().set(opt).from(element).save();
-                    }}, 1500);
+                    }}, 1200);
                 }});
             }}
         </script>
@@ -179,15 +218,15 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
 # ==========================================
 
 def main():
-    st.title("🎓 AI 名師講義編輯器 Pro")
+    st.title("🎓 AI 講義分頁大師 Pro")
     
     if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
     if 'generated_text' not in st.session_state: st.session_state.generated_text = ""
 
-    col_ctrl, col_prev = st.columns([1, 1.2], gap="large")
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
 
     with col_ctrl:
-        st.subheader("1. 素材準備")
+        st.subheader("1. 內容設定")
         uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
         
         image = None
@@ -207,11 +246,11 @@ def main():
             with c2:
                 img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
             
-            st.image(image, caption="預覽圖片", use_container_width=True)
+            st.image(image, use_container_width=True)
 
         st.divider()
-        manual_input = st.text_area("補充內容", height=100)
-        ai_instr = st.text_input("給 AI 的特別指令")
+        manual_input = st.text_area("補充文字 (會與圖片整合)", height=100)
+        ai_instr = st.text_input("AI 指令", placeholder="例如：請將解析做成表格...")
 
         if st.button("🚀 呼叫 AI 生成內容", type="primary"):
             if not image and not manual_input:
@@ -222,18 +261,26 @@ def main():
                 st.rerun()
 
     with col_prev:
-        st.subheader("2. 預覽與編輯")
-        st.markdown('<p class="hint-text">💡 技巧：使用 ## (二級標題) 會自動從下一頁開始</p>', unsafe_allow_html=True)
+        st.subheader("2. A4 虛擬分頁預覽")
         
-        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 這裡是預覽區"
-        # 讓編輯區高度增加，方便處理多個標題
-        edited_content = st.text_area("📝 微調內容 (使用 ## 標題觸發自動分頁)", value=content_to_show, height=450)
+        with st.container():
+            st.markdown("""
+                <div class="hint-card">
+                    <p class="hint-text">🚩 預覽中出現的<b>紅色橫線</b>代表 A4 斷頁處。</p>
+                    <p class="hint-text">🚩 若文字壓線，請使用 <b>[換頁]</b> 標籤或 <b>## 標題</b> 手動調整。</p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 這裡是預覽區\n請先在上傳區操作內容。"
+        
+        edited_content = st.text_area("📝 編輯內容 (直接在此修改內容或調整分頁)", value=content_to_show, height=300)
         handout_title = st.text_input("講義標題", value="精選試題解析")
 
         img_b64 = get_image_base64(image) if image else ""
         final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
 
-        components.html(final_html, height=850, scrolling=True)
+        # 這裡高度設高一點，讓老師可以看到整張 A4 甚至兩張的範疇
+        components.html(final_html, height=1000, scrolling=True)
 
 if __name__ == "__main__":
     main()
