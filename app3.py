@@ -17,48 +17,53 @@ st.set_page_config(page_title="Etymon Decoder v3.0", page_icon="🧩", layout="w
 def inject_custom_css():
     st.markdown("""
         <style>
-            /* 基礎設定 */
-            [data-testid="stAppViewContainer"] { padding: 10px; }
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
             
-            /* 手機版專屬優化 (螢幕寬度小於 768px) */
-            @media (max-width: 768px) {
-                .hero-word { 
-                    font-size: 1.8rem !important; /* 縮小標題，避免折行太醜 */
-                    text-align: center;
-                }
-                .vibe-box {
-                    padding: 15px !important;
-                    font-size: 0.95rem;
-                }
-                .breakdown-wrapper {
-                    padding: 15px !important;
-                    font-size: 1rem !important;
-                }
-                /* 讓按鈕在手機上更大更好按 */
-                .stButton button {
-                    width: 100%;
-                    height: 3rem;
-                    margin-bottom: 10px;
-                }
+            /* 1. 基礎卡片樣式：在深色模式下增加陰影與邊框對比 */
+            .stMainContainer {
+                transition: background-color 0.3s ease;
             }
 
-            /* 桌面版保持原樣 */
-            @media (min-width: 769px) {
-                .hero-word { font-size: 2.8rem; }
+            /* 2. 標題 Hero Word：動態適應主題色 */
+            .hero-word { 
+                font-size: 2.8rem; 
+                font-weight: 800; 
+                color: #1A237E; /* 淺色模式：深藍 */
+                margin-bottom: 5px;
             }
-
-            /* 通用美化 */
+            
+            /* 3. 專家視角 Vibe Box：適應深色背景 */
             .vibe-box { 
                 background-color: #F0F7FF; 
+                padding: 20px; 
                 border-radius: 12px; 
                 border-left: 6px solid #2196F3; 
                 color: #2C3E50 !important; 
-                margin: 10px 0;
+                margin: 15px 0;
             }
-            
-            /* 深色模式適應 */
+
+            /* --- 深色模式自動適應樣式覆蓋 --- */
             @media (prefers-color-scheme: dark) {
-                .vibe-box { background-color: #1E262E !important; color: #E3F2FD !important; }
+                .hero-word { color: #90CAF9 !important; } /* 深色模式：粉藍 */
+                
+                .vibe-box {
+                    background-color: #1E262E !important; /* 深色模式：深灰藍 */
+                    color: #E3F2FD !important; /* 文字轉亮色 */
+                    border-left: 6px solid #64B5F6 !important;
+                }
+                
+                /* 強制修正深色模式下的表格/清單文字顏色 */
+                .stMarkdown p, .stMarkdown li {
+                    color: #E0E0E0 !important;
+                }
+            }
+
+            /* 4. 邏輯拆解區 (漸層外框保持高對比) */
+            .breakdown-wrapper {
+                background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
+                padding: 25px 30px;
+                border-radius: 15px;
+                color: white !important;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -357,39 +362,67 @@ def show_encyclopedia_card(row):
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
 
+    # 1. 標題區 (會隨系統主題變色)
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     
-    # 語音按鈕在手機版建議放在標題下方並置中
-    speak(r_word, key_suffix=f"card_{r_word}")
+    if r_phonetic and r_phonetic != "無":
+        st.caption(f"/{r_phonetic}/")
 
+    # 2. 邏輯拆解 (深色底漸層)
     st.markdown(f"""
         <div class='breakdown-wrapper'>
-            <h4 style='color: white; margin-top: 0; font-size: 1.1rem;'>🧬 邏輯拆解</h4>
+            <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
             <div style='color: white; font-weight: 700;'>{r_breakdown}</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 使用小間隔
-    st.write("") 
+    st.write("---")
     
-    # 在手機上，這兩個 info/success 會自動垂直排列
+    # 3. 核心內容區 (st.info/success 會自動處理深淺色)
     c1, c2 = st.columns(2)
+    r_ex = fix_content(row.get('example', ""))
+    
     with c1:
-        with st.container(border=True): # 增加外框感
-            st.markdown("#### 🎯 定義")
-            st.write(r_def)
+        st.info("### 🎯 定義與解釋")
+        st.write(r_def) 
+        st.caption(f"📝 {r_ex}")
+        if r_trans and r_trans != "無":
+            st.caption(f"（{r_trans}）")
+        
     with c2:
-        with st.container(border=True):
-            st.markdown("#### 💡 原理")
-            st.write(r_roots)
+        st.success("### 💡 核心原理")
+        st.write(r_roots)
+        st.write(f"**🔍 本質意義：** {r_meaning}")
+        st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 專家視角
+    # 4. 專家視角 (配合 CSS 變數自動變色)
     if r_vibe:
-        st.markdown(f"<div class='vibe-box'><b>🌊 專家心法：</b><br>{r_vibe}</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <div class='vibe-box'>
+                <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
+                {r_vibe}
+            </div>
+        """, unsafe_allow_html=True)
 
-    # 底部回報按鈕：在手機上建議給予完整寬度
-    if st.button("🚩 內容有誤，回報修復", key=f"rep_{r_word}", use_container_width=True):
-        submit_report(row.to_dict())
+    # 5. 深度百科
+    with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
+        with sub_c2:
+            st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+
+    # --- [關鍵修正：變數名稱統一為 rep_col] ---
+    st.write("---")
+    rep_col1, rep_col2 = st.columns([3, 1])
+    
+    with rep_col1:
+        st.caption("發現解析有誤？點擊按鈕一鍵送入修復清單。")
+        
+    with rep_col2:
+        # 使用唯一 key 以免在隨機探索時發生元件 ID 衝突
+        if st.button("🚩 有誤", key=f"rep_card_{r_word}", use_container_width=True):
+            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
 # 4. 頁面邏輯
 # ==========================================
 
@@ -508,16 +541,14 @@ def log_user_intent(label):
         # st.write(f"DEBUG: Metrics Error - {e}")
         pass
 def page_home(df):
-    # 在手機版頂部增加一個溫馨提示
-    st.toast("📱 點擊左上角選單切換功能", icon="ℹ️")
+    st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
+    st.write("---")
     
-    st.markdown("<h1 style='text-align: center; font-size: 2rem;'>Etymon Decoder</h1>", unsafe_allow_html=True)
-    
-    # 數據儀表板在手機上會自動變成 1x3 堆疊，非常適合
+    # 1. 數據儀表板 (Dashboard)
     c1, c2, c3 = st.columns(3)
-    c1.metric("📚 單字", len(df))
-    c2.metric("🏷️ 分類", df['category'].nunique())
-    c3.metric("🧩 字根", df['roots'].nunique())
+    c1.metric("📚 總單字量", len(df))
+    c2.metric("🏷️ 分類主題", df['category'].nunique() if not df.empty else 0)
+    c3.metric("🧩 獨特字根", df['roots'].nunique() if not df.empty else 0)
     
     st.write("---")
 
