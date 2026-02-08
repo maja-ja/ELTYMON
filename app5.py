@@ -549,7 +549,6 @@ def show_pro_paper_with_download(title, content):
 # ==========================================
 # 5. 頁面邏輯 (修正版：首頁推薦只顯示一個單字)
 # ==========================================
-
 def page_home(df):
     """最高規格首頁：品牌 Hero 區與數據可視化"""
     
@@ -585,15 +584,19 @@ def page_home(df):
     # 3. 隨機推薦區 (只顯示一個單字)
     st.markdown("### 💡 今日邏輯推薦")
     
-    # --- [核心修改] 統一只抽取一個單字 ---
     if not df.empty:
-        # 如果 session_state 中沒有推薦單字，或者點擊了「換一批」，則重新抽取
+        # --- [核心修改] 安全存取 home_single_sample ---
+        # 確保 home_single_sample 始終是一個字典，即使是空的
         if 'home_single_sample' not in st.session_state or st.button("🔄 換一批", key="refresh_home_sample", use_container_width=True):
             st.session_state.home_single_sample = df.sample(1).iloc[0].to_dict()
-            # 點擊換一批後，如果 curr_w 是當前單字，也清掉，避免重複顯示
-            if st.session_state.get("curr_w", {}).get("word") == st.session_state.home_single_sample.get("word"):
+            
+            # 比較時也進行安全檢查
+            current_word_in_session = st.session_state.get("curr_w", {}).get("word")
+            new_sample_word = st.session_state.home_single_sample.get("word")
+            
+            if current_word_in_session == new_sample_word:
                 st.session_state.curr_w = None
-            st.rerun() # 重新執行以顯示新單字
+            st.rerun()
 
         # 確保有單字可以顯示
         if st.session_state.get('home_single_sample'):
