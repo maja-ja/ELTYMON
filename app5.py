@@ -933,43 +933,74 @@ def main():
         st.title("🔍 知識庫搜尋")
         st.markdown("搜尋資料庫中已存在的 4500+ 學測邏輯單字。")
         
+        # --- [新增] 定義每頁顯示的數量 ---
+        ITEMS_PER_PAGE = 10
+
+        # 1. 搜尋工具列
         col_q, col_cat = st.columns([3, 1])
         with col_q:
-            q = st.text_input("輸入關鍵字搜尋...", placeholder="可輸入單字、中文意義、字根、例句...", label_visibility="collapsed")
+            q = st.text_input("輸入關鍵字搜尋...", placeholder="可輸入單字、中文意義、字根...", label_visibility="collapsed")
         with col_cat:
             all_cats = ["所有分類"] + sorted(df['category'].unique().tolist())
             sel_cat = st.selectbox("分類過濾", all_cats, label_visibility="collapsed")
-        
-        # --- [核心優化] 擴大搜尋範圍 ---
-        filtered_df = df.copy()
 
-        if q:
-            query = q.lower().strip()
-            # 建立一個包含所有可搜尋欄位的臨時 Series
-            # 這樣可以一次性對所有文本欄位進行 .str.contains()，效能比逐一 | (OR) 更好
-            search_space = (
-                filtered_df['word'].str.lower() + " " +
-                filtered_df['definition'].str.lower() + " " +
-                filtered_df['meaning'].str.lower() + " " +
-                filtered_df['roots'].str.lower() + " " +
-                filtered_df['example'].str.lower() + " " +
-                filtered_df['collocation'].str.lower()
-            )
-            filtered_df = filtered_df[search_space.str.contains(query, na=False)]
-
-        if sel_cat != "所有分類":
-            filtered_df = filtered_df[filtered_df['category'] == sel_cat]
+        # 2. 狀態管理與搜尋邏輯 (核心修改)
+        # 檢查搜尋條件是否改變，若改變則重置
+        if (st.session_state.get('last_query') != q) or (st.session_state.get('last_cat') != sel_cat):
+            # 這是新的搜尋，執行過濾
+            st.session_state.last_query = q
+            st.session_state.last_cat = sel_cat
             
-        # --- 結果呈現 ---
-        if not filtered_df.empty:
-            st.write(f"💡 找到 {len(filtered_df)} 筆相關結果：")
-            for idx, r in filtered_df.iterrows():
-                # 使用 r['word'] 和 idx 確保 key 的唯一性
+            filtered_df = df.copy()
+            if q:
+                query = q.lower().strip()
+                search_space = (
+                    filtered_df['word'].str.lower() + " " +
+                    filtered_df['definition'].str.lower() + " " +
+                    filtered_df['meaning'].str.lower() + " " +
+                    filtered_df['roots'].str.lower()
+                )
+                filtered_df = filtered_df[search_space.str.contains(query, na=False)]
+
+            if sel_cat != "所有分類":
+                filtered_df = filtered_df[filtered_df['category'] == sel_cat]
+            
+            # 將完整的搜尋結果存入 session_state
+            st.session_state.search_results = filtered_df
+            # 重置顯示數量
+            st.session_state.num_items_to_show = ITEMS_PER_PAGE
+
+        # 3. 從 session_state 中取得要顯示的資料
+        search_results = st.session_state.get('search_results', pd.DataFrame())
+        num_items_to_show = st.session_state.get('num_items_to_show', ITEMS_PER_PAGE)
+        
+        total_results = len(search_results)
+
+        # 4. 結果呈現 (分批渲染)
+        if not search_results.empty:
+            st.caption(f"💡 找到 {total_results} 筆相關結果，目前顯示 {min(num_items_to_show, total_results)} 筆。")
+            
+            # 使用 .head() 只取出要顯示的部分
+            results_to_display = search_results.head(num_items_to_show)
+            
+            for idx, r in results_to_display.iterrows():
                 unique_key_prefix = f"search_{idx}_{r['word']}"
                 with st.expander(f"✨ {r['word']} - {r['definition'][:40]}..."):
                     show_encyclopedia_card(r, key_suffix=unique_key_prefix)
-        else:
-            st.warning("找不到匹配的內容。")
+            
+            # 5. "載入更多" 按鈕
+            # 只有在還有更多結果時才顯示按鈕
+            if total_results > num_items_to_show:
+                st.write("") # 增加間距
+                if st.button("載入更多結果...", use_container_width=True):
+                    # 增加要顯示的數量
+                    st.session_state.num_items_to_show += ITEMS_PER_PAGE
+                    # 立即重新整理頁面以顯示新內容
+                    st.rerun()
+
+        # 處理搜尋不到結果的情況
+        elif q or sel_cat != "所有分類":
+            st.warning("在當前篩選條件下，找不到匹配的內容。")
 
     elif choice == "🧠 記憶挑戰":
         st.title("🧠 記憶挑戰")
