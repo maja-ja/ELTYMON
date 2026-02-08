@@ -12,7 +12,6 @@ from gtts import gTTS
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-mport streamlit.components.v1 as components
 
 @st.cache_data(show_spinner=False)
 def get_screen_width_js():
