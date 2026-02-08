@@ -546,66 +546,75 @@ def show_pro_paper_with_download(title, content):
 # ==========================================
 # 5. 頁面邏輯 (最高規格響應式首頁)
 # ==========================================
+# ==========================================
+# 5. 頁面邏輯 (修正版：首頁推薦只顯示一個單字)
+# ==========================================
 
 def page_home(df):
-    """最高規格首頁：具備自動響應式佈局"""
+    """最高規格首頁：品牌 Hero 區與數據可視化"""
     
-    # --- [核心修改] 獲取螢幕寬度 ---
-    # 組件第一次渲染時可能回傳 None，給一個預設的電腦寬度
-    screen_width = st.session_state.get('screen_width', 1024) 
     # 1. Hero Section (保持不變)
     st.markdown("""
-        <div style="text-align: center; padding: 40px 0; ...">
-            ...
+        <div style="text-align: center; padding: 40px 0; background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%); border-radius: 30px; margin-bottom: 40px;">
+            <h1 style="font-size: 3.5rem; font-weight: 900; margin-bottom: 10px; background: linear-gradient(135deg, #4338ca 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Etymon Decoder</h1>
+            <p style="font-size: 1.2rem; color: #64748b; font-weight: 500;">116 級數位戰情室：以 AI 邏輯重構你的學測知識圖譜</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # 2. 數據儀表板 (保持不變)
-    # ... (你的 custom_metric 儀表板代碼) ...
+    # 2. 倒數計時與核心指標 (保持不變)
+    days_left = (datetime(2027, 1, 15) - datetime.now()).days
+    
+    def custom_metric(label, value, icon, color_gradient):
+        return f"""
+            <div style="background: white; padding: 25px; border-radius: 24px; border: 1px solid #f1f5f9; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 10px;">{icon}</div>
+                <div style="font-size: 0.85rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">{label}</div>
+                <div style="font-size: 2rem; font-weight: 900; background: {color_gradient}; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{value}</div>
+            </div>
+        """
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: st.markdown(custom_metric("學測倒數", f"{days_left} Days", "🎯", "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)"), unsafe_allow_html=True)
+    with m2: st.markdown(custom_metric("總單字量", len(df), "📚", "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)"), unsafe_allow_html=True)
+    with m3: st.markdown(custom_metric("分類主題", df['category'].nunique() if not df.empty else 0, "🏷️", "linear-gradient(135deg, #10b981 0%, #059669 100%)"), unsafe_allow_html=True)
+    with m4: st.markdown(custom_metric("邏輯字根", df['roots'].nunique() if not df.empty else 0, "🧩", "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"), unsafe_allow_html=True)
 
     st.write("")
     st.write("")
 
-    # 3. 隨機推薦區 (根據螢幕寬度進行條件渲染)
+    # 3. 隨機推薦區 (只顯示一個單字)
     st.markdown("### 💡 今日邏輯推薦")
+    
+    # --- [核心修改] 統一只抽取一個單字 ---
     if not df.empty:
-        # --- 手機版邏輯 (螢幕寬度 < 768px) ---
-        if screen_width < 768:
-            if 'home_sample_mobile' not in st.session_state:
-                st.session_state.home_sample_mobile = df.sample(1)
+        # 如果 session_state 中沒有推薦單字，或者點擊了「換一批」，則重新抽取
+        if 'home_single_sample' not in st.session_state or st.button("🔄 換一批", key="refresh_home_sample", use_container_width=True):
+            st.session_state.home_single_sample = df.sample(1).iloc[0].to_dict()
+            # 點擊換一批後，如果 curr_w 是當前單字，也清掉，避免重複顯示
+            if st.session_state.get("curr_w", {}).get("word") == st.session_state.home_single_sample.get("word"):
+                st.session_state.curr_w = None
+            st.rerun() # 重新執行以顯示新單字
+
+        # 確保有單字可以顯示
+        if st.session_state.get('home_single_sample'):
+            row = st.session_state.home_single_sample
+            unique_key_prefix = f"home_single_{row['word']}" # 確保 key 唯一
             
-            sample = st.session_state.home_sample_mobile
             # 直接渲染單張卡片，不使用 st.columns
-            idx, row = list(sample.iterrows())[0]
-            
-            unique_key_prefix = f"mobile_{idx}"
             st.markdown(f"""
-                <div style="background: white; ...">
-                    ... (你的卡片 HTML 碼) ...
+                <div style="background: white; padding: 25px; border-radius: 20px; border: 1px solid #e2e8f0; height: 220px; position: relative; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
+                    <div style="color: #6366f1; font-weight: 700; font-size: 0.8rem; margin-bottom: 10px;">#{row['category']}</div>
+                    <div style="font-size: 1.6rem; font-weight: 800; color: #1e293b; margin-bottom: 10px;">{row['word']}</div>
+                    <div style="font-size: 0.95rem; color: #64748b; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                        {fix_content(row['definition'])}
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button("展開深度解析", key=f"view_{unique_key_prefix}", use_container_width=True):
-                st.session_state.curr_w = row.to_dict()
-                st.rerun()
-
-        # --- 電腦版邏輯 (螢幕寬度 >= 768px) ---
-        else:
-            if 'home_sample_desktop' not in st.session_state:
-                st.session_state.home_sample_desktop = df.sample(min(3, len(df)))
             
-            sample = st.session_state.home_sample_desktop
-            cols = st.columns(3)
-            for i, (idx, row) in enumerate(sample.iterrows()):
-                with cols[i]:
-                    unique_key_prefix = f"desktop_{idx}"
-                    st.markdown(f"""
-                        <div style="background: white; ...">
-                           ... (你的卡片 HTML 碼) ...
-                        </div>
-                    """, unsafe_allow_html=True)
-                    if st.button("展開深度解析", key=f"view_{unique_key_prefix}", use_container_width=True):
-                        st.session_state.curr_w = row.to_dict()
-                        st.rerun()
+            # 展開詳解按鈕
+            if st.button("展開深度解析", key=f"view_{unique_key_prefix}", use_container_width=True):
+                st.session_state.curr_w = row # 直接將當前單字設為要顯示的詳解
+                st.rerun() # 重新執行以顯示詳解
 
     # 顯示選中的詳解卡片 (邏輯保持不變)
     if st.session_state.get("curr_w"):
