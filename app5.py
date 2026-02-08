@@ -26,132 +26,101 @@ st.set_page_config(
 def inject_custom_css():
     st.markdown("""
         <style>
-            /* --- 載入頂級字體 --- */
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Noto+Sans+TC:wght@300;500;700;900&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
 
-            /* --- 全域變數定義 --- */
+            /* --- 1. 定義變數系統 (Light Mode 預設) --- */
             :root {
-                --primary-gradient: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
-                --glass-bg: rgba(255, 255, 255, 0.7);
-                --glass-border: rgba(255, 255, 255, 0.3);
-                --card-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-                --text-main: #1e293b;
+                --bg-main: #f8fafc;
+                --bg-card: #ffffff;
+                --text-primary: #1e293b;
+                --text-secondary: #64748b;
+                --border-color: #e2e8f0;
+                --shadow-color: rgba(0, 0, 0, 0.08);
+                --hero-gradient: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+                --card-border: 1px solid #f1f5f9;
             }
 
-            /* --- 基礎容器優化 --- */
+            /* --- 2. 深色模式覆寫 (Dark Mode Overrides) --- */
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg-main: #0f172a;       /* 深藍灰背景 */
+                    --bg-card: #1e293b;       /* 卡片深色背景 */
+                    --text-primary: #f1f5f9;  /* 亮白文字 */
+                    --text-secondary: #94a3b8;/* 灰白副標 */
+                    --border-color: #334155;  /* 深灰邊框 */
+                    --shadow-color: rgba(0, 0, 0, 0.3); /* 深色陰影 */
+                    --hero-gradient: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%); /* 亮藍紫漸層 */
+                    --card-border: 1px solid #334155;
+                }
+                /* 強制修正 Streamlit 原生組件 */
+                .stApp { background-color: var(--bg-main) !important; }
+                .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+                    color: var(--text-primary) !important;
+                }
+            }
+
+            /* --- 3. 通用樣式應用 --- */
             .stApp {
-                background: radial-gradient(circle at top right, #f8fafc, #f1f5f9);
                 font-family: 'Inter', 'Noto Sans TC', sans-serif;
+                background-color: var(--bg-main);
+                transition: background-color 0.3s ease;
             }
 
-            /* --- 標題 Hero Word: 旗艦級排版 --- */
+            /* 標題 Hero Word */
             .hero-word { 
-                font-size: clamp(2.5rem, 5vw, 4rem); /* 響應式字體大小 */
+                font-size: 2.5rem; 
                 font-weight: 900; 
-                background: var(--primary-gradient);
+                background: var(--hero-gradient);
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 margin-bottom: 10px;
-                letter-spacing: -1px;
-                line-height: 1.1;
-                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.05));
-            }
-            
-            /* --- 專家視角 Vibe Box: 毛玻璃效果 --- */
-            .vibe-box { 
-                background: var(--glass-bg);
-                backdrop-filter: blur(12px);
-                -webkit-backdrop-filter: blur(12px);
-                border-radius: 20px;
-                border: 1px solid var(--glass-border);
-                padding: 25px;
-                box-shadow: var(--card-shadow);
-                color: var(--text-main) !important;
-                margin: 20px 0;
-                position: relative;
-                overflow: hidden;
-            }
-            .vibe-box::before {
-                content: "";
-                position: absolute;
-                top: 0; left: 0; width: 6px; height: 100%;
-                background: var(--primary-gradient);
+                text-align: center;
             }
 
-            /* --- 邏輯拆解區: 深度漸層與內發光 --- */
-            .breakdown-wrapper {
-                background: var(--primary-gradient);
-                padding: 30px;
-                border-radius: 24px;
-                color: white !important;
-                box-shadow: 0 20px 25px -5px rgba(67, 56, 202, 0.2);
-                border: 1px solid rgba(255,255,255,0.1);
-                position: relative;
-                transition: transform 0.3s ease;
-            }
-            .breakdown-wrapper:hover {
-                transform: translateY(-5px);
-            }
-
-            /* --- 數據指標卡片 (Metric) 客製化 --- */
-            [data-testid="stMetric"] {
-                background: white;
-                padding: 15px 20px;
+            /* 卡片容器 (自動適應) */
+            div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
+                background-color: var(--bg-card);
                 border-radius: 16px;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-                border: 1px solid #f1f5f9;
+                padding: 20px;
+                box-shadow: 0 4px 6px -1px var(--shadow-color); 
+                border: var(--card-border);
             }
 
-            /* --- 按鈕美化: 現代 SaaS 風格 --- */
+            /* 按鈕優化 */
             .stButton button {
-                border-radius: 12px !important;
-                padding: 0.6rem 1.5rem !important;
-                font-weight: 600 !important;
-                transition: all 0.2s ease !important;
                 border: none !important;
-                background: #ffffff !important;
-                box-shadow: 0 4px 6px rgba(0,0,0,0.05) !important;
-                color: #4338ca !important;
+                border-radius: 12px !important;
+                background-color: var(--bg-card) !important;
+                color: var(--text-primary) !important;
+                box-shadow: 0 2px 5px var(--shadow-color) !important;
+                border: 1px solid var(--border-color) !important;
+                transition: all 0.2s ease !important;
             }
             .stButton button:hover {
-                transform: scale(1.02);
-                box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1) !important;
-                background: var(--primary-gradient) !important;
-                color: white !important;
+                transform: translateY(-2px);
+                border-color: #6366f1 !important;
+                color: #6366f1 !important;
             }
-
-            /* --- 手機版極致優化 --- */
-            @media (max-width: 768px) {
-                .hero-word { font-size: 2.2rem !important; text-align: left; }
-                .vibe-box { padding: 18px; border-radius: 16px; }
-                .breakdown-wrapper { padding: 20px; border-radius: 18px; }
-                .stButton button { width: 100% !important; height: 3.8rem; font-size: 1.1rem !important; }
+            
+            /* 側邊欄 */
+            section[data-testid="stSidebar"] {
+                background-color: var(--bg-card);
+                border-right: 1px solid var(--border-color);
             }
-
-            /* --- 深色模式: 頂級對比度優化 --- */
-            @media (prefers-color-scheme: dark) {
-                .stApp {
-                    background: radial-gradient(circle at top right, #0f172a, #020617);
-                }
-                .vibe-box {
-                    background: rgba(30, 41, 59, 0.7);
-                    border: 1px solid rgba(255,255,255,0.05);
-                    color: #f1f5f9 !important;
-                }
-                .hero-word {
-                    background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
-                    -webkit-background-clip: text;
-                }
-                [data-testid="stMetric"] {
-                    background: #1e293b;
-                    border: 1px solid #334155;
-                    color: white;
-                }
-                .stMarkdown p, .stMarkdown li { color: #cbd5e1 !important; }
+            
+            /* Expander (搜尋結果) */
+            .streamlit-expanderHeader {
+                background-color: var(--bg-card) !important;
+                color: var(--text-primary) !important;
+                border-radius: 10px !important;
+            }
+            .streamlit-expanderContent {
+                background-color: var(--bg-card) !important;
+                color: var(--text-primary) !important;
+                border-top: 1px solid var(--border-color);
             }
         </style>
     """, unsafe_allow_html=True)
-
 # ==========================================
 # 2. 工具函式 (旗艦級重構: 安全、快取、強健)
 # ==========================================
@@ -396,56 +365,66 @@ def ai_decode_concept(input_text, category):
 # ==========================================
 
 def show_encyclopedia_card(row, show_report=True):
-    """最高規格百科卡片：層次化排版與微互動"""
     r_word = str(row.get('word', '未命名'))
     
-    # 標題與語音
-    col_title, col_audio = st.columns([3, 1])
-    with col_title:
-        st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    # 1. 標題與發音
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    col_audio, _ = st.columns([1, 4])
     with col_audio:
         speak(r_word, f"card_{r_word}")
-    
-    # 邏輯拆解 (旗艦漸層盒)
+
+    # 2. 邏輯拆解區 (漸層背景本身就適合深淺模式，只需調整文字顏色)
     st.markdown(f"""
-        <div class='breakdown-wrapper'>
-            <div style='font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px;'>🧬 LOGIC BREAKDOWN</div>
-            <div style='font-size: 1.15rem; font-weight: 600; line-height: 1.6;'>
+        <div style="
+            background: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
+            padding: 25px;
+            border-radius: 16px;
+            color: white;
+            margin: 20px 0;
+            box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4);
+        ">
+            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Logic Breakdown</div>
+            <div style="font-size: 1.2rem; font-weight: 700; line-height: 1.6;">
                 {fix_content(row.get('breakdown', ''))}
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # 核心內容 (自定義雙欄)
-    st.write("")
+    # 3. 定義與原理 (關鍵修改：使用 RGBA 半透明背景)
+    # 淺藍背景改為 rgba(59, 130, 246, 0.1)
+    # 淺綠背景改為 rgba(34, 197, 94, 0.1)
+    # 文字顏色改為 var(--text-primary) 以自動適應
+    
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"""
-            <div style='background: rgba(99, 102, 241, 0.05); padding: 20px; border-radius: 15px; border: 1px solid rgba(99, 102, 241, 0.1); height: 100%;'>
-                <h4 style='color: #4338ca; margin-top: 0;'>🎯 核心定義</h4>
-                <p style='font-size: 1rem; line-height: 1.6;'>{fix_content(row.get('definition', ''))}</p>
-            </div>
-        """, unsafe_allow_html=True)
-    with c2:
-        st.markdown(f"""
-            <div style='background: rgba(16, 185, 129, 0.05); padding: 20px; border-radius: 15px; border: 1px solid rgba(16, 185, 129, 0.1); height: 100%;'>
-                <h4 style='color: #059669; margin-top: 0;'>💡 底層原理</h4>
-                <p style='font-size: 1rem; line-height: 1.6;'>{fix_content(row.get('roots', ''))}</p>
+            <div style="background: rgba(59, 130, 246, 0.1); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
+                <h4 style="color: #3b82f6; margin: 0 0 10px 0;">🎯 定義與解釋</h4>
+                <p style="color: var(--text-primary); line-height: 1.6;">{fix_content(row.get('definition', ''))}</p>
             </div>
         """, unsafe_allow_html=True)
     
-    # 專家心法
+    with c2:
+        st.markdown(f"""
+            <div style="background: rgba(34, 197, 94, 0.1); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
+                <h4 style="color: #22c55e; margin: 0 0 10px 0;">💡 核心原理</h4>
+                <p style="color: var(--text-primary); line-height: 1.6;">{fix_content(row.get('roots', ''))}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # 4. 專家視角 (使用 RGBA 橘色)
     if row.get('native_vibe'):
-        st.markdown(f"<div class='vibe-box'>{fix_content(row['native_vibe'])}</div>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <div style="margin-top: 20px; background: rgba(249, 115, 22, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(249, 115, 22, 0.3); color: var(--text-primary);">
+                <b style="color: #f97316;">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
+            </div>
+        """, unsafe_allow_html=True)
 
-    # 底部功能區
+    # 5. 底部回報按鈕
     if show_report:
-        st.write("---")
-        rep_c1, rep_c2 = st.columns([3, 1])
-        with rep_c2:
-            if st.button(f"🚩 內容糾錯", key=f"rep_{r_word}", use_container_width=True):
-                st.toast(f"已將 {r_word} 送入待修清單", icon="🛠️")
-
+        st.write("")
+        if st.button(f"🚩 內容有誤，回報修復", key=f"rep_{r_word}", use_container_width=True):
+            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
 def show_pro_paper_with_download(title, content):
     """最高規格 PDF 生成：具備專業排版與品牌標示"""
     js_content = json.dumps(content, ensure_ascii=False)
@@ -511,6 +490,10 @@ def show_pro_paper_with_download(title, content):
 # 5. 頁面邏輯 (旗艦級：數據儀表板與專業工作流)
 # ==========================================
 
+# ==========================================
+# 5. 頁面邏輯 (修正版)
+# ==========================================
+
 def page_home(df):
     """最高規格首頁：品牌 Hero 區與數據可視化"""
     
@@ -566,8 +549,8 @@ def page_home(df):
                     st.session_state.curr_w = row.to_dict()
                     st.rerun()
 
-    # 顯示選中的詳解卡片
-    if "curr_w" in st.session_state:
+    # 4. 顯示選中的詳解卡片 (修正處：增加 .get() 檢查是否為 None)
+    if st.session_state.get("curr_w"):
         st.write("---")
         show_encyclopedia_card(st.session_state.curr_w)
 def page_ai_lab():
