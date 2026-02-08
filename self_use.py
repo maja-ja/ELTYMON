@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-from PIL import Image
+from PIL import Image, ImageOps # 新增 ImageOps 用於自動轉正
 import base64
 from io import BytesIO
 import streamlit.components.v1 as components
@@ -18,7 +18,7 @@ st.markdown("""
     <style>
         .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
         .stButton button { width: 100%; border-radius: 8px; font-weight: bold; }
-        .input-card { background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 15px; }
+        .rotate-btn { margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -26,12 +26,24 @@ st.markdown("""
 # 2. 工具函式
 # ==========================================
 
+def fix_image_orientation(image):
+    """
+    自動修正手機照片的 EXIF 方向資訊
+    """
+    try:
+        image = ImageOps.exif_transpose(image)
+    except Exception:
+        pass # 如果沒有 EXIF 資訊就不處理
+    return image
+
 def compress_image_for_db(image):
     """壓縮圖片以存入 Google Sheets"""
     if image is None: return ""
     img_copy = image.copy()
     img_copy.thumbnail((600, 600))
     buffered = BytesIO()
+    # 轉為 RGB 避免 PNG 透明度造成 JPEG 存檔錯誤
+    if img_copy.mode in ("RGBA", "P"): img_copy = img_copy.convert("RGB")
     img_copy.save(buffered, format="JPEG", quality=60)
     return base64.b64encode(buffered.getvalue()).decode()
 
@@ -39,6 +51,8 @@ def get_image_base64(image):
     """轉檔給 PDF 使用"""
     if image is None: return ""
     buffered = BytesIO()
+    # 轉為 RGB
+    if image.mode in ("RGBA", "P"): image = image.convert("RGB")
     image.save(buffered, format="JPEG")
     return base64.b64encode(buffered.getvalue()).decode()
 
@@ -65,45 +79,29 @@ def save_to_google_sheets(title, content, image):
         return False
 
 def ai_generate_content(image, manual_input, instruction):
-    """
-    呼叫 Gemini，同時處理圖片與文字
-    """
+    """呼叫 Gemini"""
     api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        return "❌ 錯誤：未設定 API Key。"
+    if not api_key: return "❌ 錯誤：未設定 API Key。"
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
 
-    # 建構 Prompt
-    system_prompt = """
-    你是一位專業的高中/大學教師。請根據使用者提供的資訊（可能是圖片、手動輸入的文字，或兩者皆有）撰寫一份教學講義。
-    
+    prompt = """
+    你是一位專業的高中/大學教師。請根據使用者提供的資訊（圖片或文字）撰寫教學講義。
     【格式要求】：
-    1. 使用 Markdown 語法排版。
+    1. 使用 Markdown 語法。
     2. 數學公式請務必使用 LaTeX 格式，並用 $ 包夾（例如 $E=mc^2$）。
     3. 內容需包含：核心觀念、解析/推導過程、參考答案。
-    
-    【整合邏輯】：
-    - 若同時有圖片和文字，請以文字內容為補充條件（例如修改圖片中的數據或特定要求）。
     """
-
-    # 組合內容清單給 AI
-    content_parts = [system_prompt]
     
-    if manual_input:
-        content_parts.append(f"【老師手動輸入/補充資訊】：{manual_input}")
-    
-    if instruction:
-        content_parts.append(f"【額外指令】：{instruction}")
+    parts = [prompt]
+    if manual_input: parts.append(f"【補充文字】：{manual_input}")
+    if instruction: parts.append(f"【指令】：{instruction}")
+    if image: parts.append(image)
 
-    if image:
-        content_parts.append(image)
-
-    # 開始生成
     try:
         with st.spinner("🤖 AI 正在閱讀圖片與文字..."):
-            response = model.generate_content(content_parts)
+            response = model.generate_content(parts)
             return response.text
     except Exception as e:
         return f"生成失敗：{str(e)}"
@@ -114,41 +112,54 @@ def ai_generate_content(image, manual_input, instruction):
 
 def main():
     st.title("🎓 AI 混合輸入講義生成器")
-    st.caption("支援：圖片辨識 + 手動文字補充 ➝ 自動整合生成講義")
+
+    # 初始化 session state 用來記錄旋轉角度
+    if 'rotate_angle' not in st.session_state:
+        st.session_state.rotate_angle = 0
+    if 'last_uploaded_file' not in st.session_state:
+        st.session_state.last_uploaded_file = None
 
     col_left, col_right = st.columns([1, 1], gap="large")
 
     with col_left:
         st.subheader("1. 輸入素材")
         
-        # --- 區塊 A: 圖片 ---
-        with st.container():
-            st.markdown("##### 🖼️ 方式一：上傳圖片 (選填)")
-            uploaded_file = st.file_uploader("上傳題目或圖表", type=["jpg", "png", "jpeg"])
-            image = Image.open(uploaded_file) if uploaded_file else None
-            if image:
-                st.image(image, caption="預覽圖片", use_container_width=True)
+        uploaded_file = st.file_uploader("上傳題目或圖表", type=["jpg", "png", "jpeg"])
+        
+        image = None
+        if uploaded_file:
+            # 檢測是否換了新圖片，如果是，重置旋轉角度
+            if uploaded_file.name != st.session_state.last_uploaded_file:
+                st.session_state.rotate_angle = 0
+                st.session_state.last_uploaded_file = uploaded_file.name
+
+            # 1. 讀取並自動修正 EXIF 方向
+            original_image = Image.open(uploaded_file)
+            image = fix_image_orientation(original_image)
+
+            # 2. 應用手動旋轉
+            if st.session_state.rotate_angle != 0:
+                image = image.rotate(-st.session_state.rotate_angle, expand=True)
+
+            # 3. 顯示旋轉按鈕
+            col_rot1, col_rot2 = st.columns([1, 2])
+            with col_rot1:
+                if st.button("🔄 旋轉圖片 90°"):
+                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
+                    st.rerun() # 重新整理頁面以顯示旋轉後的圖
+            
+            # 4. 顯示圖片
+            st.image(image, caption=f"預覽圖片 (已旋轉 {st.session_state.rotate_angle}°)", use_container_width=True)
 
         st.divider()
 
-        # --- 區塊 B: 文字 ---
-        with st.container():
-            st.markdown("##### ✍️ 方式二：手動輸入 (選填)")
-            manual_text = st.text_area(
-                "在此輸入題目文字、補充條件，或修改圖片中的數字",
-                height=150,
-                placeholder="例如：\n1. 請將圖片中的質量 m 改為 2kg\n2. 圖片看不清楚的地方是..."
-            )
+        st.markdown("##### ✍️ 手動輸入 (選填)")
+        manual_text = st.text_area("補充條件或題目文字", height=100, placeholder="例如：請把數字 5 改成 10...")
+        instruction = st.text_input("🤖 AI 指令", placeholder="例如：請做成克漏字...")
 
-        st.divider()
-
-        # --- 區塊 C: 指令 ---
-        instruction = st.text_input("🤖 AI 指令", placeholder="例如：請做成克漏字、請用蘇格拉底引導法...")
-
-        # --- 生成按鈕 ---
         if st.button("🚀 開始生成講義", type="primary"):
             if not image and not manual_text:
-                st.warning("⚠️ 請至少提供「圖片」或「文字」其中一項！")
+                st.warning("請提供圖片或文字！")
             else:
                 result = ai_generate_content(image, manual_text, instruction)
                 st.session_state['generated_text'] = result
@@ -157,13 +168,7 @@ def main():
         st.subheader("2. 編輯與輸出")
         
         if 'generated_text' in st.session_state:
-            # 編輯區
-            final_text = st.text_area(
-                "內容修訂 (支援 Markdown & LaTeX)", 
-                value=st.session_state['generated_text'], 
-                height=600
-            )
-            
+            final_text = st.text_area("內容修訂", value=st.session_state['generated_text'], height=600)
             pdf_title = st.text_input("講義標題", value="課程講義")
             
             col_b1, col_b2 = st.columns(2)
@@ -171,14 +176,12 @@ def main():
                 if st.button("💾 存入資料庫"):
                     if save_to_google_sheets(pdf_title, final_text, image):
                         st.success("✅ 存檔成功！")
-            
             with col_b2:
                 st.info("👇 預覽與下載在下方")
 
             st.divider()
 
-            # --- PDF 生成與預覽 ---
-            # 處理圖片 (如果有的話)
+            # PDF 生成
             img_html = ""
             if image:
                 img_b64 = get_image_base64(image)
@@ -211,29 +214,20 @@ def main():
                     {img_html}
                     <div class="content">{html_content}</div>
                 </div>
-                
                 <script>
                     function generatePDF() {{
                         const element = document.getElementById('element-to-print');
                         const opt = {{
-                            margin: 15,
-                            filename: '{pdf_title}.pdf',
+                            margin: 15, filename: '{pdf_title}.pdf',
                             image: {{ type: 'jpeg', quality: 0.98 }},
                             html2canvas: {{ scale: 2, useCORS: true }},
                             jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                         }};
-                        // 延遲 800ms 等待 MathJax 渲染
-                        setTimeout(() => {{
-                            html2pdf().set(opt).from(element).save();
-                        }}, 800);
+                        setTimeout(() => {{ html2pdf().set(opt).from(element).save(); }}, 800);
                     }}
                 </script>
-                
                 <div style="text-align: center; margin-top: 15px;">
-                    <button onclick="generatePDF()" style="
-                        background: linear-gradient(to right, #4f46e5, #6366f1); 
-                        color: white; border: none; padding: 12px 25px; 
-                        border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    <button onclick="generatePDF()" style="background: #4f46e5; color: white; border: none; padding: 12px 25px; border-radius: 8px; cursor: pointer; font-weight: bold;">
                         📥 下載 PDF
                     </button>
                 </div>
