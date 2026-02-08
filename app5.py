@@ -22,7 +22,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -30,32 +29,58 @@ def inject_custom_css():
 
             /* --- 1. 定義變數系統 (Light Mode 預設) --- */
             :root {
-                --bg-main: #f8fafc;
-                --bg-card: #ffffff;
-                --text-primary: #1e293b;
-                --text-secondary: #64748b;
-                --border-color: #e2e8f0;
-                --shadow-color: rgba(0, 0, 0, 0.08);
+                --bg-main: #f8fafc;       /* 極淺灰藍 */
+                --bg-card: #ffffff;       /* 純白卡片 */
+                --text-main: #1e293b;     /* 深灰主字 */
+                --text-sub: #64748b;      /* 淺灰副字 */
+                --border-color: #e2e8f0;  /* 淺灰邊框 */
+                --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+                
+                /* 功能色 (使用 RGBA 以便在深色模式下通透) */
+                --accent-blue-bg: rgba(59, 130, 246, 0.1);
+                --accent-blue-text: #2563eb;
+                --accent-green-bg: rgba(34, 197, 94, 0.1);
+                --accent-green-text: #166534;
+                --accent-orange-bg: rgba(249, 115, 22, 0.1);
+                --accent-orange-text: #c2410c;
+                
+                /* 漸層 */
                 --hero-gradient: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-                --card-border: 1px solid #f1f5f9;
+                --logic-gradient: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
             }
 
             /* --- 2. 深色模式覆寫 (Dark Mode Overrides) --- */
             @media (prefers-color-scheme: dark) {
                 :root {
-                    --bg-main: #0f172a;       /* 深藍灰背景 */
-                    --bg-card: #1e293b;       /* 卡片深色背景 */
-                    --text-primary: #f1f5f9;  /* 亮白文字 */
-                    --text-secondary: #94a3b8;/* 灰白副標 */
-                    --border-color: #334155;  /* 深灰邊框 */
-                    --shadow-color: rgba(0, 0, 0, 0.3); /* 深色陰影 */
-                    --hero-gradient: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%); /* 亮藍紫漸層 */
-                    --card-border: 1px solid #334155;
+                    --bg-main: #0f172a;       /* 質感深藍灰 (Slate-900) */
+                    --bg-card: #1e293b;       /* 卡片深色 (Slate-800) */
+                    --text-main: #f1f5f9;     /* 亮白文字 */
+                    --text-sub: #94a3b8;      /* 灰白副字 */
+                    --border-color: #334155;  /* 深色邊框 */
+                    --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+                    
+                    /* 功能色 (深色模式下，背景稍微亮一點，文字變亮) */
+                    --accent-blue-bg: rgba(59, 130, 246, 0.15);
+                    --accent-blue-text: #60a5fa;
+                    --accent-green-bg: rgba(34, 197, 94, 0.15);
+                    --accent-green-text: #4ade80;
+                    --accent-orange-bg: rgba(249, 115, 22, 0.15);
+                    --accent-orange-text: #fb923c;
+                    
+                    /* 漸層 (調整為更亮的色調以適應黑底) */
+                    --hero-gradient: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
                 }
+                
                 /* 強制修正 Streamlit 原生組件 */
                 .stApp { background-color: var(--bg-main) !important; }
-                .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-                    color: var(--text-primary) !important;
+                .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
+                    color: var(--text-main) !important;
+                }
+                /* 輸入框優化 */
+                .stTextInput input, .stSelectbox div[data-baseweb="select"] {
+                    background-color: var(--bg-card) !important;
+                    color: var(--text-main) !important;
+                    border-color: var(--border-color) !important;
                 }
             }
 
@@ -63,7 +88,6 @@ def inject_custom_css():
             .stApp {
                 font-family: 'Inter', 'Noto Sans TC', sans-serif;
                 background-color: var(--bg-main);
-                transition: background-color 0.3s ease;
             }
 
             /* 標題 Hero Word */
@@ -82,8 +106,8 @@ def inject_custom_css():
                 background-color: var(--bg-card);
                 border-radius: 16px;
                 padding: 20px;
-                box-shadow: 0 4px 6px -1px var(--shadow-color); 
-                border: var(--card-border);
+                box-shadow: var(--shadow); 
+                border: 1px solid var(--border-color);
             }
 
             /* 按鈕優化 */
@@ -91,8 +115,8 @@ def inject_custom_css():
                 border: none !important;
                 border-radius: 12px !important;
                 background-color: var(--bg-card) !important;
-                color: var(--text-primary) !important;
-                box-shadow: 0 2px 5px var(--shadow-color) !important;
+                color: var(--text-main) !important;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
                 border: 1px solid var(--border-color) !important;
                 transition: all 0.2s ease !important;
             }
@@ -111,13 +135,17 @@ def inject_custom_css():
             /* Expander (搜尋結果) */
             .streamlit-expanderHeader {
                 background-color: var(--bg-card) !important;
-                color: var(--text-primary) !important;
+                color: var(--text-main) !important;
                 border-radius: 10px !important;
+                border: 1px solid var(--border-color);
             }
             .streamlit-expanderContent {
                 background-color: var(--bg-card) !important;
-                color: var(--text-primary) !important;
-                border-top: 1px solid var(--border-color);
+                color: var(--text-main) !important;
+                border-top: none;
+                border-left: 1px solid var(--border-color);
+                border-right: 1px solid var(--border-color);
+                border-bottom: 1px solid var(--border-color);
             }
         </style>
     """, unsafe_allow_html=True)
@@ -373,10 +401,10 @@ def show_encyclopedia_card(row, show_report=True):
     with col_audio:
         speak(r_word, f"card_{r_word}")
 
-    # 2. 邏輯拆解區 (漸層背景本身就適合深淺模式，只需調整文字顏色)
+    # 2. 邏輯拆解區 (使用漸層變數)
     st.markdown(f"""
         <div style="
-            background: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
+            background: var(--logic-gradient);
             padding: 25px;
             border-radius: 16px;
             color: white;
@@ -390,33 +418,29 @@ def show_encyclopedia_card(row, show_report=True):
         </div>
     """, unsafe_allow_html=True)
 
-    # 3. 定義與原理 (關鍵修改：使用 RGBA 半透明背景)
-    # 淺藍背景改為 rgba(59, 130, 246, 0.1)
-    # 淺綠背景改為 rgba(34, 197, 94, 0.1)
-    # 文字顏色改為 var(--text-primary) 以自動適應
-    
+    # 3. 定義與原理 (使用 CSS 變數自動切換深淺色)
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"""
-            <div style="background: rgba(59, 130, 246, 0.1); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
-                <h4 style="color: #3b82f6; margin: 0 0 10px 0;">🎯 定義與解釋</h4>
-                <p style="color: var(--text-primary); line-height: 1.6;">{fix_content(row.get('definition', ''))}</p>
+            <div style="background: var(--accent-blue-bg); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
+                <h4 style="color: var(--accent-blue-text); margin: 0 0 10px 0;">🎯 定義與解釋</h4>
+                <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('definition', ''))}</p>
             </div>
         """, unsafe_allow_html=True)
     
     with c2:
         st.markdown(f"""
-            <div style="background: rgba(34, 197, 94, 0.1); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
-                <h4 style="color: #22c55e; margin: 0 0 10px 0;">💡 核心原理</h4>
-                <p style="color: var(--text-primary); line-height: 1.6;">{fix_content(row.get('roots', ''))}</p>
+            <div style="background: var(--accent-green-bg); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
+                <h4 style="color: var(--accent-green-text); margin: 0 0 10px 0;">💡 核心原理</h4>
+                <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('roots', ''))}</p>
             </div>
         """, unsafe_allow_html=True)
 
-    # 4. 專家視角 (使用 RGBA 橘色)
+    # 4. 專家視角
     if row.get('native_vibe'):
         st.markdown(f"""
-            <div style="margin-top: 20px; background: rgba(249, 115, 22, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(249, 115, 22, 0.3); color: var(--text-primary);">
-                <b style="color: #f97316;">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
+            <div style="margin-top: 20px; background: var(--accent-orange-bg); padding: 15px; border-radius: 10px; border: 1px solid rgba(249, 115, 22, 0.3); color: var(--text-main);">
+                <b style="color: var(--accent-orange-text);">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
             </div>
         """, unsafe_allow_html=True)
 
