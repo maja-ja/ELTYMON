@@ -122,5 +122,89 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     </body>
     </html>
     """
+def main():
+    st.title("🎓 AI 名師講義編輯器 (列印優化版)")
+    
+    # 初始化 Session State
+    if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
+    if 'generated_text' not in st.session_state: st.session_state.generated_text = ""
 
+    # 範例文字 (供尚未呼叫 AI 時預覽)
+    EXAMPLE_CONTENT = """
+### 💡 這裡將會顯示 AI 生成的解析
+
+這是預覽模式。請先在左側完成以下動作：
+1. **上傳圖片** 並調整到正確的方向與大小。
+2. 在下方輸入 **手打補充資訊** (選填)。
+3. 按下 **「🚀 呼叫 AI 生成內容」**。
+
+**[列印優化說明]**：
+- 本系統自動支援 **LaTeX 數學公式** 渲染，如：$f(x) = \int_a^b g(t) dt$
+- 下載後的 PDF 將自動符合 **A4 紙張格式**。
+"""
+
+    col_ctrl, col_prev = st.columns([1, 1.2], gap="large")
+
+    # --- 左側：控制區 ---
+    with col_ctrl:
+        st.subheader("1. 素材準備")
+        uploaded_file = st.file_uploader("上傳題目圖片 (支援手機拍照)", type=["jpg", "png", "jpeg"])
+        
+        image = None
+        img_width = 80 # 預設寬度
+        
+        if uploaded_file:
+            # 讀取與修正
+            img_obj = Image.open(uploaded_file)
+            image = fix_image_orientation(img_obj)
+            
+            # 手動旋轉邏輯
+            if st.session_state.rotate_angle != 0:
+                image = image.rotate(-st.session_state.rotate_angle, expand=True)
+
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                if st.button("🔄 旋轉 90°"):
+                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
+                    st.rerun()
+            with c2:
+                img_width = st.slider("圖片在 A4 紙上的寬度 (%)", 10, 100, 80)
+            
+            st.image(image, caption="當前圖片設定", use_container_width=True)
+
+        st.divider()
+        st.subheader("2. 文字補充與指令")
+        manual_input = st.text_area("手打輸入 (補強圖片看不清的地方)", height=100, placeholder="例如：這題的重力加速度請以 10 計算...")
+        ai_instr = st.text_input("給 AI 的特別要求", placeholder="例如：請針對解題步驟進行詳細說明")
+
+        if st.button("🚀 呼叫 AI 生成內容", type="primary"):
+            if not image and not manual_input:
+                st.warning("請至少提供圖片或手打文字！")
+            else:
+                result = ai_generate_content(image, manual_input, ai_instr)
+                st.session_state.generated_text = result
+                st.rerun()
+
+    # --- 右側：預覽與 PDF 下載 ---
+    with col_prev:
+        st.subheader("3. 講義預覽與列印")
+        
+        # 取得當前內容
+        content_to_show = st.session_state.generated_text if st.session_state.generated_text else EXAMPLE_CONTENT
+        
+        # 讓老師進行最後微調
+        edited_content = st.text_area("📝 直接修改講義內容", value=content_to_show, height=250)
+        
+        handout_title = st.text_input("講義標題", value="精選試題解析")
+
+        # 生成最終 HTML
+        img_b64 = get_image_base64(image) if image else ""
+        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+
+        # 渲染 A4 預覽視窗
+        st.info("💡 下方視窗模擬 A4 紙張大小，滿意後請點擊視窗內的「生成 PDF」按鈕。")
+        components.html(final_html, height=850, scrolling=True)
+
+if __name__ == "__main__":
+    main()
 # ... (main 函數邏輯保持不變)
