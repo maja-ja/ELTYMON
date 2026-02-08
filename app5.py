@@ -771,6 +771,27 @@ def page_admin_center():
                 mime="application/json",
                 use_container_width=True
             )
+def register_user(username, password):
+    """處理用戶註冊邏輯"""
+    users = load_sheet("users")
+    if not users.empty and username in users['username'].values:
+        return False, "帳號已存在，請更換一個。"
+    
+    new_user = pd.DataFrame([{
+        "username": username,
+        "password": hash_password(password),
+        "role": "student",
+        "membership": "free",
+        "ai_usage": 0,
+        "created_at": time.strftime("%Y-%m-%d")
+    }])
+    
+    # 合併並寫入
+    updated_users = pd.concat([users, new_user], ignore_index=True)
+    if update_sheet(updated_users, "users"):
+        return True, "註冊成功！請切換至登入分頁。"
+    else:
+        return False, "資料庫寫入失敗，請稍後再試。"
 # ==========================================
 # 6. 主程式入口 (旗艦級：智慧導航與全域路由)
 # ==========================================
@@ -790,8 +811,20 @@ def main():
         })
 
     # 3. 側邊欄：旗艦級導航系統
+    # --- 3. 側邊欄：旗艦級導航系統 (修改版) ---
     with st.sidebar:
-        # --- 品牌標誌區 ---
+        # [新增功能] 手機排版切換 (注入 CSS 強制調整)
+        is_mobile = st.toggle("📱 開啟手機極速版", value=False, help="放大按鈕與文字，優化觸控體驗")
+        if is_mobile:
+            st.markdown("""
+                <style>
+                    .stButton button { height: 3.8rem !important; font-size: 1.2rem !important; }
+                    .hero-word { font-size: 2rem !important; text-align: center; }
+                    p, li, .stMarkdown { font-size: 1.1rem !important; line-height: 1.6 !important; }
+                </style>
+            """, unsafe_allow_html=True)
+
+        # 品牌標誌區
         st.markdown("""
             <div style="padding: 10px 0 20px 0;">
                 <h1 style="font-size: 1.8rem; font-weight: 900; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">⚡ Kadowsella</h1>
@@ -799,78 +832,86 @@ def main():
             </div>
         """, unsafe_allow_html=True)
         
-        # --- 用戶狀態與登入卡片 ---
+        # [修改功能] 登入與註冊雙分頁
         if not st.session_state.logged_in:
-            with st.container(border=True):
-                st.markdown("🔑 **會員登入**")
-                u = st.text_input("帳號", placeholder="Username", label_visibility="collapsed")
-                p = st.text_input("密碼", type="password", placeholder="Password", label_visibility="collapsed")
+            tab_login, tab_reg = st.tabs(["🔑 登入", "📝 註冊"])
+            
+            with tab_login:
+                u = st.text_input("帳號", key="login_u", placeholder="Username")
+                p = st.text_input("密碼", type="password", key="login_p", placeholder="Password")
                 if st.button("身分驗證", use_container_width=True, type="primary"):
-                    with st.spinner("正在連線戰情室..."):
+                    with st.spinner("驗證中..."):
                         users = load_sheet("users")
                         if not users.empty:
-                            # 驗證帳號密碼 (使用 Section 2 的 hash_password)
                             user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
                             if not user.empty:
                                 st.session_state.update({
-                                    'logged_in': True,
-                                    'username': u,
-                                    'role': user.iloc[0]['role']
+                                    'logged_in': True, 'username': u, 'role': user.iloc[0]['role']
                                 })
-                                st.toast(f"歡迎回來, {u}!", icon="👋")
-                                time.sleep(0.5)
                                 st.rerun()
                             else:
                                 st.error("帳號或密碼錯誤")
                         else:
                             st.error("資料庫連線異常")
-                st.caption("訪客模式僅開放基礎搜尋功能")
+
+            with tab_reg:
+                new_u = st.text_input("設定帳號", key="reg_u")
+                new_p = st.text_input("設定密碼", type="password", key="reg_p")
+                if st.button("建立新帳號", use_container_width=True):
+                    if new_u and new_p:
+                        success, msg = register_user(new_u, new_p)
+                        if success: st.success(msg)
+                        else: st.error(msg)
+                    else:
+                        st.warning("請輸入完整資訊")
         else:
-            # 已登入：顯示高級會員卡片
+            # 已登入狀態
             st.markdown(f"""
                 <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%); padding: 15px; border-radius: 15px; border: 1px solid rgba(99, 102, 241, 0.2); margin-bottom: 10px;">
                     <div style="font-size: 0.7rem; color: #6366f1; font-weight: 800; text-transform: uppercase;">Current User</div>
                     <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">{st.session_state.username}</div>
-                    <div style="font-size: 0.75rem; color: #64748b;">身分：{st.session_state.role.upper()} MEMBER</div>
+                    <div style="font-size: 0.75rem; color: #64748b;">身分：{st.session_state.role.upper()}</div>
                 </div>
             """, unsafe_allow_html=True)
-            if st.button("安全登出系統", use_container_width=True):
+            if st.button("安全登出", use_container_width=True):
                 st.session_state.update({'logged_in': False, 'username': "訪客", 'role': "guest"})
                 st.rerun()
         
         st.write("")
         
-        # --- 智慧導航選單 (權限分級) ---
+        # 導航選單 (保持原樣，加入管理員選項)
         st.markdown("---")
-        nav_items = {
-            "🏠 戰情首頁": "home",
-            "🔍 知識庫搜尋": "search",
-            "🧠 記憶挑戰": "quiz"
-        }
-        
-        # 根據登入狀態解鎖功能
-        # 在 main() 函式的導航選單部分修改：
+        nav_items = {"🏠 戰情首頁": "home", "🔍 知識庫搜尋": "search", "🧠 記憶挑戰": "quiz"}
         if st.session_state.logged_in:
-            nav_items.update({
-                "🔬 AI 解碼實驗室": "ai_lab",
-                "📄 Pro 講義生成": "pdf_gen"
-            })
-            # 如果是管理員，解鎖上帝模式
+            nav_items.update({"🔬 AI 解碼實驗室": "ai_lab", "📄 Pro 講義生成": "pdf_gen"})
             if st.session_state.role == "admin":
-                nav_items.update({
-                    "👑 管理員中心": "admin_center"
-                })
+                nav_items.update({"👑 管理員中心": "admin_center"})
         else:
-            nav_items.update({
-                "🔒 AI 解碼 (Pro)": "locked",
-                "🔒 講義生成 (Pro)": "locked"
-            })
+            nav_items.update({"🔒 AI 解碼 (Pro)": "locked", "🔒 講義生成 (Pro)": "locked"})
             
         choice = st.radio("NAVIGATION", list(nav_items.keys()), label_visibility="collapsed")
         
         st.divider()
-        st.sidebar.caption(f"v3.0 Ultimate Edition | {datetime.now().strftime('%Y-%m-%d')}")
 
+        # [新增功能] 贊助區塊
+        st.markdown("### 💖 支持開發者")
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            if st.button("☕ 咖啡", use_container_width=True):
+                st.toast("感謝您的心意！(功能串接中)", icon="☕")
+        with col_s2:
+            if st.button("🍱 米糕", use_container_width=True):
+                st.toast("工程師充滿了能量！", icon="💪")
+
+        # [新增功能] 免責聲明 (Expander)
+        with st.expander("⚖️ 免責聲明與條款"):
+            st.caption("""
+            1. 本平台內容由 AI 輔助生成，僅供學習參考。
+            2. 密碼經 SHA-256 加密，請勿使用真實姓名。
+            3. Pro 會員權益解釋權歸 Kadowsella 所有。
+            """)
+            
+        st.sidebar.caption(f"v3.1 Ultimate | {datetime.now().strftime('%Y-%m-%d')}")
     # 4. 載入核心資料庫 (從 Section 2 的 load_sheet)
     df = load_sheet("vocabulary")
 
@@ -964,10 +1005,12 @@ def main():
             st.balloons()
             st.info("請聯繫管理員或加入 Discord 社群獲取邀請碼！")
     elif choice == "👑 管理員中心":
-    if st.session_state.role == "admin":
-        page_admin_center()
-    else:
-        st.error("權限不足")
+        if st.session_state.role == "admin":
+            # 呼叫 Section 7 定義的函式
+            page_admin_center()
+        else:
+            st.error("⛔ 權限不足：此區域僅限管理員進入")
+
 
 
 # --- 執行入口 ---
