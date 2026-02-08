@@ -16,19 +16,31 @@ import streamlit.components.v1 as components
 def get_screen_width_js():
     """
     執行 JavaScript 以獲取客戶端螢幕寬度，並將其傳回 Python。
-    使用 @st.cache_data 確保此組件只在 Session 開始時執行一次。
+    這個函式現在只負責渲染 JS 組件，不直接回傳寬度值。
     """
     js_code = """
     <script>
     (function() {
-        // 發送螢幕寬度給 Streamlit
-        Streamlit.setComponentValue(window.innerWidth);
+        // 確保 Streamlit 已經載入
+        if (window.Streamlit) {
+            // 發送螢幕寬度給 Streamlit
+            Streamlit.setComponentValue(window.innerWidth);
+        } else {
+            // 如果 Streamlit 還沒載入，等待它
+            document.addEventListener('DOMContentLoaded', function() {
+                if (window.Streamlit) {
+                    Streamlit.setComponentValue(window.innerWidth);
+                }
+            });
+        }
     })();
     </script>
     """
     # 渲染一個高度為0的組件來執行JS
-    width_component = components.html(js_code, height=0)
-    return width_component
+    # [核心修改] 這裡的回傳值是一個 DeltaGenerator，我們不應該直接使用它
+    components.html(js_code, height=0, width=0)
+    # 這個函式現在不回傳任何東西，或者回傳 None
+    return None
 # ==========================================
 # 1. 核心配置與視覺美化 (最高規格 CSS)
 # ==========================================
