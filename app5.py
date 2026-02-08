@@ -12,35 +12,89 @@ from gtts import gTTS
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-
 def get_screen_width_js():
     """
-    執行 JavaScript 以獲取客戶端螢幕寬度，並將其傳回 Python。
-    這個函式現在只負責渲染 JS 組件，不直接回傳寬度值。
+    修正說明：
+    Streamlit 的 components.html 是單向渲染 iframe，無法直接透過 setComponentValue 回傳數值
+    給單一檔案的 Python 腳本 (這需要編寫完整的 Custom Component)。
+    
+    為了避免無效的 JS 執行與誤導，建議依靠 CSS 的 @media 查詢來處理響應式佈局。
+    此函式保留結構但回傳 None，避免程式報錯。
     """
-    js_code = """
-    <script>
-    (function() {
-        // 確保 Streamlit 已經載入
-        if (window.Streamlit) {
-            // 發送螢幕寬度給 Streamlit
-            Streamlit.setComponentValue(window.innerWidth);
-        } else {
-            // 如果 Streamlit 還沒載入，等待它
-            document.addEventListener('DOMContentLoaded', function() {
-                if (window.Streamlit) {
-                    Streamlit.setComponentValue(window.innerWidth);
-                }
-            });
-        }
-    })();
-    </script>
-    """
-    # 渲染一個高度為0的組件來執行JS
-    # [核心修改] 這裡的回傳值是一個 DeltaGenerator，我們不應該直接使用它
-    components.html(js_code, height=0, width=0)
-    # 這個函式現在不回傳任何東西，或者回傳 None
     return None
+
+@st.cache_data(show_spinner="正在同步雲端數據...", ttl=300)
+def load_sheet(worksheet_name):
+    """
+    修正說明：
+    1. 針對 vocabulary 分頁，強制檢查並初始化 'term' (報錯狀態) 欄位。
+    2. 確保數值欄位格式正確，防止後台篩選時發生型別錯誤。
+    """
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        df = conn.read(spreadsheet=url, worksheet=worksheet_name, ttl=0)
+        
+        if df.empty:
+            return pd.DataFrame()
+            
+        # 針對 vocabulary 分頁進行標準化處理
+        if worksheet_name == "vocabulary":
+            # 確保必要文字欄位存在
+            required_cols = ['word', 'definition', 'category', 'roots', 'breakdown']
+            for col in required_cols:
+                if col not in df.columns:
+                    df[col] = "無"
+            
+            # [新增] 確保 'term' 欄位存在 (0=正常, 1=報錯)
+            if 'term' not in df.columns:
+                df['term'] = 0
+            
+            # 強制將 term 轉為整數，處理空值或字串殘留
+            df['term'] = pd.to_numeric(df['term'], errors='coerce').fillna(0).astype(int)
+                    
+        return df.fillna("無")
+    except Exception as e:
+        st.error(f"📡 雲端連線失敗: {e}")
+        return pd.DataFrame()
+
+def submit_report(row_data):
+    """
+    [新增函式] 處理單字報錯邏輯
+    功能：接收單字資料，在資料庫中將該單字的 'term' 欄位設為 1 (標記為錯誤)。
+    """
+    target_word = row_data.get('word')
+    if not target_word:
+        st.error("無法識別單字，回報失敗。")
+        return
+
+    with st.spinner(f"正在提交「{target_word}」的修復回報..."):
+        try:
+            # 1. 讀取最新資料 (不使用快取，確保準確)
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            df = conn.read(spreadsheet=url, worksheet="vocabulary", ttl=0)
+
+            # 2. 確保 term 欄位存在
+            if 'term' not in df.columns:
+                df['term'] = 0
+
+            # 3. 尋找目標單字並標記
+            # 使用 str.lower() 進行不分大小寫比對
+            mask = df['word'].astype(str).str.lower() == str(target_word).lower()
+            
+            if mask.any():
+                df.loc[mask, 'term'] = 1  # 設定錯誤旗標
+                conn.update(spreadsheet=url, worksheet="vocabulary", data=df)
+                st.cache_data.clear() # 清除快取以反映變更
+                st.toast(f"✅ 已成功回報：{target_word}，我們會盡快修復！", icon="🚩")
+            else:
+                st.warning("資料庫中找不到此單字，可能已被刪除。")
+                
+        except Exception as e:
+            st.error(f"回報過程發生錯誤: {str(e)}")
+
+
 # ==========================================
 # 1. 核心配置與視覺美化 (最高規格 CSS)
 # ==========================================
