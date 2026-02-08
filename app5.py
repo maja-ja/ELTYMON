@@ -930,34 +930,58 @@ def main():
     
     elif choice == "🔍 知識庫搜尋":
         st.title("🔍 知識庫搜尋")
-        st.markdown("搜尋資料庫中已存在的 4500+ 學測邏輯單字。")
+        st.markdown("您可以透過關鍵字搜尋，或直接從特定主題/公式進行篩選。")
         
-        col_q, col_cat = st.columns([3, 1])
+        # 1. 搜尋工具列 (將 "分類過濾" 改為 "主題/公式過濾")
+        col_q, col_cat = st.columns([2, 2])
         with col_q:
             q = st.text_input("輸入關鍵字搜尋...", placeholder="例如：meticulous, 物理, 函數...", label_visibility="collapsed")
-        with col_cat:
-            all_cats = ["全部"] + sorted(df['category'].unique().tolist())
-            sel_cat = st.selectbox("分類過濾", all_cats, label_visibility="collapsed")
         
-        # 執行過濾邏輯
-        filtered_df = df
+        with col_cat:
+            # --- [核心修改] ---
+            # a. 篩選出 'roots' 欄位有內容的資料
+            roots_df = df[df['roots'].notna() & (df['roots'] != '無')]
+            
+            # b. 從篩選後的 DataFrame 中獲取唯一的 'roots' 值作為選項
+            all_roots = ["所有主題"] + sorted(roots_df['roots'].unique().tolist())
+            
+            # c. 建立 selectbox
+            sel_root = st.selectbox("從主題/公式篩選", all_roots, label_visibility="collapsed")
+
+        # --- [新增功能] 顯示選中的 LaTeX 渲染結果 ---
+        if sel_root != "所有主題":
+            try:
+                # 嘗試渲染選中的 LaTeX 公式
+                st.latex(sel_root)
+            except:
+                # 如果不是標準 LaTeX 格式 (例如純文字的字根)，就正常顯示
+                st.info(f"當前主題：**{sel_root}**")
+        
+        # 2. 執行過濾邏輯
+        filtered_df = df.copy()
+
+        # a. 關鍵字過濾 (保持不變)
         if q:
             # 支援單字與定義的模糊搜尋
             filtered_df = filtered_df[filtered_df['word'].str.contains(q, case=False) | 
                                       filtered_df['definition'].str.contains(q, case=False)]
-        if sel_cat != "全部":
-            filtered_df = filtered_df[filtered_df['category'] == sel_cat]
+        
+        # b. 主題/公式過濾 (新邏輯)
+        if sel_root != "所有主題":
+            # 篩選出 'roots' 欄位完全等於選中項的資料
+            filtered_df = filtered_df[filtered_df['roots'] == sel_root]
             
+        # 3. 結果呈現 (保持不變)
         if not filtered_df.empty:
-            st.write(f"💡 找到 {len(filtered_df)} 筆相關結果：")
+            st.write(f"--- \n 💡 找到 {len(filtered_df)} 筆相關結果：")
             # 使用 iterrows 取得 index (idx)
             for idx, r in filtered_df.iterrows():
                 with st.expander(f"✨ {r['word']} - {r['definition'][:40]}..."):
-                    # 關鍵修改：傳入 key_suffix=f"search_{idx}"
-                    # 這樣每個搜尋結果的按鈕 ID 都會包含它的索引值，絕對不會重複
                     show_encyclopedia_card(r, key_suffix=f"search_{idx}") 
         else:
-            st.warning("找不到匹配的內容。")
+            # 如果是篩選狀態下沒結果，給予更精準的提示
+            if sel_root != "所有主題" or q:
+                st.warning("在當前篩選條件下，找不到匹配的內容。")
 
     elif choice == "🧠 記憶挑戰":
         st.title("🧠 記憶挑戰")
