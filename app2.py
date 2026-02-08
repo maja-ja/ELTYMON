@@ -178,12 +178,43 @@ def ai_generate_social_post(concept_data):
 # 4. UI 與 PDF 組件
 # ==========================================
 def inject_css():
-    st.markdown("""<style>
-        .card { border-radius: 15px; padding: 20px; background: var(--secondary-background-color); border-left: 8px solid #6366f1; margin-bottom: 20px; }
+    st.markdown("""
+    <style>
+        /* 基礎卡片樣式 */
+        .card { 
+            border-radius: 15px; 
+            padding: 20px; 
+            background: var(--secondary-background-color); 
+            border-left: 8px solid #6366f1; 
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
         .tag { background: #6366f1; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; }
-        .quota-box { padding: 15px; border-radius: 10px; border: 1px solid #6366f1; text-align: center; }
-    </style>""", unsafe_allow_html=True)
-
+        
+        /* 手機版專屬優化 */
+        @media (max-width: 768px) {
+            .card { padding: 15px; border-left-width: 5px; }
+            h2 { font-size: 1.4rem !important; }
+            .stButton button { 
+                width: 100% !important; 
+                height: 3.5rem; /* 讓按鈕更好按 */
+                font-size: 1.1rem !important;
+                margin-bottom: 10px;
+            }
+            /* 讓 Metric 在手機上不要太擠 */
+            [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
+        }
+        
+        /* 能量條美化 */
+        .quota-box { 
+            padding: 15px; 
+            border-radius: 10px; 
+            border: 1px solid #6366f1; 
+            text-align: center;
+            background: rgba(99, 102, 241, 0.1);
+        }
+    </style>
+    """, unsafe_allow_html=True)
 def show_concept(row):
     contrib = row.get('contributor', '')
     st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="float:right;color:gray;">{contrib}</span>
@@ -200,19 +231,18 @@ import streamlit as st
 import streamlit.components.v1 as components
 import json
 import time
-
 def show_pro_paper_with_download(title, content):
     js_title = json.dumps(title, ensure_ascii=False)
     js_content = json.dumps(content, ensure_ascii=False)
     div_id = f"paper_{int(time.time())}"
     
     html_code = f"""
-    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:20px; border-radius:15px; border:1px solid #333; color:white; font-family:sans-serif;">
-        <!-- 預覽區：設定固定高度與捲動，防止撐破 Streamlit -->
-        <div id="{div_id}_content" style="height:400px; overflow-y:auto; margin-bottom:20px; padding:15px; background:#2d2d2d; border-radius:10px; line-height:1.6; border:1px solid #444;">
+    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:15px; border-radius:15px; border:1px solid #333; color:white; font-family:sans-serif;">
+        <div style="margin-bottom:10px; font-weight:bold; color:#a855f7;">📄 講義預覽 (可捲動)</div>
+        <div id="{div_id}_content" style="height:350px; overflow-y:auto; margin-bottom:15px; padding:15px; background:#2d2d2d; border-radius:10px; line-height:1.6; border:1px solid #444; font-size:14px;">
             載入內容中...
         </div>
-        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px; transition: 0.3s;">
+        <button id="{div_id}_btn" style="width:100%; padding:18px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:12px; cursor:pointer; font-weight:bold; font-size:16px;">
             📥 下載完整講義 (PDF)
         </button>
     </div>
@@ -229,7 +259,6 @@ def show_pro_paper_with_download(title, content):
             const title = {js_title};
             const display = document.getElementById("{div_id}_content");
             
-            // 渲染預覽
             display.innerHTML = marked.parse(content);
             renderMathInElement(display, {{ 
                 delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
@@ -237,67 +266,37 @@ def show_pro_paper_with_download(title, content):
 
             document.getElementById("{div_id}_btn").onclick = async function() {{
                 const btn = this;
-                btn.innerHTML = "⏳ 正在處理長文件...";
-                btn.style.opacity = "0.7";
+                const originalText = btn.innerHTML;
+                btn.innerHTML = "⏳ 正在生成 PDF...";
                 btn.disabled = true;
 
-                // 創建一個「隱形但巨大」的容器來裝載所有內容
                 const printContainer = document.createElement('div');
-                printContainer.style.cssText = "position:absolute; left:-9999px; top:0; width:800px; background:white; color:black; padding:40px;";
-                
+                printContainer.style.cssText = "position:absolute; left:-9999px; width:750px; background:white; color:black; padding:40px;";
                 printContainer.innerHTML = `
-                    <div style="font-family: 'Microsoft JhengHei', sans-serif;">
-                        <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
-                            <h1 style="margin:0; color:#1e3a8a;">⚡ 116 級數位戰情室</h1>
-                            <p style="color:#666;">主題：${{title}}</p>
-                        </div>
-                        <div style="font-size:16px; line-height:1.8;">
-                            ${{marked.parse(content)}}
-                        </div>
+                    <div style="font-family: sans-serif;">
+                        <h1 style="color:#1e3a8a; border-bottom:2px solid #6366f1;">${{title}}</h1>
+                        <div style="font-size:16px;">${{marked.parse(content)}}</div>
                     </div>
                 `;
                 document.body.appendChild(printContainer);
+                renderMathInElement(printContainer, {{ delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] }});
 
-                // 渲染數學公式 (針對列印容器)
-                renderMathInElement(printContainer, {{ 
-                    delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
-                }});
-
-                // 等待圖片與字體
                 await document.fonts.ready;
-                await new Promise(r => setTimeout(r, 1000));
-
-                const opt = {{
-                    margin: 15,
+                html2pdf().set({{
+                    margin: 10,
                     filename: title + ".pdf",
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ 
-                        scale: 2, 
-                        useCORS: true, 
-                        logging: false,
-                        scrollY: 0,
-                        windowWidth: 800 
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                }};
-
-                // 執行下載
-                html2pdf().set(opt).from(printContainer).save().then(() => {{
+                    html2canvas: {{ scale: 2 }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                }}).from(printContainer).save().then(() => {{
                     document.body.removeChild(printContainer);
-                    btn.innerHTML = "📥 下載成功！";
-                    btn.disabled = false;
-                    btn.style.opacity = "1";
-                }}).catch(err => {{
-                    btn.innerHTML = "❌ 下載失敗";
-                    btn.disabled = false;
+                    btn.innerHTML = "✅ 下載完成";
+                    setTimeout(() => {{ btn.innerHTML = originalText; btn.disabled = false; }}, 2000);
                 }});
             }};
         }})();
     </script>
     """
-    # 這裡的 height 只需要固定給 600 左右，因為內文會在裡面捲動
-    components.html(html_code, height=600)
+    components.html(html_code, height=520)
 # ==========================================
 # 5. 頁面邏輯 (登入/主程式)
 # ==========================================
