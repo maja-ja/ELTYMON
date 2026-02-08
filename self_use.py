@@ -7,44 +7,37 @@ from io import BytesIO
 import streamlit.components.v1 as components
 import time
 import markdown
+import re
 
 # ==========================================
 # 1. 核心設定
 # ==========================================
 st.set_page_config(page_title="AI 名師講義編輯器 Pro", layout="wide", page_icon="🎓")
 
-# 介面美化 CSS
 st.markdown("""
     <style>
         .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
         .stButton button { width: 100%; border-radius: 8px; font-weight: bold; height: 3em; }
-        .stSlider { padding-top: 20px; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 核心工具函式 (完整定義)
+# 2. 工具函式
 # ==========================================
 
 def fix_image_orientation(image):
-    """修正手機拍照方向標籤 (解決倒過來的問題)"""
-    try:
-        image = ImageOps.exif_transpose(image)
-    except Exception:
-        pass
+    try: image = ImageOps.exif_transpose(image)
+    except: pass
     return image
 
 def get_image_base64(image):
-    """將圖片轉為 Base64 供 HTML 渲染"""
     if image is None: return ""
     buffered = BytesIO()
-    # 確保轉成 RGB 模式避免 JPEG 儲存錯誤
     if image.mode in ("RGBA", "P"): image = image.convert("RGB")
     image.save(buffered, format="JPEG", quality=95)
     return base64.b64encode(buffered.getvalue()).decode()
 
 def ai_generate_content(image, manual_input, instruction):
-    """呼叫 AI API 並強制 LaTeX 格式"""
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return "❌ 錯誤：API Key 未設定"
     
@@ -52,32 +45,31 @@ def ai_generate_content(image, manual_input, instruction):
     model = genai.GenerativeModel('gemini-1.5-flash')
 
     prompt = """
-    你是一位專業的高中物理/數學名師。請撰寫講義內容。
-    【重要：LaTeX 公式規範】：
-    1. 行內公式使用 $...$ (例如 $E=mc^2$)。
-    2. 獨立區塊公式使用 $$...$$。
-    3. 必須使用標準 LaTeX 指令 (如 \\frac, \\lambda, \\propto, \\approx)。
-    4. 內容需包含：核心觀念、物理/數學推導、參考答案。
+    你是一位專業的高中教師。請根據資訊撰寫講義。
+    【重要：LaTeX 規範】
+    - 使用 $...$ 包夾行內公式，$I \\propto \\frac{1}{\\lambda^4}$
+    - 獨立公式使用 $$...$$
+    - 確保數學符號使用標準 LaTeX 指令。
     """
     parts = [prompt]
-    if manual_input: parts.append(f"【補充/手打內容】：{manual_input}")
-    if instruction: parts.append(f"【特別指令】：{instruction}")
+    if manual_input: parts.append(f"【補充內容】：{manual_input}")
+    if instruction: parts.append(f"【指令】：{instruction}")
     if image: parts.append(image)
 
     try:
-        with st.spinner("🤖 AI 正結合圖片與物理邏輯進行解析..."):
+        with st.spinner("🤖 AI 正在整理邏輯與數學排版..."):
             response = model.generate_content(parts)
             return response.text
     except Exception as e:
-        return f"AI 服務暫時無法使用：{str(e)}"
+        return f"AI 異常：{str(e)}"
 
 # ==========================================
-# 3. 專業級 PDF/HTML 模板 (修復 LaTeX 顯示)
+# 3. 專業級 PDF/HTML 模板 (防重疊優化版)
 # ==========================================
 def generate_printable_html(title, text_content, img_b64, img_width_percent):
-    # 預處理：修正 markdown 可能造成的轉義問題，並確保 LaTeX 反斜線正確
-    processed_content = text_content.replace('\\\\', '\\')
-    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
+    # 預防性清理：修正反斜線與轉義問題
+    clean_content = text_content.replace('\\\\', '\\')
+    html_body = markdown.markdown(clean_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
@@ -87,32 +79,43 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
         
-        <!-- MathJax 3 配置：解決 $ 定界符不顯示的問題 -->
+        <!-- 使用 SVG 模式，在 PDF 導出時最穩定 -->
         <script>
         window.MathJax = {{
           tex: {{
-            inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
-            displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+            inlineMath: [['$', '$']],
+            displayMath: [['$$', '$$']],
             processEscapes: true
           }},
-          options: {{
-            skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
-          }}
+          svg: {{ fontCache: 'global' }}
         }};
         </script>
-        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         
         <style>
             @page {{ size: A4; margin: 0; }}
-            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.7; padding: 20px; background: #f0f0f0; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.2); }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; font-size: 28px; }}
-            .meta {{ text-align: right; color: #555; font-size: 12px; margin-bottom: 20px; border-bottom: 1px solid #eee; }}
-            .img-wrapper {{ text-align: center; margin: 25px 0; }}
-            img {{ border: 1px solid #000; padding: 2px; }}
+            body {{ 
+                font-family: 'Noto Sans TC', sans-serif; 
+                line-height: 1.8; /* 增加行高防止重疊 */
+                padding: 20px; 
+                background: #f4f4f9; 
+            }}
+            #printable-area {{ 
+                background: white; width: 210mm; min-height: 297mm; 
+                margin: 0 auto; padding: 25mm; box-sizing: border-box; 
+            }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
+            .img-wrapper {{ text-align: center; margin: 30px 0; }}
+            
+            /* 【關鍵修復】給予公式足夠的垂直空間 */
+            mjx-container {{
+                margin: 5px 2px !important;
+                vertical-align: middle !important;
+                display: inline-block !important;
+            }}
             .content {{ font-size: 16px; text-align: justify; }}
-            h2, h3 {{ color: #1a237e; border-left: 5px solid #1a237e; padding-left: 10px; margin-top: 25px; }}
+            p {{ margin-bottom: 15px; word-break: break-word; }}
             
             #btn-container {{ text-align: center; padding: 20px; }}
             .download-btn {{ background: #1a237e; color: white; border: none; padding: 15px 40px; border-radius: 30px; font-size: 18px; font-weight: bold; cursor: pointer; }}
@@ -120,12 +123,12 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     </head>
     <body>
         <div id="btn-container">
-            <button class="download-btn" onclick="downloadPDF()">📥 生成 PDF (含數學公式)</button>
+            <button class="download-btn" onclick="downloadPDF()">📥 生成 PDF (修復排版重疊)</button>
         </div>
 
         <div id="printable-area">
             <h1>{title}</h1>
-            <div class="meta">日期：{date_str} | AI 自動備課系統</div>
+            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
         </div>
@@ -137,15 +140,16 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                     margin: 0,
                     filename: '{title}.pdf',
                     image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 3, useCORS: true }},
+                    html2canvas: {{ scale: 3, useCORS: true, logging: false }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
                 
-                // 確保 MathJax 渲染完畢後再生成
+                // 第一階段：呼叫 MathJax 渲染
                 MathJax.typesetPromise().then(() => {{
+                    // 第二階段：給予 1.5 秒緩衝讓瀏覽器完成 Reflow 排版
                     setTimeout(() => {{
                         html2pdf().set(opt).from(element).save();
-                    }}, 800);
+                    }}, 1500);
                 }});
             }}
         </script>
@@ -167,16 +171,14 @@ def main():
 
     with col_ctrl:
         st.subheader("1. 素材準備")
-        uploaded_file = st.file_uploader("上傳題目圖片 (支援手機拍照)", type=["jpg", "png", "jpeg"])
+        uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
         
         image = None
         img_width = 80
         
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
-            # 呼叫轉正函式
             image = fix_image_orientation(img_obj)
-            
             if st.session_state.rotate_angle != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
 
@@ -191,8 +193,7 @@ def main():
             st.image(image, caption="預覽圖片", use_container_width=True)
 
         st.divider()
-        st.subheader("2. 補充與指令")
-        manual_input = st.text_area("手打輸入補充內容", height=100)
+        manual_input = st.text_area("補充內容", height=100)
         ai_instr = st.text_input("給 AI 的特別指令")
 
         if st.button("🚀 呼叫 AI 生成內容", type="primary"):
@@ -204,10 +205,9 @@ def main():
                 st.rerun()
 
     with col_prev:
-        st.subheader("3. 預覽與編輯")
-        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 這裡是預覽區\n請先在左側完成生成。"
-        
-        edited_content = st.text_area("📝 直接微調講義內容", value=content_to_show, height=300)
+        st.subheader("2. 預覽與編輯")
+        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 這裡是預覽區"
+        edited_content = st.text_area("📝 微調講義內容", value=content_to_show, height=300)
         handout_title = st.text_input("講義標題", value="精選試題解析")
 
         img_b64 = get_image_base64(image) if image else ""
