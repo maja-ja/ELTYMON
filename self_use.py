@@ -84,7 +84,7 @@ def ai_generate_content(image, manual_input, instruction):
     if not api_key: return "❌ 錯誤：未設定 API Key。"
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
     prompt = """
     你是一位專業的高中/大學教師。請根據使用者提供的資訊（圖片或文字）撰寫教學講義。
