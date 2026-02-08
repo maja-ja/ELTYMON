@@ -391,17 +391,20 @@ def ai_decode_concept(input_text, category):
 # ==========================================
 # 4. UI 組件 (旗艦級：視覺層次與專業講義)
 # ==========================================
-
-def show_encyclopedia_card(row, show_report=True):
+def show_encyclopedia_card(row, show_report=True, key_suffix=""):
+    """
+    增加 key_suffix 參數，防止在不同頁面渲染同一單字時發生 ID 衝突
+    """
     r_word = str(row.get('word', '未命名'))
     
     # 1. 標題與發音
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     col_audio, _ = st.columns([1, 4])
     with col_audio:
-        speak(r_word, f"card_{r_word}")
+        # 發音按鈕也加上 suffix 以防萬一
+        speak(r_word, f"card_{r_word}_{key_suffix}")
 
-    # 2. 邏輯拆解區 (使用漸層變數)
+    # 2. 邏輯拆解區
     st.markdown(f"""
         <div style="
             background: var(--logic-gradient);
@@ -418,20 +421,20 @@ def show_encyclopedia_card(row, show_report=True):
         </div>
     """, unsafe_allow_html=True)
 
-    # 3. 定義與原理 (使用 CSS 變數自動切換深淺色)
+    # 3. 定義與原理
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f"""
-            <div style="background: var(--accent-blue-bg); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
-                <h4 style="color: var(--accent-blue-text); margin: 0 0 10px 0;">🎯 定義與解釋</h4>
+            <div style="background: var(--accent-blue); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
+                <h4 style="color: #3b82f6; margin: 0 0 10px 0;">🎯 定義與解釋</h4>
                 <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('definition', ''))}</p>
             </div>
         """, unsafe_allow_html=True)
     
     with c2:
         st.markdown(f"""
-            <div style="background: var(--accent-green-bg); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
-                <h4 style="color: var(--accent-green-text); margin: 0 0 10px 0;">💡 核心原理</h4>
+            <div style="background: var(--accent-green); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
+                <h4 style="color: #22c55e; margin: 0 0 10px 0;">💡 核心原理</h4>
                 <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('roots', ''))}</p>
             </div>
         """, unsafe_allow_html=True)
@@ -439,15 +442,17 @@ def show_encyclopedia_card(row, show_report=True):
     # 4. 專家視角
     if row.get('native_vibe'):
         st.markdown(f"""
-            <div style="margin-top: 20px; background: var(--accent-orange-bg); padding: 15px; border-radius: 10px; border: 1px solid rgba(249, 115, 22, 0.3); color: var(--text-main);">
-                <b style="color: var(--accent-orange-text);">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
+            <div style="margin-top: 20px; background: var(--accent-orange); padding: 15px; border-radius: 10px; border: 1px solid var(--accent-orange-border); color: var(--text-main);">
+                <b style="color: #f97316;">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
             </div>
         """, unsafe_allow_html=True)
 
-    # 5. 底部回報按鈕
+    # 5. 底部回報按鈕 (關鍵修改處！)
     if show_report:
         st.write("")
-        if st.button(f"🚩 內容有誤，回報修復", key=f"rep_{r_word}", use_container_width=True):
+        # 使用 r_word + key_suffix 確保唯一性
+        unique_key = f"rep_{r_word}_{key_suffix}"
+        if st.button(f"🚩 內容有誤，回報修復", key=unique_key, use_container_width=True):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
 def show_pro_paper_with_download(title, content):
     """最高規格 PDF 生成：具備專業排版與品牌標示"""
@@ -514,10 +519,6 @@ def show_pro_paper_with_download(title, content):
 # 5. 頁面邏輯 (旗艦級：數據儀表板與專業工作流)
 # ==========================================
 
-# ==========================================
-# 5. 頁面邏輯 (修正版)
-# ==========================================
-
 def page_home(df):
     """最高規格首頁：品牌 Hero 區與數據可視化"""
     
@@ -575,8 +576,9 @@ def page_home(df):
 
     # 4. 顯示選中的詳解卡片 (修正處：增加 .get() 檢查是否為 None)
     if st.session_state.get("curr_w"):
-        st.write("---")
-        show_encyclopedia_card(st.session_state.curr_w)
+            st.write("---")
+            # 加入後綴 home_view
+            show_encyclopedia_card(st.session_state.curr_w, key_suffix="home_view")
 def page_ai_lab():
     """最高規格 AI 實驗室：專業級解碼工作流"""
     
@@ -948,12 +950,14 @@ def main():
             
         if not filtered_df.empty:
             st.write(f"💡 找到 {len(filtered_df)} 筆相關結果：")
-            for _, r in filtered_df.iterrows():
-                # 使用 Expander 節省空間，點開後顯示最高規格卡片
+            # 使用 iterrows 取得 index (idx)
+            for idx, r in filtered_df.iterrows():
                 with st.expander(f"✨ {r['word']} - {r['definition'][:40]}..."):
-                    show_encyclopedia_card(r) # 呼叫 Section 4
+                    # 關鍵修改：傳入 key_suffix=f"search_{idx}"
+                    # 這樣每個搜尋結果的按鈕 ID 都會包含它的索引值，絕對不會重複
+                    show_encyclopedia_card(r, key_suffix=f"search_{idx}") 
         else:
-            st.warning("找不到匹配的內容。如果是 Pro 會員，請前往「AI 解碼實驗室」即時生成！")
+            st.warning("找不到匹配的內容。")
 
     elif choice == "🧠 記憶挑戰":
         st.title("🧠 記憶挑戰")
