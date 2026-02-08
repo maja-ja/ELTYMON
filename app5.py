@@ -530,7 +530,7 @@ def page_home(df):
         </div>
     """, unsafe_allow_html=True)
 
-    # 2. 倒數計時與核心指標 (自定義 HTML 卡片)
+    # 2. 倒數計時與核心指標
     days_left = (datetime(2027, 1, 15) - datetime.now()).days
     
     def custom_metric(label, value, icon, color_gradient):
@@ -551,16 +551,17 @@ def page_home(df):
     st.write("")
     st.write("")
 
-    # 3. 隨機推薦區 (Flashcard 視覺)
+    # 3. 隨機推薦區
     st.markdown("### 💡 今日邏輯推薦")
     if not df.empty:
-        # 鎖定隨機種子，避免按鈕點擊時刷新
         if 'home_sample' not in st.session_state:
             st.session_state.home_sample = df.sample(min(3, len(df)))
         
         cols = st.columns(3)
         for i, (idx, row) in enumerate(st.session_state.home_sample.iterrows()):
             with cols[i]:
+                # 為了讓 home 頁面的按鈕 key 不與 search 頁面衝突，加上 "home_" 前綴
+                unique_key_prefix = f"home_{idx}"
                 st.markdown(f"""
                     <div style="background: white; padding: 25px; border-radius: 20px; border: 1px solid #e2e8f0; height: 220px; position: relative; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
                         <div style="color: #6366f1; font-weight: 700; font-size: 0.8rem; margin-bottom: 10px;">#{row['category']}</div>
@@ -570,15 +571,15 @@ def page_home(df):
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
-                if st.button("展開深度解析", key=f"view_{idx}", use_container_width=True):
+                if st.button("展開深度解析", key=f"view_{unique_key_prefix}", use_container_width=True):
                     st.session_state.curr_w = row.to_dict()
                     st.rerun()
 
-    # 4. 顯示選中的詳解卡片 (修正處：增加 .get() 檢查是否為 None)
+    # 顯示選中的詳解卡片
     if st.session_state.get("curr_w"):
-            st.write("---")
-            # 加入後綴 home_view
-            show_encyclopedia_card(st.session_state.curr_w, key_suffix="home_view")
+        st.write("---")
+        show_encyclopedia_card(st.session_state.curr_w, key_suffix="home_view")
+
 def page_ai_lab():
     """最高規格 AI 實驗室：專業級解碼工作流"""
     
@@ -930,58 +931,45 @@ def main():
     
     elif choice == "🔍 知識庫搜尋":
         st.title("🔍 知識庫搜尋")
-        st.markdown("您可以透過關鍵字搜尋，或直接從特定主題/公式進行篩選。")
+        st.markdown("搜尋資料庫中已存在的 4500+ 學測邏輯單字。")
         
-        # 1. 搜尋工具列 (將 "分類過濾" 改為 "主題/公式過濾")
-        col_q, col_cat = st.columns([2, 2])
+        col_q, col_cat = st.columns([3, 1])
         with col_q:
-            q = st.text_input("輸入關鍵字搜尋...", placeholder="例如：meticulous, 物理, 函數...", label_visibility="collapsed")
-        
+            q = st.text_input("輸入關鍵字搜尋...", placeholder="可輸入單字、中文意義、字根、例句...", label_visibility="collapsed")
         with col_cat:
-            # --- [核心修改] ---
-            # a. 篩選出 'roots' 欄位有內容的資料
-            roots_df = df[df['roots'].notna() & (df['roots'] != '無')]
-            
-            # b. 從篩選後的 DataFrame 中獲取唯一的 'roots' 值作為選項
-            all_roots = ["所有主題"] + sorted(roots_df['roots'].unique().tolist())
-            
-            # c. 建立 selectbox
-            sel_root = st.selectbox("從主題/公式篩選", all_roots, label_visibility="collapsed")
-
-        # --- [新增功能] 顯示選中的 LaTeX 渲染結果 ---
-        if sel_root != "所有主題":
-            try:
-                # 嘗試渲染選中的 LaTeX 公式
-                st.latex(sel_root)
-            except:
-                # 如果不是標準 LaTeX 格式 (例如純文字的字根)，就正常顯示
-                st.info(f"當前主題：**{sel_root}**")
+            all_cats = ["所有分類"] + sorted(df['category'].unique().tolist())
+            sel_cat = st.selectbox("分類過濾", all_cats, label_visibility="collapsed")
         
-        # 2. 執行過濾邏輯
+        # --- [核心優化] 擴大搜尋範圍 ---
         filtered_df = df.copy()
 
-        # a. 關鍵字過濾 (保持不變)
         if q:
-            # 支援單字與定義的模糊搜尋
-            filtered_df = filtered_df[filtered_df['word'].str.contains(q, case=False) | 
-                                      filtered_df['definition'].str.contains(q, case=False)]
-        
-        # b. 主題/公式過濾 (新邏輯)
-        if sel_root != "所有主題":
-            # 篩選出 'roots' 欄位完全等於選中項的資料
-            filtered_df = filtered_df[filtered_df['roots'] == sel_root]
+            query = q.lower().strip()
+            # 建立一個包含所有可搜尋欄位的臨時 Series
+            # 這樣可以一次性對所有文本欄位進行 .str.contains()，效能比逐一 | (OR) 更好
+            search_space = (
+                filtered_df['word'].str.lower() + " " +
+                filtered_df['definition'].str.lower() + " " +
+                filtered_df['meaning'].str.lower() + " " +
+                filtered_df['roots'].str.lower() + " " +
+                filtered_df['example'].str.lower() + " " +
+                filtered_df['collocation'].str.lower()
+            )
+            filtered_df = filtered_df[search_space.str.contains(query, na=False)]
+
+        if sel_cat != "所有分類":
+            filtered_df = filtered_df[filtered_df['category'] == sel_cat]
             
-        # 3. 結果呈現 (保持不變)
+        # --- 結果呈現 ---
         if not filtered_df.empty:
-            st.write(f"--- \n 💡 找到 {len(filtered_df)} 筆相關結果：")
-            # 使用 iterrows 取得 index (idx)
+            st.write(f"💡 找到 {len(filtered_df)} 筆相關結果：")
             for idx, r in filtered_df.iterrows():
+                # 使用 r['word'] 和 idx 確保 key 的唯一性
+                unique_key_prefix = f"search_{idx}_{r['word']}"
                 with st.expander(f"✨ {r['word']} - {r['definition'][:40]}..."):
-                    show_encyclopedia_card(r, key_suffix=f"search_{idx}") 
+                    show_encyclopedia_card(r, key_suffix=unique_key_prefix)
         else:
-            # 如果是篩選狀態下沒結果，給予更精準的提示
-            if sel_root != "所有主題" or q:
-                st.warning("在當前篩選條件下，找不到匹配的內容。")
+            st.warning("找不到匹配的內容。")
 
     elif choice == "🧠 記憶挑戰":
         st.title("🧠 記憶挑戰")
