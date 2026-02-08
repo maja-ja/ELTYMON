@@ -13,7 +13,6 @@ import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
-@st.cache_data(show_spinner=False)
 def get_screen_width_js():
     """
     執行 JavaScript 以獲取客戶端螢幕寬度，並將其傳回 Python。
@@ -541,8 +540,7 @@ def page_home(df):
     
     # --- [核心修改] 獲取螢幕寬度 ---
     # 組件第一次渲染時可能回傳 None，給一個預設的電腦寬度
-    screen_width = get_screen_width_js() or 1024 
-
+    screen_width = st.session_state.get('screen_width', 1024) 
     # 1. Hero Section (保持不變)
     st.markdown("""
         <div style="text-align: center; padding: 40px 0; ...">
@@ -840,7 +838,10 @@ def main():
             'curr_w': None,    # 當前查看的單字詳解
             'last_ai': None    # 最後一次 AI 解碼結果
         })
-
+    detected_width = get_screen_width_js()
+    # 只有在 JS 成功回傳寬度時，才更新 session_state
+    if detected_width is not None:
+        st.session_state.screen_width = detected_width
     # 3. 側邊欄：旗艦級導航系統
     # --- 3. 側邊欄：旗艦級導航系統 (修改版) ---
     with st.sidebar:
@@ -948,7 +949,8 @@ def main():
 
     # 5. 頁面路由邏輯 (Routing)
     if choice == "🏠 戰情首頁":
-        page_home(df) # 呼叫 Section 5
+        # 注意：不再需要傳遞 screen_width 參數
+        page_home(df) 
     
     elif choice == "🔍 知識庫搜尋":
         st.title("🔍 知識庫搜尋")
