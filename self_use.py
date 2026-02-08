@@ -18,6 +18,7 @@ st.markdown("""
     <style>
         .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
         .stButton button { width: 100%; border-radius: 8px; font-weight: bold; height: 3em; }
+        .hint-text { color: #4f46e5; font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -45,11 +46,9 @@ def ai_generate_content(image, manual_input, instruction):
     model = genai.GenerativeModel('gemini-1.5-flash')
 
     prompt = """
-    你是一位專業的高中教師。請根據資訊撰寫講義。
-    【重要：LaTeX 規範】
-    - 使用 $...$ 包夾行內公式，$I \\propto \\frac{1}{\\lambda^4}$
-    - 獨立公式使用 $$...$$
-    - 確保數學符號使用標準 LaTeX 指令。
+    你是一位專業的高中教師。請撰寫講義。
+    【LaTeX 規範】使用 $...$ 或 $$...$$。
+    【換頁說明】若內容過長，可在適當段落結尾加入 [換頁] 標籤。
     """
     parts = [prompt]
     if manual_input: parts.append(f"【補充內容】：{manual_input}")
@@ -57,19 +56,24 @@ def ai_generate_content(image, manual_input, instruction):
     if image: parts.append(image)
 
     try:
-        with st.spinner("🤖 AI 正在整理邏輯與數學排版..."):
+        with st.spinner("🤖 AI 正在構思講義內容..."):
             response = model.generate_content(parts)
             return response.text
     except Exception as e:
         return f"AI 異常：{str(e)}"
 
 # ==========================================
-# 3. 專業級 PDF/HTML 模板 (防重疊優化版)
+# 3. 專業級 PDF/HTML 模板 (支援手動換頁)
 # ==========================================
 def generate_printable_html(title, text_content, img_b64, img_width_percent):
-    # 預防性清理：修正反斜線與轉義問題
-    clean_content = text_content.replace('\\\\', '\\')
-    html_body = markdown.markdown(clean_content, extensions=['fenced_code', 'tables'])
+    # 1. 處理換頁標籤：將 [換頁] 轉為特定的 HTML div
+    processed_content = text_content.replace('[換頁]', '<div class="page-break"></div>')
+    
+    # 2. 修正 LaTeX 反斜線問題
+    processed_content = processed_content.replace('\\\\', '\\')
+    
+    # 3. 轉換 Markdown
+    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
@@ -78,15 +82,9 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     <html>
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-        
-        <!-- 使用 SVG 模式，在 PDF 導出時最穩定 -->
         <script>
         window.MathJax = {{
-          tex: {{
-            inlineMath: [['$', '$']],
-            displayMath: [['$$', '$$']],
-            processEscapes: true
-          }},
+          tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']], processEscapes: true }},
           svg: {{ fontCache: 'global' }}
         }};
         </script>
@@ -97,7 +95,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
             @page {{ size: A4; margin: 0; }}
             body {{ 
                 font-family: 'Noto Sans TC', sans-serif; 
-                line-height: 1.8; /* 增加行高防止重疊 */
+                line-height: 1.8; 
                 padding: 20px; 
                 background: #f4f4f9; 
             }}
@@ -105,17 +103,23 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                 background: white; width: 210mm; min-height: 297mm; 
                 margin: 0 auto; padding: 25mm; box-sizing: border-box; 
             }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
-            .img-wrapper {{ text-align: center; margin: 30px 0; }}
             
-            /* 【關鍵修復】給予公式足夠的垂直空間 */
-            mjx-container {{
-                margin: 5px 2px !important;
-                vertical-align: middle !important;
-                display: inline-block !important;
+            /* 【核心修正】分頁符號樣式 */
+            .page-break {{
+                page-break-before: always;
+                height: 0;
+                margin: 0;
+                padding: 0;
             }}
+
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
+            h2, h3 {{ color: #1a237e; border-left: 5px solid #1a237e; padding-left: 10px; margin-top: 25px; page-break-after: avoid; }}
+            
+            .img-wrapper {{ text-align: center; margin: 30px 0; page-break-inside: avoid; }}
+            mjx-container {{ margin: 5px 2px !important; vertical-align: middle !important; display: inline-block !important; }}
+            
             .content {{ font-size: 16px; text-align: justify; }}
-            p {{ margin-bottom: 15px; word-break: break-word; }}
+            p {{ margin-bottom: 15px; page-break-inside: avoid; }}
             
             #btn-container {{ text-align: center; padding: 20px; }}
             .download-btn {{ background: #1a237e; color: white; border: none; padding: 15px 40px; border-radius: 30px; font-size: 18px; font-weight: bold; cursor: pointer; }}
@@ -123,12 +127,12 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     </head>
     <body>
         <div id="btn-container">
-            <button class="download-btn" onclick="downloadPDF()">📥 生成 PDF (修復排版重疊)</button>
+            <button class="download-btn" onclick="downloadPDF()">📥 生成 PDF (支援 [換頁] 標籤)</button>
         </div>
 
         <div id="printable-area">
             <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
+            <div style="text-align:right; font-size:12px; color:#666; margin-bottom:10px;">日期：{date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
         </div>
@@ -140,13 +144,11 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                     margin: 0,
                     filename: '{title}.pdf',
                     image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 3, useCORS: true, logging: false }},
+                    html2canvas: {{ scale: 3, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
                 
-                // 第一階段：呼叫 MathJax 渲染
                 MathJax.typesetPromise().then(() => {{
-                    // 第二階段：給予 1.5 秒緩衝讓瀏覽器完成 Reflow 排版
                     setTimeout(() => {{
                         html2pdf().set(opt).from(element).save();
                     }}, 1500);
@@ -206,8 +208,12 @@ def main():
 
     with col_prev:
         st.subheader("2. 預覽與編輯")
+        
+        # 加入提示語
+        st.markdown('<p class="hint-text">💡 提示：在文字中加入 [換頁] 可強制從下一頁開始</p>', unsafe_allow_html=True)
+        
         content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 這裡是預覽區"
-        edited_content = st.text_area("📝 微調講義內容", value=content_to_show, height=300)
+        edited_content = st.text_area("📝 微調講義內容 (可手動加入 [換頁])", value=content_to_show, height=350)
         handout_title = st.text_input("講義標題", value="精選試題解析")
 
         img_b64 = get_image_base64(image) if image else ""
