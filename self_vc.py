@@ -1,5 +1,6 @@
 import streamlit as st
-from streamlit_flow import streamlit_flow
+# 修改這裡的導入語句
+from streamlit_flow.streamlit_flow import streamlit_flow
 from streamlit_flow.elements import StreamlitFlowNode, StreamlitFlowEdge
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, InvalidArgument, PermissionDenied, GoogleAPIError
