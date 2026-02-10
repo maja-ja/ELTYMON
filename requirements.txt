@@ -1,5 +1,5 @@
 streamlit
-streamlit-flow
+streamlit-flow-component
 google-generativeai
 pandas
 google-generativeai
