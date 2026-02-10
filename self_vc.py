@@ -1,5 +1,4 @@
 import streamlit as st
-# 根據新的庫名和狀態管理系統更新導入語句
 from streamlit_flow import streamlit_flow
 from streamlit_flow.elements import StreamlitFlowNode, StreamlitFlowEdge
 from streamlit_flow.state import StreamlitFlowState
@@ -58,7 +57,8 @@ if 'flow_state' not in st.session_state:
         StreamlitFlowEdge("e1", "have", "transform", animated=True),
         StreamlitFlowEdge("e2", "transform", "want", animated=True)
     ]
-    st.session_state.flow_state = StreamlitFlowState(key="main_flow", nodes=initial_nodes, edges=initial_edges)
+    # 修正這裡：移除 key="main_flow"
+    st.session_state.flow_state = StreamlitFlowState(nodes=initial_nodes, edges=initial_edges)
 
 # --- 動態更新節點內容 ---
 # 找到 'have' 節點並更新其內容
