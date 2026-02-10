@@ -1,4 +1,6 @@
 streamlit
+streamlit-flow
+google-generativeai
 pandas
 google-generativeai
 st-gsheets-connection
@@ -6,4 +8,3 @@ gTTS
 fpdf2
 Pillow
 markdown
-streamlit-flow
