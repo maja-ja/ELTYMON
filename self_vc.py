@@ -1,8 +1,8 @@
 import streamlit as st
 # 根據新的庫名和狀態管理系統更新導入語句
-from streamlit_flow_component import streamlit_flow
-from streamlit_flow_component.elements import StreamlitFlowNode, StreamlitFlowEdge
-from streamlit_flow_component.state import StreamlitFlowState # 新增導入
+from streamlit_flow import streamlit_flow
+from streamlit_flow.elements import StreamlitFlowNode, StreamlitFlowEdge
+from streamlit_flow.state import StreamlitFlowState
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, InvalidArgument, PermissionDenied, GoogleAPIError
 
