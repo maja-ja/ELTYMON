@@ -6,3 +6,4 @@ gTTS
 fpdf2
 Pillow
 markdown
+streamlit-flow
