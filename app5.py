@@ -523,7 +523,7 @@ def run_handout_app():
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
     if "user_balance" not in st.session_state:
-        st.session_state.user_balance = 100
+        st.session_state.user_balance = 10
 
     # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
