@@ -35,7 +35,6 @@ def speak(text, key_suffix=""):
         tts.write_to_fp(fp)
         audio_base64 = base64.b64encode(fp.getvalue()).decode()
         unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
-        # 🔥 修正：按鈕樣式使用 CSS 變數
         components.html(f"""
         <html><body>
             <style>
@@ -88,7 +87,7 @@ def load_db():
         return pd.DataFrame(columns=COL_NAMES)
 
 def generate_printable_html(title, text_content, **kwargs):
-    """生成講義 HTML (保持不變)"""
+    """生成講義 HTML"""
     html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
     auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if kwargs.get("auto_download") else ""
     return f"""
@@ -142,7 +141,13 @@ def inject_dual_theme_ui():
             /* 3. 將變數應用到元件上 */
             .main { background-color: var(--main-bg) !important; }
             body { color: var(--text-color); }
-            .block-container { max-width: 480px !important; padding: 1rem 1.2rem 5rem 1.2rem !important; }
+            
+            /* 🔥 修正點：增加上下 padding，讓內容下移 */
+            .block-container { 
+                max-width: 480px !important; 
+                padding: 2.5rem 1.2rem 6rem 1.2rem !important; 
+            }
+            
             [data-testid="stSidebar"], header { display: none; }
             
             .word-card {
@@ -172,7 +177,7 @@ def inject_dual_theme_ui():
     """, unsafe_allow_html=True)
 
 def mobile_home_page(df):
-    """手機版首頁：整合搜尋與隨機探索 (已修正)"""
+    """手機版首頁：整合搜尋與隨機探索"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>🔍 探索知識</h2>", unsafe_allow_html=True)
     
     col_search, col_rand = st.columns([4, 1])
@@ -198,7 +203,6 @@ def mobile_home_page(df):
 
     if target_row:
         w = target_row['word']
-        # 🔥 修正：所有 style 中的顏色都改用 var()
         st.markdown(f"""
         <div class="word-card">
             <h1 style="margin-top:0; margin-bottom:5px; color:var(--h1-color);">{w}</h1>
@@ -239,7 +243,6 @@ def mobile_handout_page():
 def mobile_sponsor_page():
     """手機版贊助頁面"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>💖 支持我們</h2>", unsafe_allow_html=True)
-    # 🔥 修正：內文也使用 CSS 變數
     st.markdown("""
     <div class="word-card" style="text-align:center;">
         <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">如果這個免費工具對你有幫助，<br>歡迎贊助支持伺服器與開發成本！</p>
@@ -263,7 +266,6 @@ def main():
         st.session_state.mobile_nav = selected_nav
         st.rerun()
 
-    # 🔥 修正：分隔線也使用 CSS 變數
     st.markdown("<hr style='margin: 0.5rem 0 1.5rem 0; border-color: var(--border-color);'>", unsafe_allow_html=True)
 
     df = load_db()
