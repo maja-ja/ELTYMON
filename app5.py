@@ -391,7 +391,7 @@ def ai_decode_and_save(input_text, fixed_category):
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗
+    # 1. 變數定義與清洗 (繼承 v3.0 完整欄位)
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -442,7 +442,7 @@ def show_encyclopedia_card(row):
             </div>
         """, unsafe_allow_html=True)
 
-    # 6. 深度百科
+    # 6. 深度百科 (隱藏細節)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -452,7 +452,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
 
-    # 7. 功能操作區 (發音、回報、跳轉講義)
+    # 7. 功能操作區 (發音、回報、免費跳轉)
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
@@ -463,13 +463,13 @@ def show_encyclopedia_card(row):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
     with op3:
-        # 關鍵功能：繼承資訊並同步填入「素材框」與「預覽區」
-        if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
-            # A. 封裝完整單字物件資料
+        # 【免費跳轉按鈕】：不扣款，僅傳輸資料並切換頁面
+        if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
+            # A. 封裝完整單字物件資料供後端繼承
             st.session_state.inherited_word_data = row.to_dict() if hasattr(row, 'to_dict') else row
             
-            # B. 格式化內容 (Markdown 格式)
-            inherited_text = (
+            # B. 格式化初步草稿內容 (Markdown)
+            draft_text = (
                 f"## 專題講義：{r_word}\n\n"
                 f"### 🧬 邏輯拆解\n{r_breakdown}\n\n"
                 f"### 🎯 核心定義\n{r_def}\n\n"
@@ -479,11 +479,11 @@ def show_encyclopedia_card(row):
                 f"**專家心法**：{r_vibe}"
             )
             
-            # C. 雙向同步：同時設定左側素材與右側預覽 (解決跳轉後預覽區空白的問題)
-            st.session_state.manual_input_content = inherited_text  # 填入左側素材框
-            st.session_state.generated_text = inherited_text       # 填入右側預覽區
+            # C. 雙向同步：填入左側素材框與右側預覽區 (確保跳轉後立刻看到 A4 內容)
+            st.session_state.manual_input_content = draft_text 
+            st.session_state.generated_text = draft_text
             
-            # D. 切換導航模式並重整頁面
+            # D. 切換導航模式
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 # ==========================================
@@ -619,20 +619,20 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 檢查繼承狀態與初始化 Session State
+    # 1. 初始化與檢查狀態
     inherited_data = st.session_state.get("inherited_word_data")
-    if inherited_data:
-        st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的深度解碼資訊")
+    current_balance = st.session_state.get("user_balance", 0)
     
-    # 確保必要的狀態 Key 存在
+    if inherited_data:
+        st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的深度解碼資訊 (草稿已生成)")
+    
+    # 確保必要的 Session State Key 存在
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
-    if "user_balance" not in st.session_state:
-        st.session_state.user_balance = 100
 
-    # 2. 頁面佈局
+    # 2. 頁面佈局：左側控制區，右側預覽區
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
@@ -658,29 +658,30 @@ def run_handout_app():
 
         st.divider()
         
-        # --- 文字輸入區 (左側素材) ---
-        # 使用 key 綁定，確保跳轉過來的文字自動填入
+        # --- 文字輸入區 (左側素材框) ---
+        # 使用 key 綁定，確保跳轉過來的草稿文字自動填入
         st.text_area(
-            "講義素材內容 (AI 將根據此內容生成)", 
+            "講義素材內容 (AI 將根據此內容進行專業排版)", 
             key="manual_input_content", 
             height=300,
-            help="您可以修改繼承過來的文字，或手動輸入新素材。"
+            help="您可以修改草稿文字，或手動輸入新素材。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個隨堂練習題、標註重點...")
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點、改為英文版...")
         
-        # --- 3. 支付確認與生成按鈕 ---
-        current_balance = st.session_state.user_balance
+        # --- 3. 支付確認與收費點 ---
         st.markdown(f"""
             <div style='background: #fff7ed; padding: 15px; border-radius: 8px; border: 1px solid #fdba74;'>
-                <p style='margin:0; color: #9a3412;'><b>💰 生成費用：10 元 / 次</b></p>
+                <p style='margin:0; color: #9a3412;'><b>💰 AI 專業生成費用：10 元 / 次</b></p>
                 <p style='margin:0; font-size: 0.9rem; color: #c2410c;'>當前帳戶餘額：{current_balance} 元</p>
+                <p style='margin:0; font-size: 0.8rem; color: #7c2d12; margin-top:5px;'><i>* 預覽草稿免費，點擊下方按鈕後才扣款。</i></p>
             </div>
         """, unsafe_allow_html=True)
         
         st.write("") 
         
-        if st.button("🚀 確認支付並開始生成", type="primary", use_container_width=True):
+        # 這是系統唯一的收費按鈕
+        if st.button("🚀 確認支付 10 元並啟動 AI 生成", type="primary", use_container_width=True):
             if current_balance < 10:
                 st.error("❌ 餘額不足，請點擊左上角贊助支持以獲得點數。")
             elif not st.session_state.manual_input_content and not uploaded_file:
@@ -690,17 +691,22 @@ def run_handout_app():
                     # A. 執行扣款
                     st.session_state.user_balance -= 10
                     
-                    # B. 調用 AI 生成 (傳入左側 manual_input_content)
+                    # B. 更新資料庫餘額 (若非訪客)
+                    if st.session_state.get("username") != "訪客":
+                        update_user_status(st.session_state.username, "ai_usage", st.session_state.user_balance)
+                    
+                    # C. 準備 AI 提示
                     final_prompt = st.session_state.manual_input_content
                     if inherited_data:
                         final_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備教學邏輯的專業講義：\n\n{final_prompt}"
                     
+                    # D. 調用 AI 生成專業內容
                     generated_res = handout_ai_generate(image, final_prompt, ai_instr)
                     
-                    # C. 更新右側預覽內容
+                    # E. 更新右側預覽內容 (覆蓋掉原本的草稿)
                     st.session_state.generated_text = generated_res
                     
-                    # D. 清除繼承標記，但保留輸入框文字
+                    # F. 清除繼承標記，但保留輸入框文字
                     if "inherited_word_data" in st.session_state:
                         del st.session_state.inherited_word_data
                     
@@ -709,34 +715,29 @@ def run_handout_app():
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時預覽區。您可以直接修改文字，完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時預覽。您可以直接修改文字，完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
         
         # --- 內容修訂區 (右側預覽) ---
-        # 關鍵修正：value 綁定 st.session_state.generated_text
-        # 這樣跳轉過來時，初步草稿會立刻顯示在這裡
+        # 關鍵：value 綁定 st.session_state.generated_text
+        # 跳轉過來時，這裡會顯示草稿；支付後，這裡會顯示 AI 生成的正式版
         edited_content = st.text_area(
             "📝 講義內容編輯", 
             value=st.session_state.generated_text, 
             height=450,
-            key="preview_editor" # 使用 key 確保編輯器狀態獨立
+            key="preview_editor"
         )
         
         # 標題設定
         default_title = "AI 專題講義"
         if inherited_data: 
             default_title = f"{inherited_data.get('word')} 專題講義"
-        elif st.session_state.generated_text:
-            # 嘗試從內容中抓取標題 (簡單邏輯)
-            first_line = st.session_state.generated_text.split('\n')[0].replace('#', '').strip()
-            if first_line: default_title = first_line
             
         handout_title = st.text_input("講義標題", value=default_title)
         
         # 準備圖片 Base64
         img_b64 = get_image_base64(image) if image else ""
         
-        # 4. 生成最終列印用 HTML
-        # 使用 edited_content (用戶手動修改後的內容) 進行渲染
+        # 4. 生成最終列印用 HTML (使用編輯器中的最新內容)
         final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
         
         # 渲染 HTML 預覽組件
@@ -971,65 +972,106 @@ def run_handout_app():
 # 6. 主程式入口與導航
 # ==========================================
 def main():
+    # 1. 注入自定義 CSS 樣式
     inject_custom_css()
     
-    # 初始化登入狀態
+    # 2. 初始化 Session State 核心變數
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
+    if 'app_mode' not in st.session_state:
+        st.session_state.app_mode = "Etymon Decoder (單字解碼)"
+    if 'user_balance' not in st.session_state:
+        st.session_state.user_balance = 0
 
-    # 判斷是否已登入
+    # 3. 登入攔截：若未登入則顯示登入頁面並終止後續執行
     if not st.session_state.logged_in:
         login_page()
         return
 
-    # --- 以下為登入後的內容 ---
-    
-    # 側邊欄用戶資訊
+    # ==========================================
+    # 4. 側邊欄 (Sidebar) 佈局
+    # ==========================================
     with st.sidebar:
+        # --- 用戶資訊與登出 ---
         st.markdown(f"### 👋 {st.session_state.username}")
         role_label = "🔴 管理員" if st.session_state.role == "admin" else "🟢 學生"
         if st.session_state.role == "guest": role_label = "⚪ 訪客"
-        st.caption(role_label)
+        st.caption(f"身分：{role_label}")
         
-        # 登出按鈕
-        if st.button("🚪 登出系統"):
+        if st.button("🚪 登出系統", use_container_width=True):
             if st.session_state.username != "訪客":
                 update_user_status(st.session_state.username, "is_online", "FALSE")
             st.session_state.logged_in = False
             st.rerun()
         
         st.markdown("---")
-        # 贊助按鈕區 (原本的區塊)
-        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
-        # ... (ECPay, BMC 按鈕代碼) ...
-        
-        # 餘額顯示
+
+        # --- 贊助按鈕 (左上角視覺區) ---
+        st.markdown("### 💖 支持與贊助")
         st.markdown(f"""
-            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-bottom: 20px;'>
-                <span style='color: #e65100; font-weight: bold;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            <div class="sponsor-container">
+                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">
+                    💳 綠界贊助 (ECPay)
+                </a>
+                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="btn-bmc">
+                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
+                    Buy Me a Coffee
+                </a>
             </div>
         """, unsafe_allow_html=True)
 
-    # 模式選擇
-    app_mode = st.sidebar.selectbox("選擇功能模組", ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"])
+        # --- 即時餘額顯示 ---
+        st.markdown(f"""
+            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-top: 10px; margin-bottom: 20px;'>
+                <span style='color: #e65100; font-weight: bold; font-size: 0.9rem;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+
+        # --- 模組導航選擇 ---
+        # 使用 index 確保頁面重整時 selectbox 選項與 session_state 同步
+        current_index = 0 if st.session_state.app_mode == "Etymon Decoder (單字解碼)" else 1
+        st.session_state.app_mode = st.selectbox(
+            "選擇功能模組", 
+            ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"],
+            index=current_index
+        )
+        st.markdown("---")
+
+    # ==========================================
+    # 5. 路由邏輯 (Routing)
+    # ==========================================
     
-    # 路由邏輯
-    if app_mode == "Etymon Decoder (單字解碼)":
+    if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
+        # 單字解碼模組子選單
         menu = ["首頁", "學習與搜尋", "測驗模式"]
-        # 只有管理員可以看到實驗室
+        
+        # 權限過濾：只有管理員能進入解碼實驗室
         if st.session_state.role == "admin":
             menu.append("🔬 解碼實驗室")
         
         page = st.sidebar.radio("Etymon 選單", menu)
-        df = load_db() # 這是原本讀取單字庫的函式
         
-        if page == "首頁": page_etymon_home(df)
-        elif page == "學習與搜尋": page_etymon_learn(df)
-        elif page == "測驗模式": page_etymon_quiz(df)
-        elif page == "🔬 解碼實驗室": page_etymon_lab()
+        # 載入單字資料庫
+        df = load_db()
         
-    elif app_mode == "Handout Pro (講義排版)":
+        if page == "首頁":
+            page_etymon_home(df)
+        elif page == "學習與搜尋":
+            page_etymon_learn(df)
+        elif page == "測驗模式":
+            page_etymon_quiz(df)
+        elif page == "🔬 解碼實驗室":
+            page_etymon_lab()
+            
+    elif st.session_state.app_mode == "Handout Pro (講義排版)":
+        # 講義排版模組 (內含 10 元扣款邏輯)
         run_handout_app()
+
+    # --- 頁尾資訊 ---
+    st.sidebar.markdown("---")
+    st.sidebar.caption(f"v4.1 Integrated | Powered by Gemini 2.0")
 
 if __name__ == "__main__":
     main()
