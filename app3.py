@@ -1,5 +1,5 @@
 # ==========================================
-# 0. 基礎套件導入 (保持不變)
+# 0. 基礎套件導入
 # ==========================================
 import streamlit as st
 import pandas as pd
@@ -16,10 +16,8 @@ import streamlit.components.v1 as components
 import markdown
 from streamlit_gsheets import GSheetsConnection
 
-# ... (保持原本的 fix_content, speak, log_user_intent, generate_printable_html 函式不變) ...
-
 # ==========================================
-# 1. 核心工具函式 (後端邏輯)
+# 1. 核心工具函式
 # ==========================================
 
 def fix_content(text):
@@ -113,14 +111,23 @@ def inject_dual_theme_ui():
             .main { background-color: var(--main-bg) !important; }
             .block-container { max-width: 480px !important; padding: 2.5rem 1.2rem 6rem 1.2rem !important; }
             [data-testid="stSidebar"], header { display: none; }
+            
             .word-card {
                 background: var(--card-bg); border-radius: 20px; padding: 25px;
                 box-shadow: 0 10px 30px var(--shadow-color); margin-bottom: 20px; border: 1px solid var(--border-color);
             }
+            
+            /* 🔥 修正：縮小淺藍色字根標籤的字體 */
             .roots-tag {
-                background: var(--accent-bg); color: var(--accent-text-color); padding: 6px 14px;
-                border-radius: 12px; font-size: 0.9rem; font-weight: bold; display: inline-block;
+                background: var(--accent-bg); 
+                color: var(--accent-text-color); 
+                padding: 4px 10px;
+                border-radius: 10px; 
+                font-size: 0.8rem; /* 從 0.9rem 縮小到 0.8rem */
+                font-weight: bold; 
+                display: inline-block;
             }
+            
             .stButton > button, .stTextInput > div > div > input, .stSelectbox > div > div > div {
                 border-radius: 15px !important; height: 50px !important; transition: transform 0.2s ease;
             }
@@ -145,17 +152,16 @@ def mobile_home_page(df):
         </a>
     """, unsafe_allow_html=True)
 
-    # 2. 領域選擇 (精簡下拉選單)
+    # 2. 領域選擇
     all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
     selected_cat = st.selectbox("選擇學習領域", all_cats, label_visibility="collapsed")
 
-    # 3. 搜尋與隨機抽 (橫向布局)
+    # 3. 搜尋與隨機抽
     col_search, col_rand = st.columns([4, 1])
     with col_search:
         query = st.text_input("輸入單字查詢...", placeholder="例如: 熵", label_visibility="collapsed")
     with col_rand:
         if st.button("🎲", help="從選定領域隨機抽取"): 
-            # 隨機邏輯：如果不是全部領域，先篩選再抽
             sample_pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
             if not sample_pool.empty:
                 st.session_state.selected_word = sample_pool.sample(1).iloc[0].to_dict()
@@ -164,7 +170,6 @@ def mobile_home_page(df):
     # 4. 搜尋與顯示邏輯
     target_row = None
     if query:
-        # 精確匹配優先，否則包含匹配
         exact_match = df[df['word'].str.lower() == query.strip().lower()]
         if not exact_match.empty:
             target_row = exact_match.iloc[0].to_dict()
@@ -177,7 +182,6 @@ def mobile_home_page(df):
     elif "selected_word" in st.session_state:
         target_row = st.session_state.selected_word
     else:
-        # 初始進入時，從全部領域隨機抓一個
         if not df.empty:
             target_row = df.sample(1).iloc[0].to_dict()
             st.session_state.selected_word = target_row
@@ -214,7 +218,7 @@ def mobile_home_page(df):
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
         
-        # 額外贊助提醒 (卡片下方)
+        # 額外贊助提醒
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"""
             <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
@@ -225,7 +229,7 @@ def mobile_home_page(df):
         """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 其他頁面與主程式 (保持不變)
+# 3. 其他頁面與主程式
 # ==========================================
 
 def mobile_handout_page():
@@ -258,7 +262,6 @@ def main():
 
     if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索知識"
 
-    # 選單切換
     nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
     selected_nav = st.radio("導覽", options=nav_options, index=nav_options.index(st.session_state.mobile_nav), horizontal=True, label_visibility="collapsed")
     if selected_nav != st.session_state.mobile_nav:
@@ -271,8 +274,4 @@ def main():
     if df.empty: return
         
     if st.session_state.mobile_nav == "🔍 探索知識": mobile_home_page(df)
-    elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
-    elif st.session_state.mobile_nav == "💖 支持": mobile_sponsor_page()
-
-if __name__ == "__main__":
-    main()
+    elif st
