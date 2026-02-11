@@ -902,64 +902,21 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
 
-def generate_printable_html(title, text_content, img_b64, img_width_percent, is_paid=False, daily_left=10, role='guest'):
+def generate_printable_html(title, text_content, img_b64, img_width_percent):
     """
     生成 A4 列印用 HTML。
-    邏輯：正式用戶每日 10 次免費，訪客禁止下載與生成。
+    完全開放下載，僅保留贊助建議。
     """
-    # 1. 文本處理 (Markdown 轉 HTML)
     text_content = text_content.strip()
-    text_content = re.sub(r'^(\[換頁\]|\s|\n)+', '', text_content)
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
-    
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-
-    # 2. 智能按鈕邏輯
-    btn_html = ""
-    if is_paid:
-        # 情況 A：已經點擊過生成，顯示下載按鈕並提示隨喜
-        btn_html = (
-            '<button class="download-btn" onclick="downloadPDF()">'
-            '📥 下載講義 (今日免費額度內)'
-            '</button>'
-            '<p style="color:#cbd5e1; font-size:12px; margin-top:5px;">❤️ 覺得好用？歡迎點擊左側贊助隨喜支持！</p>'
-        )
-    else:
-        # 情況 B：尚未生成/未支付
-        if role == 'guest':
-            # 訪客身分
-            btn_html = (
-                '<button class="download-btn locked-btn" '
-                'onclick="alert(\'🔒 訪客僅限預覽。請先註冊/登入帳號以解鎖每日 10 次免費生成功能。\')">'
-                '🔒 訪客登入後即可下載'
-                '</button>'
-            )
-        elif daily_left <= 0:
-            # 今日額度已用完
-            btn_html = (
-                '<button class="download-btn locked-btn" '
-                'onclick="alert(\'⚠️ 今日 10 次免費額度已用完。您可以明天再試，或點擊左側隨喜贊助支持開發者！\')">'
-                '⚠️ 今日額度已達上限'
-                '</button>'
-            )
-        else:
-            # 有額度但尚未點擊生成
-            btn_html = (
-                f'<button class="download-btn locked-btn" '
-                f'onclick="alert(\'請先點擊左側「🚀 啟動 AI 生成」按鈕。\\n(今日剩餘免費額度：{daily_left} 次)\')">'
-                f'🔒 解鎖下載 (今日剩餘 {daily_left} 次)'
-                '</button>'
-            )
 
     return f"""
     <html>
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-        <script>
-        window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']], processEscapes: true }}, svg: {{ fontCache: 'global' }} }};
-        </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
@@ -970,11 +927,15 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, is_
             h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
             #btn-container {{ text-align: center; padding: 15px; width: 100%; position: sticky; top: 0; background: #1a1a1a; z-index: 9999; }}
             .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 50px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }}
-            .download-btn.locked-btn {{ background: #475569; cursor: not-allowed; }}
+            .sponsor-text {{ color: #cbd5e1; font-size: 12px; margin-top: 8px; }}
+            @media print {{ #btn-container {{ display: none; }} }}
         </style>
     </head>
     <body>
-        <div id="btn-container">{btn_html}</div>
+        <div id="btn-container">
+            <button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義 (PDF)</button>
+            <div class="sponsor-text">💖 講義生成完全免費，若覺得好用歡迎隨喜贊助支持！</div>
+        </div>
         <div id="printable-area">
             <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}<div class="content">{html_body}</div>
@@ -983,9 +944,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, is_
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
                 const opt = {{
-                    margin: 0,
-                    filename: '{title}.pdf',
-                    image: {{ type: 'jpeg', quality: 1.0 }},
+                    margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }},
                     html2canvas: {{ scale: 3, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
@@ -1044,106 +1003,58 @@ def run_handout_app():
 # 6. 主程式入口與導航
 # ==========================================
 def main():
-    # 1. 注入自定義 CSS 樣式
     inject_custom_css()
     
-    # 2. 初始化 Session State 核心變數
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'app_mode' not in st.session_state:
-        st.session_state.app_mode = "Etymon Decoder (單字解碼)"
-    if 'user_balance' not in st.session_state:
-        st.session_state.user_balance = 0
+    # 初始化管理員狀態
+    if 'is_admin' not in st.session_state:
+        st.session_state.is_admin = False
 
-    # 3. 登入攔截：若未登入則顯示登入頁面並終止後續執行
-    if not st.session_state.logged_in:
-        login_page()
-        return
-
-    # ==========================================
-    # 4. 側邊欄 (Sidebar) 佈局
-    # ==========================================
+    st.sidebar.title("🏫 AI 教育工作站")
+    
+    # --- 側邊欄贊助與管理員 ---
     with st.sidebar:
-        # --- 用戶資訊與登出 ---
-        st.markdown(f"### 👋 {st.session_state.username}")
-        role_label = "🔴 管理員" if st.session_state.role == "admin" else "🟢 學生"
-        if st.session_state.role == "guest": role_label = "⚪ 訪客"
-        st.caption(f"身分：{role_label}")
-        
-        if st.button("🚪 登出系統", use_container_width=True):
-            if st.session_state.username != "訪客":
-                update_user_status(st.session_state.username, "is_online", "FALSE")
-            st.session_state.logged_in = False
-            st.rerun()
-        
-        st.markdown("---")
-
-        # --- 贊助按鈕 (左上角視覺區) ---
-        st.markdown("### 💖 支持與贊助")
+        st.markdown("### 💖 隨喜贊助")
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">
-                    💳 綠界贊助 (ECPay)
-                </a>
-                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="btn-bmc">
-                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
-                    Buy Me a Coffee
-                </a>
+                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">💳 綠界贊助 (ECPay)</a>
+                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="btn-bmc">☕ Buy Me a Coffee</a>
             </div>
         """, unsafe_allow_html=True)
-
-        # --- 即時餘額顯示 ---
-        st.markdown(f"""
-            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-top: 10px; margin-bottom: 20px;'>
-                <span style='color: #e65100; font-weight: bold; font-size: 0.9rem;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
-            </div>
-        """, unsafe_allow_html=True)
+        st.caption("您的贊助將用於支付 AI 算力支出，感謝支持！")
         
         st.markdown("---")
+        
+        # 管理員入口：僅用於解碼實驗室
+        with st.sidebar.expander("🔐 管理員登入"):
+            pwd = st.text_input("管理密碼", type="password")
+            if pwd == st.secrets.get("ADMIN_PASSWORD"):
+                st.session_state.is_admin = True
+                st.success("上帝模式：解鎖實驗室")
+            else:
+                st.session_state.is_admin = False
 
-        # --- 模組導航選擇 ---
-        # 使用 index 確保頁面重整時 selectbox 選項與 session_state 同步
-        current_index = 0 if st.session_state.app_mode == "Etymon Decoder (單字解碼)" else 1
-        st.session_state.app_mode = st.selectbox(
-            "選擇功能模組", 
-            ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"],
-            index=current_index
-        )
-        st.markdown("---")
-
-    # ==========================================
-    # 5. 路由邏輯 (Routing)
-    # ==========================================
+    # 模式選擇
+    app_mode = st.sidebar.selectbox("切換工具", ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"])
     
-    if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
-        # 單字解碼模組子選單
+    if app_mode == "Etymon Decoder (單字解碼)":
         menu = ["首頁", "學習與搜尋", "測驗模式"]
-        
-        # 權限過濾：只有管理員能進入解碼實驗室
-        if st.session_state.role == "admin":
-            menu.append("🔬 解碼實驗室")
-        
-        page = st.sidebar.radio("Etymon 選單", menu)
-        
-        # 載入單字資料庫
+        if st.session_state.is_admin:
+            menu.append("🔬 解碼實驗室") # 只有管理員能出新單字
+            
+        page = st.sidebar.radio("選單", menu)
         df = load_db()
         
-        if page == "首頁":
-            page_etymon_home(df)
-        elif page == "學習與搜尋":
-            page_etymon_learn(df)
-        elif page == "測驗模式":
-            page_etymon_quiz(df)
-        elif page == "🔬 解碼實驗室":
-            page_etymon_lab()
-            
-    elif st.session_state.app_mode == "Handout Pro (講義排版)":
-        # 講義排版模組 (內含 10 元扣款邏輯)
+        if page == "首頁": page_etymon_home(df)
+        elif page == "學習與搜尋": page_etymon_learn(df)
+        elif page == "測驗模式": page_etymon_quiz(df)
+        elif page == "🔬 解碼實驗室": page_etymon_lab()
+        
+    elif app_mode == "Handout Pro (講義排版)":
         run_handout_app()
 
-    # --- 頁尾資訊 ---
     st.sidebar.markdown("---")
-    st.sidebar.caption(f"v4.1 Integrated | Powered by Gemini 2.0")
+    status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
+    st.sidebar.caption(f"v4.2 Integrated | {status}")
 
 if __name__ == "__main__":
     main()
