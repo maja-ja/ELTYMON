@@ -311,7 +311,7 @@ def show_encyclopedia_card(row):
         if st.button("🚩 有誤回報", key=f"rep_{r_word}", use_container_width=True):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
-   with op3:
+    with op3:
         # 關鍵修改：繼承完整單字資訊物件
         if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
             # 1. 儲存原始資料字典，供 AI 深度繼承
