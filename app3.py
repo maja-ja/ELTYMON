@@ -274,4 +274,8 @@ def main():
     if df.empty: return
         
     if st.session_state.mobile_nav == "🔍 探索知識": mobile_home_page(df)
-    elif st
+    elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
+    elif st.session_state.mobile_nav == "💖 支持": mobile_sponsor_page()
+
+if __name__ == "__main__":
+    main()
