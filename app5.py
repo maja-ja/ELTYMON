@@ -822,7 +822,7 @@ def main():
     elif st.session_state.app_mode == "Handout Pro (講義排版)":
         run_handout_app()
 
-    st.sidebar.caption(f"v4.1 Integrated)
+    st.sidebar.caption(f"v4.1 Integrated")
 
 if __name__ == "__main__":
     main()
