@@ -238,7 +238,7 @@ def ai_decode_and_save(input_text, fixed_category):
     
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
-def show_encyclopedia_card(row):def show_encyclopedia_card(row):
+def show_encyclopedia_card(row):
     # 1. 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
