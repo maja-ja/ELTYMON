@@ -119,7 +119,7 @@ def login_page():
             st.session_state.logged_in = True
             st.session_state.username = "訪客"
             st.session_state.role = "guest"
-            st.session_state.user_balance = 20 # 訪客給較少餘額
+            st.session_state.user_balance = 0 # 訪客給較少餘額
             st.rerun()
 # ==========================================
 # 1. 核心配置與視覺美化 (CSS)
