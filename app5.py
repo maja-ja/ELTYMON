@@ -437,12 +437,12 @@ def show_encyclopedia_card(row):
     r_trans = str(row.get('translation', ""))
     r_ex = fix_content(row.get('example', ""))
 
-    # 2. 標題與發音區 (標題隨系統主題自動變色)
+    # 2. 標題與發音區
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     if r_phonetic and r_phonetic != "無":
         st.caption(f"/{r_phonetic}/")
 
-    # 3. 邏輯拆解區 (視覺化漸層高對比外框)
+    # 3. 邏輯拆解區 (視覺化漸層外框)
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
@@ -476,7 +476,7 @@ def show_encyclopedia_card(row):
             </div>
         """, unsafe_allow_html=True)
 
-    # 6. 深度百科 (隱藏細節：對比、警告)
+    # 6. 深度百科 (隱藏細節)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -497,9 +497,8 @@ def show_encyclopedia_card(row):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
     with op3:
-        # 【一鍵跳轉核心】：修正跳轉失效問題
+        # 跳轉按鈕邏輯
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
-            
             # A. 建立 Markdown 格式的講義草稿
             inherited_draft = (
                 f"## 專題講義：{r_word}\n\n"
@@ -511,13 +510,14 @@ def show_encyclopedia_card(row):
                 f"**專家心法**：{r_vibe}"
             )
             
-           st.session_state.manual_input_content = inherited_draft
+            # B. 雙向同步：預填 Handout 模組內容
+            st.session_state.manual_input_content = inherited_draft
             st.session_state.generated_text = inherited_draft
             
-            # C. 【修正】：只需更新 app_mode，不需要也不可以更新導航 Widget 的 key
+            # C. 更新導航狀態變數 (搭配修正後的 main 函式)
             st.session_state.app_mode = "Handout Pro (講義排版)"
             
-            # D. 執行刷新
+            # D. 執行頁面刷新
             st.rerun()
 # ==========================================
 # 4. Etymon 模組: 頁面邏輯
