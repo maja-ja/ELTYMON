@@ -502,7 +502,7 @@ def show_encyclopedia_card(row):
             
     with op3:
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
-            # 1. 背景靜默紀錄，不發出任何通知
+            # --- 靜默紀錄跳轉 ---
             log_user_intent("word_jump") 
             
             # 2. 執行跳轉邏輯
@@ -904,16 +904,15 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
 
-def generate_printable_html(title, text_content, img_b64, img_width_percent):
-    """
-    生成 A4 列印用 HTML。
-    完全開放下載，僅保留贊助建議。
-    """
+def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
     text_content = text_content.strip()
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
+
+    # 如果 auto_download 為 True，則在頁面載入後 1 秒自動觸發下載
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1000); };" if auto_download else ""
 
     return f"""
     <html>
@@ -927,20 +926,14 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
             #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; }}
             .content {{ font-size: 16px; text-align: justify; }}
             h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
-            #btn-container {{ text-align: center; padding: 15px; width: 100%; position: sticky; top: 0; background: #1a1a1a; z-index: 9999; }}
-            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 50px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }}
-            .sponsor-text {{ color: #cbd5e1; font-size: 12px; margin-top: 8px; }}
-            @media print {{ #btn-container {{ display: none; }} }}
+            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 20px; }}
         </style>
     </head>
     <body>
-        <div id="btn-container">
-            <button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義 (PDF)</button>
-            <div class="sponsor-text">💖 講義生成完全免費，若覺得好用歡迎隨喜贊助支持！</div>
-        </div>
         <div id="printable-area">
             <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}<div class="content">{html_body}</div>
+            <div class="sponsor-text-footer">💖 講義完全免費，若覺得好用歡迎贊助支持 AI 算力支出。</div>
         </div>
         <script>
             function downloadPDF() {{
@@ -952,6 +945,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
                 }};
                 html2pdf().set(opt).from(element).save();
             }}
+            {auto_js}
         </script>
     </body>
     </html>
@@ -1044,49 +1038,41 @@ def run_handout_app():
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 說明：</b>下方為即時列印預覽。編輯滿意後，點擊上方按鈕下載 PDF。</div>', unsafe_allow_html=True)
         
-        # --- 內容修訂區 (右側預覽編輯器) ---
-        # 綁定 generated_text：確保跳轉後的草稿或 AI 生成後的正式版都會出現在編輯器中
-        # 訪客即使沒有 AI 生成權限，其手動編輯的內容也會通過 preview_editor 顯示在這裡
-        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
-        if not preview_source: # 如果兩個都沒內容，顯示預設提示
-            preview_source = "### 預覽區\n請在左側輸入內容，或從單字解碼跳轉匯入草稿。"
+        # --- 這裡是關鍵：Streamlit 原生下載按鈕 ---
+        # 我們用一個控制變數來決定是否觸發 HTML 內的自動下載
+        if "trigger_download" not in st.session_state:
+            st.session_state.trigger_download = False
 
-        edited_content = st.text_area(
-            "📝 講義內容編輯", 
-            value=preview_source, 
-            height=450,
-            key="preview_editor"
-        )
+        if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
+            # 1. 靜默紀錄數據
+            log_user_intent("pdf_download")
+            # 2. 觸發下載旗標
+            st.session_state.trigger_download = True
+            st.rerun()
+
+        # --- 原有的內容編輯區 ---
+        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
+        edited_content = st.text_area("📝 內容修訂", value=preview_source, height=400, key="preview_editor")
         
-        # 標題設定：嘗試從內容第一行自動抓取
-        default_title = "AI 專題講義"
-        if edited_content:
-            first_lines = edited_content.split('\n')
-            for line in first_lines:
-                clean_line = line.replace('#', '').strip()
-                if clean_line:
-                    default_title = clean_line
-                    break
-            
-        handout_title = st.text_input("講義標題", value=default_title)
-        
-        # 準備圖片 Base64 數據
+        # 準備渲染
         img_b64 = get_image_base64(image) if image else ""
         
-        # --- 3. 渲染最終列印用 HTML 下載組件 (全功能開放) ---
-        # 注意：此處需確保 generate_printable_html 函式已正確定義
+        # 生成 HTML (傳入 trigger_download 狀態)
         final_html = generate_printable_html(
             title=handout_title, 
             text_content=edited_content, 
             img_b64=img_b64, 
-            img_width_percent=img_width
+            img_width_percent=img_width,
+            auto_download=st.session_state.trigger_download # 傳入旗標
         )
         
-        # 渲染 HTML 組件
+        # 渲染組件
         components.html(final_html, height=1000, scrolling=True)
 
+        # 下載完成後重置旗標，避免重複下載
+        if st.session_state.trigger_download:
+            st.session_state.trigger_download = False
 # ==========================================
 # 6. 主程式入口與導航
 # ==========================================
