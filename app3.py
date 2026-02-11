@@ -117,15 +117,18 @@ def inject_dual_theme_ui():
                 box-shadow: 0 10px 30px var(--shadow-color); margin-bottom: 20px; border: 1px solid var(--border-color);
             }
             
-            /* 🔥 修正：縮小淺藍色字根標籤的字體 */
+            /* 🔥 修正：縮小單字標題的字體 */
+            .word-card h1 {
+                font-size: 1.6rem !important; /* 原本大約 2rem+ */
+                margin: 0;
+                line-height: 1.2;
+                color: var(--h1-color);
+            }
+            
             .roots-tag {
-                background: var(--accent-bg); 
-                color: var(--accent-text-color); 
-                padding: 4px 10px;
-                border-radius: 10px; 
-                font-size: 0.8rem; /* 從 0.9rem 縮小到 0.8rem */
-                font-weight: bold; 
-                display: inline-block;
+                background: var(--accent-bg); color: var(--accent-text-color); 
+                padding: 4px 10px; border-radius: 10px; 
+                font-size: 0.8rem; font-weight: bold; display: inline-block;
             }
             
             .stButton > button, .stTextInput > div > div > input, .stSelectbox > div > div > div {
@@ -193,7 +196,7 @@ def mobile_home_page(df):
         <div class="word-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                 <div>
-                    <h1 style="margin:0; color:var(--h1-color);">{w}</h1>
+                    <h1>{w}</h1>
                     <p style="color:var(--subtle-text-color); margin:5px 0 15px 0; font-size:0.9rem;">/{fix_content(target_row['phonetic'])}/</p>
                 </div>
                 <span style="font-size:0.75rem; background:var(--main-bg); padding:4px 8px; border-radius:8px; color:var(--subtle-text-color);">
@@ -277,5 +280,4 @@ def main():
     elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
     elif st.session_state.mobile_nav == "💖 支持": mobile_sponsor_page()
 
-if __name__ == "__main__":
-    main()
+if __name__ == "
