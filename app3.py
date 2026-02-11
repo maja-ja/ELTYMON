@@ -1,5 +1,5 @@
 # ==========================================
-# 0. 基礎套件導入
+# 0. 基礎套件導入 (保持不變)
 # ==========================================
 import streamlit as st
 import pandas as pd
@@ -15,6 +15,8 @@ from gtts import gTTS
 import streamlit.components.v1 as components
 import markdown
 from streamlit_gsheets import GSheetsConnection
+
+# ... (保持原本的 fix_content, speak, log_user_intent, generate_printable_html 函式不變) ...
 
 # ==========================================
 # 1. 核心工具函式 (後端邏輯)
@@ -90,7 +92,7 @@ def generate_printable_html(title, text_content, **kwargs):
     </body></html>"""
 
 # ==========================================
-# 2. 手機版 UI (雙色主題與贊助視覺優化)
+# 2. 手機版 UI (雙色主題與布局)
 # ==========================================
 
 def inject_dual_theme_ui():
@@ -100,7 +102,6 @@ def inject_dual_theme_ui():
                 --main-bg: #F8F9FA; --card-bg: white; --text-color: #212529; --subtle-text-color: #6c757d;
                 --border-color: #f0f0f0; --shadow-color: rgba(0, 0, 0, 0.07);
                 --accent-bg: #E3F2FD; --accent-text-color: #1976D2; --h1-color: #1A237E;
-                --sponsor-btn: #00A650;
             }
             @media (prefers-color-scheme: dark) {
                 :root {
@@ -120,63 +121,85 @@ def inject_dual_theme_ui():
                 background: var(--accent-bg); color: var(--accent-text-color); padding: 6px 14px;
                 border-radius: 12px; font-size: 0.9rem; font-weight: bold; display: inline-block;
             }
-            .stButton > button, .stTextInput > div > div > input {
-                border-radius: 15px !important; height: 55px !important; transition: transform 0.2s ease;
+            .stButton > button, .stTextInput > div > div > input, .stSelectbox > div > div > div {
+                border-radius: 15px !important; height: 50px !important; transition: transform 0.2s ease;
             }
             .stButton > button:active { transform: scale(0.95); }
             
-            /* 贊助橫幅樣式 */
             .sponsor-banner {
                 background: linear-gradient(90deg, #FFDD00, #FBB03B);
-                color: #000 !important; padding: 10px; border-radius: 15px;
+                color: #000 !important; padding: 12px; border-radius: 15px;
                 text-align: center; font-weight: bold; font-size: 0.85rem;
                 margin-bottom: 15px; cursor: pointer; display: block; text-decoration: none;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
             }
         </style>
     """, unsafe_allow_html=True)
 
 def mobile_home_page(df):
-    """手機版首頁：整合搜尋、隨機探索與贊助印象"""
-    st.markdown("<h2 style='text-align:center; color: var(--text-color);'>🔍 探索知識</h2>", unsafe_allow_html=True)
+    """手機版首頁：融合領域篩選、精確搜尋與隨機探索"""
     
-    # --- 1. 頂部贊助印象橫幅 (第一眼可見) ---
+    # 1. 贊助印象 (頂部)
     st.markdown("""
         <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">
-            💖 喜歡這個工具嗎？點此贊助支持伺服器維運！
+            💖 喜歡這個工具嗎？點此贊助支持開發成本！
         </a>
     """, unsafe_allow_html=True)
 
+    # 2. 領域選擇 (精簡下拉選單)
+    all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
+    selected_cat = st.selectbox("選擇學習領域", all_cats, label_visibility="collapsed")
+
+    # 3. 搜尋與隨機抽 (橫向布局)
     col_search, col_rand = st.columns([4, 1])
     with col_search:
-        query = st.text_input("搜尋單字或含意...", placeholder="例如: 熵", label_visibility="collapsed")
+        query = st.text_input("輸入單字查詢...", placeholder="例如: 熵", label_visibility="collapsed")
     with col_rand:
-        if st.button("🎲"): 
-            if not df.empty:
-                st.session_state.selected_word = df.sample(1).iloc[0].to_dict()
+        if st.button("🎲", help="從選定領域隨機抽取"): 
+            # 隨機邏輯：如果不是全部領域，先篩選再抽
+            sample_pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
+            if not sample_pool.empty:
+                st.session_state.selected_word = sample_pool.sample(1).iloc[0].to_dict()
                 st.rerun()
 
+    # 4. 搜尋與顯示邏輯
     target_row = None
     if query:
-        mask = df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)
-        res = df[mask]
-        target_row = res.iloc[0].to_dict() if not res.empty else None
+        # 精確匹配優先，否則包含匹配
+        exact_match = df[df['word'].str.lower() == query.strip().lower()]
+        if not exact_match.empty:
+            target_row = exact_match.iloc[0].to_dict()
+        else:
+            fuzzy_match = df[df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)]
+            if not fuzzy_match.empty:
+                target_row = fuzzy_match.iloc[0].to_dict()
+            else:
+                st.info("找不到該單字，點擊 🎲 試試隨機探索？")
     elif "selected_word" in st.session_state:
         target_row = st.session_state.selected_word
-    elif not df.empty:
-        target_row = df.sample(1).iloc[0].to_dict()
-        st.session_state.selected_word = target_row
+    else:
+        # 初始進入時，從全部領域隨機抓一個
+        if not df.empty:
+            target_row = df.sample(1).iloc[0].to_dict()
+            st.session_state.selected_word = target_row
 
+    # 5. 渲染卡片
     if target_row:
         w = target_row['word']
         st.markdown(f"""
         <div class="word-card">
-            <h1 style="margin-top:0; margin-bottom:5px; color:var(--h1-color);">{w}</h1>
-            <p style="color:var(--subtle-text-color); margin-bottom:20px; font-size:0.9rem;">/{fix_content(target_row['phonetic'])}/</p>
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                    <h1 style="margin:0; color:var(--h1-color);">{w}</h1>
+                    <p style="color:var(--subtle-text-color); margin:5px 0 15px 0; font-size:0.9rem;">/{fix_content(target_row['phonetic'])}/</p>
+                </div>
+                <span style="font-size:0.75rem; background:var(--main-bg); padding:4px 8px; border-radius:8px; color:var(--subtle-text-color);">
+                    {target_row['category']}
+                </span>
+            </div>
             <span class="roots-tag">🧬 {fix_content(target_row['roots'])}</span>
             <p style="margin-top:20px; font-size:1.1rem; line-height:1.7; color:var(--text-color);">{fix_content(target_row['definition'])}</p>
             <div style="background:var(--main-bg); padding:15px; border-radius:12px; font-size:0.95rem; color:var(--text-color); margin-top:15px;">
-                💡 <b>應用:</b> {fix_content(target_row['example'])}
+                💡 <b>實例:</b> {fix_content(target_row['example'])}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -191,15 +214,19 @@ def mobile_home_page(df):
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
         
-        # --- 2. 卡片底部第二次贊助印象 ---
+        # 額外贊助提醒 (卡片下方)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"""
             <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
                 <div style="background:var(--card-bg); border: 2px dashed #FFDD00; color:var(--text-color); padding:15px; border-radius:15px; text-align:center; font-size:0.9rem; font-weight:bold;">
-                    ☕ 覺得內容有幫助？請我喝杯咖啡吧！
+                    ☕ 內容對你有幫助嗎？請作者喝杯咖啡吧！
                 </div>
             </a>
         """, unsafe_allow_html=True)
+
+# ==========================================
+# 3. 其他頁面與主程式 (保持不變)
+# ==========================================
 
 def mobile_handout_page():
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>📄 講義預覽與下載</h2>", unsafe_allow_html=True)
@@ -216,27 +243,24 @@ def mobile_handout_page():
     components.html(final_html, height=450, scrolling=True)
 
 def mobile_sponsor_page():
-    """手機版專屬贊助頁 (保持詳細資訊)"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>💖 支持我們</h2>", unsafe_allow_html=True)
     st.markdown("""
     <div class="word-card" style="text-align:center;">
-        <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">這是一個免費工具，<br>您的贊助將用於 AI 算力支出與開發維護。</p>
+        <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">這是一個免費工具，您的贊助將支持算力支出。</p>
         <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;"><div style="background:#00A650; color:white; padding:15px; border-radius:15px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界贊助 (ECPay)</div></a>
         <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;"><div style="background:#FFDD00; color:black; padding:15px; border-radius:15px; font-weight:bold;">☕ Buy Me a Coffee</div></a>
     </div>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 3. 主程式入口 (Main App)
-# ==========================================
 def main():
     st.set_page_config(page_title="Etymon Mobile", page_icon="📱", layout="centered")
     inject_dual_theme_ui()
 
     if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索知識"
 
+    # 選單切換
     nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
-    selected_nav = st.radio("主選單", options=nav_options, index=nav_options.index(st.session_state.mobile_nav), horizontal=True, label_visibility="collapsed")
+    selected_nav = st.radio("導覽", options=nav_options, index=nav_options.index(st.session_state.mobile_nav), horizontal=True, label_visibility="collapsed")
     if selected_nav != st.session_state.mobile_nav:
         st.session_state.mobile_nav = selected_nav
         st.rerun()
@@ -244,9 +268,7 @@ def main():
     st.markdown("<hr style='margin: 0.5rem 0 1.5rem 0; border-color: var(--border-color);'>", unsafe_allow_html=True)
 
     df = load_db()
-    if df.empty:
-        st.warning("資料庫連接中或目前無資料...")
-        return
+    if df.empty: return
         
     if st.session_state.mobile_nav == "🔍 探索知識": mobile_home_page(df)
     elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
