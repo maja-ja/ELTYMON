@@ -425,7 +425,7 @@ def ai_decode_and_save(input_text, fixed_category):
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗 (繼承 v3.0 完整細節)
+    # 1. 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -490,16 +490,14 @@ def show_encyclopedia_card(row):
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
-        # TTS 發音按鈕
         speak(r_word, f"card_{r_word}")
         
     with op2:
-        # 錯誤回報按鈕 (寫入 Sheet)
         if st.button("🚩 有誤回報", key=f"rep_{r_word}", use_container_width=True):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
     with op3:
-        # 【一鍵生成講義】：公開模式免費跳轉，自動同步內容
+        # 【一鍵跳轉核心】：修正跳轉失效問題
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
             
             # A. 建立 Markdown 格式的講義草稿
@@ -513,13 +511,16 @@ def show_encyclopedia_card(row):
                 f"**專家心法**：{r_vibe}"
             )
             
-            # B. 雙向同步：設定 Handout 模組專用的狀態變數
-            # 同步填入左側素材框 (manual_input_content) 與 右側預覽編輯器 (generated_text)
+            # B. 雙向同步：預填 Handout 模組內容
             st.session_state.manual_input_content = inherited_draft
             st.session_state.generated_text = inherited_draft
             
-            # C. 切換導航模式並執行頁面重整 (跳轉)
-            st.session_state.app_mode = "Handout Pro (講義排版)"
+            # C. 【關鍵修正】：同步更新導航狀態與 Selectbox 的 Key
+            target_mode = "Handout Pro (講義排版)"
+            st.session_state.app_mode = target_mode
+            st.session_state.navigation_select = target_mode # 強制 UI 組件同步切換
+            
+            # D. 執行頁面刷新
             st.rerun()
 # ==========================================
 # 4. Etymon 模組: 頁面邏輯
@@ -662,8 +663,8 @@ def run_handout_app():
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
 
-    # 顯示跳轉成功提示
-    if st.session_state.manual_input_content.startswith("## 專題講義"):
+    # 顯示跳轉成功提示 (若內容包含預填草稿標籤)
+    if "專題講義" in st.session_state.manual_input_content:
         st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
 
     # 2. 頁面佈局：左側控制區，右側預覽區
@@ -694,6 +695,7 @@ def run_handout_app():
         st.divider()
         
         # --- 文字輸入區 (關鍵：綁定 manual_input_content) ---
+        # 這裡使用 key 直接綁定，確保跳轉過來的文字自動出現在框內
         st.text_area(
             "講義素材內容 (AI 將根據此內容進行專業排版)", 
             key="manual_input_content", 
@@ -701,9 +703,9 @@ def run_handout_app():
             help="您可以修改跳轉過來的草稿，或在此輸入新的教學素材。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加三個隨堂練習題、標註重點...")
+        ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加三個練習題、標註重點、改為英文版...")
         
-        st.info("💡 公開模式說明：點擊按鈕將調用 AI 進行專業排版優化。服務完全免費，歡迎贊助支持。")
+        st.info("💡 公開模式：服務完全免費，點擊下方按鈕將調用 AI 進行專業排版。")
         
         # --- 啟動 AI 生成按鈕 ---
         if st.button("🚀 啟動 AI 專業生成", type="primary", use_container_width=True):
@@ -716,19 +718,20 @@ def run_handout_app():
                 with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
                     # 調用 AI 生成專業講義
                     image_obj = Image.open(uploaded_file) if uploaded_file else None
+                    # 注意：此處需確保 handout_ai_generate 函式已正確定義
                     generated_res = handout_ai_generate(image_obj, current_material, ai_instr)
                     
                     # 更新右側預覽內容 (覆蓋掉原本的草稿)
                     st.session_state.generated_text = generated_res
-                    st.success("✅ AI 生成成功！右側已更新為專業排版內容。")
+                    st.success("✅ AI 生成成功！右側預覽已更新。")
                     st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 說明：</b>下方為即時列印預覽。您可以直接修改內容，完成後點擊上方按鈕下載 PDF。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時列印預覽。編輯完成後，點擊預覽區上方的下載按鈕。</div>', unsafe_allow_html=True)
         
         # --- 內容修訂區 (右側預覽編輯器) ---
-        # 綁定 generated_text：確保跳轉過來的內容會出現在編輯器中
+        # 綁定 generated_text：確保跳轉後的草稿或 AI 生成後的正式版都會出現在編輯器中
         edited_content = st.text_area(
             "📝 講義內容編輯", 
             value=st.session_state.generated_text, 
@@ -736,11 +739,15 @@ def run_handout_app():
             key="preview_editor"
         )
         
-        # 標題設定：嘗試從內容第一行抓取
+        # 標題設定：嘗試從內容第一行自動抓取
         default_title = "AI 專題講義"
         if st.session_state.generated_text:
-            first_line = st.session_state.generated_text.split('\n')[0].replace('#', '').strip()
-            if first_line: default_title = first_line
+            first_lines = st.session_state.generated_text.split('\n')
+            for line in first_lines:
+                clean_line = line.replace('#', '').strip()
+                if clean_line:
+                    default_title = clean_line
+                    break
             
         handout_title = st.text_input("講義標題", value=default_title)
         
@@ -748,7 +755,7 @@ def run_handout_app():
         img_b64 = get_image_base64(image) if image else ""
         
         # --- 3. 渲染最終列印用 HTML 下載組件 ---
-        # 這裡傳入 edited_content (用戶在編輯器中手動修改後的最新內容)
+        # 注意：此處需確保 generate_printable_html 函式已正確定義
         final_html = generate_printable_html(
             title=handout_title, 
             text_content=edited_content, 
@@ -989,13 +996,17 @@ def main():
     # 1. 注入自定義 CSS
     inject_custom_css()
     
-    # 2. 初始化核心 Session State
+    # 2. 初始化核心 Session State 變數
+    modes = ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"]
+    
     if 'app_mode' not in st.session_state:
-        st.session_state.app_mode = "Etymon Decoder (單字解碼)"
+        st.session_state.app_mode = modes[0]
+    
+    if 'navigation_select' not in st.session_state:
+        st.session_state.navigation_select = modes[0]
+        
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
-    if 'generated_text' not in st.session_state:
-        st.session_state.generated_text = ""
 
     # ==========================================
     # 3. 側邊欄 (Sidebar) 佈局
@@ -1016,54 +1027,48 @@ def main():
                 </a>
             </div>
         """, unsafe_allow_html=True)
-        st.caption("講義下載完全免費。您的贊助將用於支付 AI 算力成本，感謝支持！")
+        st.caption("講義生成與下載完全免費。您的贊助將用於支持 AI 算力支出，感謝支持！")
         
         st.markdown("---")
 
-        # --- 🔐 管理員入口 (僅解鎖單字生成功能) ---
-        with st.sidebar.expander("🔐 管理員登入"):
-            admin_pwd = st.text_input("輸入管理密碼", type="password", key="admin_pwd_input")
-            if admin_pwd == st.secrets.get("ADMIN_PASSWORD", "0000"):
-                st.session_state.is_admin = True
-                st.success("上帝模式：解鎖實驗室")
-            else:
-                st.session_state.is_admin = False
-
-        st.markdown("---")
-
-        # --- 🧭 導航控制 (關鍵修正：解決跳轉失敗) ---
-        modes = ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"]
-        
-        # 根據當前的 app_mode 決定 selectbox 的預設 index
-        if st.session_state.app_mode not in modes:
-            st.session_state.app_mode = modes[0]
-        curr_index = modes.index(st.session_state.app_mode)
-        
-        # 渲染選單：當用戶手動切換時更新 session_state
-        selected_mode = st.sidebar.selectbox(
+        # --- 🧭 導航控制 (關鍵修正：使用 Key 綁定實現強制跳轉) ---
+        # 這裡不使用 index 參數，直接透過 key="navigation_select" 讓系統自動同步
+        st.sidebar.selectbox(
             "切換工具模組", 
             modes, 
-            index=curr_index,
             key="navigation_select"
         )
-        st.session_state.app_mode = selected_mode
+        
+        # 同步全局模式變數
+        st.session_state.app_mode = st.session_state.navigation_select
+
+        st.markdown("---")
+
+        # --- 🔐 管理員入口 (僅解鎖解碼實驗室) ---
+        with st.sidebar.expander("🔐 管理員登入"):
+            pwd = st.text_input("管理密碼", type="password")
+            if pwd == st.secrets.get("ADMIN_PASSWORD", "0000"):
+                st.session_state.is_admin = True
+                st.success("上帝模式：已解鎖實驗室")
+            else:
+                st.session_state.is_admin = False
 
     # ==========================================
     # 4. 路由邏輯 (Routing)
     # ==========================================
     
     if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
+        # 載入單字資料庫
+        df = load_db()
+        
         # 單字解碼子選單
         menu = ["首頁", "學習與搜尋", "測驗模式"]
         
-        # 只有管理員權限才會出現「🔬 解碼實驗室」
+        # 只有管理員模式會顯示實驗室
         if st.session_state.is_admin:
             menu.append("🔬 解碼實驗室")
-        
-        page = st.sidebar.radio("Etymon 選單", menu)
-        
-        # 載入資料庫 (Google Sheets)
-        df = load_db()
+            
+        page = st.sidebar.radio("Etymon 功能選單", menu)
         
         if page == "首頁":
             page_etymon_home(df)
@@ -1075,12 +1080,12 @@ def main():
             page_etymon_lab()
             
     elif st.session_state.app_mode == "Handout Pro (講義排版)":
-        # 進入講義排版模組 (任何人皆可免費生成與下載)
+        # 講義排版模組 (公開免費使用)
         run_handout_app()
 
     # --- 側邊欄頁尾 ---
     st.sidebar.markdown("---")
-    auth_status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
+    auth_status = "🔴 管理員模式" if st.session_state.is_admin else "🟢 公開服務模式"
     st.sidebar.caption(f"v4.2 Integrated | {auth_status}")
 
 if __name__ == "__main__":
