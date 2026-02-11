@@ -391,7 +391,7 @@ def ai_decode_and_save(input_text, fixed_category):
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗 (繼承 v3.0 完整欄位)
+    # 1. 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -408,7 +408,7 @@ def show_encyclopedia_card(row):
     if r_phonetic and r_phonetic != "無":
         st.caption(f"/{r_phonetic}/")
 
-    # 3. 邏輯拆解區 (視覺化漸層外框)
+    # 3. 邏輯拆解區
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
@@ -418,7 +418,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
     
-    # 4. 核心內容區 (定義與原理)
+    # 4. 核心內容區
     c1, c2 = st.columns(2)
     with c1:
         st.info("### 🎯 定義與解釋")
@@ -433,7 +433,7 @@ def show_encyclopedia_card(row):
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 5. 專家視角 (內行心法)
+    # 5. 專家視角
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
@@ -442,7 +442,7 @@ def show_encyclopedia_card(row):
             </div>
         """, unsafe_allow_html=True)
 
-    # 6. 深度百科 (隱藏細節)
+    # 6. 深度百科 (可選)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -463,8 +463,9 @@ def show_encyclopedia_card(row):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
     with op3:
-        # 【免費跳轉按鈕】：不扣款，僅傳輸資料並切換頁面
+        # 【免費跳轉按鈕】：不扣款，僅傳輸資料並初始化支付狀態
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
+            
             # A. 封裝完整單字物件資料供後端繼承
             st.session_state.inherited_word_data = row.to_dict() if hasattr(row, 'to_dict') else row
             
@@ -479,11 +480,14 @@ def show_encyclopedia_card(row):
                 f"**專家心法**：{r_vibe}"
             )
             
-            # C. 雙向同步：填入左側素材框與右側預覽區 (確保跳轉後立刻看到 A4 內容)
+            # C. 雙向同步：填入左側素材框與右側預覽區
             st.session_state.manual_input_content = draft_text 
             st.session_state.generated_text = draft_text
             
-            # D. 切換導航模式
+            # D. 關鍵：將支付狀態明確設為 False
+            st.session_state.is_paid = False
+            
+            # E. 切換導航模式
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 # ==========================================
@@ -623,14 +627,16 @@ def run_handout_app():
     inherited_data = st.session_state.get("inherited_word_data")
     current_balance = st.session_state.get("user_balance", 0)
     
-    if inherited_data:
-        st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的深度解碼資訊 (草稿已生成)")
-    
-    # 確保必要的 Session State Key 存在
+    # 確保必要的 Session State Key 存在，避免報錯
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
+    if "is_paid" not in st.session_state:
+        st.session_state.is_paid = False
+
+    if inherited_data:
+        st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的免費草稿")
 
     # 2. 頁面佈局：左側控制區，右側預覽區
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
@@ -659,7 +665,6 @@ def run_handout_app():
         st.divider()
         
         # --- 文字輸入區 (左側素材框) ---
-        # 使用 key 綁定，確保跳轉過來的草稿文字自動填入
         st.text_area(
             "講義素材內容 (AI 將根據此內容進行專業排版)", 
             key="manual_input_content", 
@@ -667,14 +672,14 @@ def run_handout_app():
             help="您可以修改草稿文字，或手動輸入新素材。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點、改為英文版...")
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點...")
         
         # --- 3. 支付確認與收費點 ---
         st.markdown(f"""
             <div style='background: #fff7ed; padding: 15px; border-radius: 8px; border: 1px solid #fdba74;'>
                 <p style='margin:0; color: #9a3412;'><b>💰 AI 專業生成費用：10 元 / 次</b></p>
                 <p style='margin:0; font-size: 0.9rem; color: #c2410c;'>當前帳戶餘額：{current_balance} 元</p>
-                <p style='margin:0; font-size: 0.8rem; color: #7c2d12; margin-top:5px;'><i>* 預覽草稿免費，點擊下方按鈕後才扣款。</i></p>
+                <p style='margin:0; font-size: 0.8rem; color: #7c2d12; margin-top:5px;'><i>* 預覽草稿免費，點擊下方按鈕後才扣款並解鎖下載。</i></p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -695,22 +700,24 @@ def run_handout_app():
                     if st.session_state.get("username") != "訪客":
                         update_user_status(st.session_state.username, "ai_usage", st.session_state.user_balance)
                     
-                    # C. 準備 AI 提示
+                    # C. 調用 AI 生成專業內容
                     final_prompt = st.session_state.manual_input_content
                     if inherited_data:
                         final_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備教學邏輯的專業講義：\n\n{final_prompt}"
                     
-                    # D. 調用 AI 生成專業內容
                     generated_res = handout_ai_generate(image, final_prompt, ai_instr)
                     
-                    # E. 更新右側預覽內容 (覆蓋掉原本的草稿)
+                    # D. 更新右側預覽內容
                     st.session_state.generated_text = generated_res
+                    
+                    # E. 關鍵：解鎖下載權限
+                    st.session_state.is_paid = True
                     
                     # F. 清除繼承標記，但保留輸入框文字
                     if "inherited_word_data" in st.session_state:
                         del st.session_state.inherited_word_data
                     
-                    st.success("✅ 支付成功！專業講義已生成。")
+                    st.success("✅ 支付成功！專業講義已生成，下載功能已解鎖。")
                     st.rerun()
 
     with col_prev:
@@ -718,8 +725,6 @@ def run_handout_app():
         st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時預覽。您可以直接修改文字，完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
         
         # --- 內容修訂區 (右側預覽) ---
-        # 關鍵：value 綁定 st.session_state.generated_text
-        # 跳轉過來時，這裡會顯示草稿；支付後，這裡會顯示 AI 生成的正式版
         edited_content = st.text_area(
             "📝 講義內容編輯", 
             value=st.session_state.generated_text, 
@@ -727,20 +732,26 @@ def run_handout_app():
             key="preview_editor"
         )
         
-        # 標題設定
+        # --- 標題設定 ---
         default_title = "AI 專題講義"
         if inherited_data: 
             default_title = f"{inherited_data.get('word')} 專題講義"
             
         handout_title = st.text_input("講義標題", value=default_title)
         
-        # 準備圖片 Base64
+        # --- 準備圖片 ---
         img_b64 = get_image_base64(image) if image else ""
         
-        # 4. 生成最終列印用 HTML (使用編輯器中的最新內容)
-        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+        # 4. 生成最終列印用 HTML，並傳入支付狀態
+        final_html = generate_printable_html(
+            handout_title, 
+            edited_content, 
+            img_b64, 
+            img_width,
+            is_paid=st.session_state.is_paid  # 關鍵：將支付狀態傳入，控制按鈕鎖定
+        )
         
-        # 渲染 HTML 預覽組件
+        # --- 渲染 HTML 預覽組件 ---
         components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
@@ -869,18 +880,36 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
 
-def generate_printable_html(title, text_content, img_b64, img_width_percent):
+def generate_printable_html(title, text_content, img_b64, img_width_percent, is_paid=False):
     """
-    生成 A4 列印用 HTML。
-    注意：f-string 中的 CSS 和 JS 大括號必須使用 {{ }} 進行轉義。
+    生成 A4 列印用 HTML，並根據支付狀態鎖定下載按鈕。
     """
+    # 1. 處理文本內容 (Markdown 轉 HTML)
     text_content = text_content.strip()
     text_content = re.sub(r'^(\[換頁\]|\s|\n)+', '', text_content)
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
+    
+    # 2. 準備其他資訊
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
 
+    # 3. 根據支付狀態 (is_paid) 動態生成按鈕的 HTML
+    if is_paid:
+        # 已支付：顯示藍色、可點擊的下載按鈕
+        btn_html = f'<button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義 (已授權)</button>'
+    else:
+        # 未支付：顯示灰色、不可點擊的鎖定按鈕
+        # onclick 事件改為彈出提示，而不是執行下載
+        btn_html = (
+            '<button class="download-btn locked-btn" '
+            'onclick="alert(\'請點擊左側「確認支付」按鈕以解鎖 PDF 下載功能。\')">'
+            '🔒 支付 10 元解鎖下載'
+            '</button>'
+        )
+
+    # 4. 組合完整的 HTML 頁面
+    # 注意：f-string 中的 CSS 和 JS 大括號必須使用 {{ }} 進行轉義
     return f"""
     <html>
     <head>
@@ -895,19 +924,17 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
             body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #2c2c2c; display: flex; flex-direction: column; align-items: center; }}
             #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; background-image: linear-gradient(to bottom, #e0f2fe 20mm, transparent 20mm), linear-gradient(to bottom, transparent 277mm, #fee2e2 277mm); background-size: 100% 297mm; }}
             .content {{ font-size: 16px; text-align: justify; position: relative; z-index: 2; }}
-            .content h2 {{ page-break-before: always; break-before: always; color: #1a237e; border-left: 5px solid #1a237e; padding-left: 10px; margin-top: 30px; }}
-            .content h2:first-child {{ page-break-before: avoid !important; margin-top: 0 !important; }}
-            .manual-page-break {{ page-break-before: always; height: 1px; }}
-            .content p, .content li, .img-wrapper, mjx-container, table {{ page-break-inside: avoid; break-inside: avoid; margin-bottom: 15px; }}
             h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
             .img-wrapper {{ text-align: center; margin: 15px 0; }}
             #btn-container {{ text-align: center; padding: 15px; width: 100%; position: sticky; top: 0; background: #1a1a1a; z-index: 9999; }}
-            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 60px; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; }}
-            @media print {{ body {{ background: white !important; }} #printable-area {{ margin: 0 !important; box-shadow: none !important; background-image: none !important; }} #btn-container {{ display: none; }} }}
+            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 60px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.3s; }}
+            .download-btn.locked-btn {{ background: #64748b; cursor: not-allowed; }}
+            .download-btn.locked-btn:hover {{ background: #475569; }}
+            @media print {{ #btn-container {{ display: none; }} }}
         </style>
     </head>
     <body>
-        <div id="btn-container"><button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義</button></div>
+        <div id="btn-container">{btn_html}</div>
         <div id="printable-area">
             <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}<div class="content">{html_body}</div>
@@ -915,14 +942,23 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
-                const opt = {{ margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }}, html2canvas: {{ scale: 3, useCORS: true, logging: false, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}, pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }} }};
-                MathJax.typesetPromise().then(() => {{ setTimeout(() => {{ html2pdf().set(opt).from(element).save(); }}, 1200); }});
+                const opt = {{
+                    margin: 0,
+                    filename: '{title}.pdf',
+                    image: {{ type: 'jpeg', quality: 1.0 }},
+                    html2canvas: {{ scale: 3, useCORS: true, logging: false, scrollY: 0 }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
+                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
+                }};
+                // 渲染 MathJax 公式後再執行下載
+                MathJax.typesetPromise().then(() => {{
+                    setTimeout(() => {{ html2pdf().set(opt).from(element).save(); }}, 500);
+                }});
             }}
         </script>
     </body>
     </html>
     """
-
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
