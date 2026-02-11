@@ -344,35 +344,29 @@ def show_encyclopedia_card(row):
             st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
 
     st.write("---")
-
-    # 7. 功能操作區 (發音、回報、跳轉講義)
     op1, op2, op3 = st.columns([1, 1, 1.5])
-    
-    with op1:
-        speak(r_word, f"card_{r_word}")
-        
-    with op2:
-        if st.button("🚩 有誤回報", key=f"rep_{r_word}", use_container_width=True):
-            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
+    with op1: speak(r_word, f"card_{r_word}")
+    with op2: 
+        if st.button("🚩 有誤回報", key=f"rep_{r_word}"): submit_report(row.to_dict())
             
     with op3:
-        # 關鍵功能：繼承資訊並跳轉至講義生成
+        # 修正：點擊按鈕時，直接將內容塞進 Handout 專用的輸入框變數
         if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
-            # A. 封裝完整單字物件資料
+            # 1. 封裝繼承資料
             st.session_state.inherited_word_data = row.to_dict() if hasattr(row, 'to_dict') else row
             
-            # B. 格式化預填文字 (供講義模組 AI 參考)
-            st.session_state.handout_prefill = (
-                f"【單字解碼繼承資料】\n"
-                f"● 單字：{r_word}\n"
-                f"● 字根原理：{r_roots}\n"
-                f"● 邏輯拆解：{r_breakdown}\n"
-                f"● 核心定義：{r_def}\n"
-                f"● 應用場景：{r_ex}\n"
-                f"● 專家心法：{r_vibe}"
+            # 2. 強制設定 Handout 頁面輸入框的內容
+            inherited_text = (
+                f"【單字解碼繼承】\n"
+                f"單字：{r_word}\n"
+                f"字根原理：{r_roots}\n"
+                f"邏輯拆解：{r_breakdown}\n"
+                f"核心定義：{r_def}"
             )
+            # 這裡的 key 必須與 run_handout_app 裡的 text_area key 一致
+            st.session_state.manual_input_content = inherited_text
             
-            # C. 切換導航模式並重整頁面
+            # 3. 切換頁面
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 # ==========================================
@@ -508,14 +502,14 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 讀取繼承資訊與帳戶餘額
+    # 1. 檢查是否有繼承資訊並顯示提示
     inherited_data = st.session_state.get("inherited_word_data")
-    initial_content = st.session_state.get("handout_prefill", "")
-    current_balance = st.session_state.get("user_balance", 0)
-
-    # 如果有繼承單字，顯示提示
     if inherited_data:
         st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的深度解碼資訊")
+    
+    # 確保輸入框的 Session State Key 存在，避免報錯
+    if "manual_input_content" not in st.session_state:
+        st.session_state.manual_input_content = ""
 
     # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
@@ -523,13 +517,14 @@ def run_handout_app():
     with col_ctrl:
         st.subheader("1. 素材與設定")
         
-        # 圖片處理區
+        # --- 圖片處理區 ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
+            # 旋轉邏輯
             if st.session_state.get('rotate_angle', 0) != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
             
@@ -543,17 +538,18 @@ def run_handout_app():
 
         st.divider()
         
-        # 講義內容素材 (預填繼承資料)
+        # --- 文字輸入區 (關鍵：綁定 manual_input_content) ---
         manual_input = st.text_area(
             "講義素材內容 (AI 將根據此內容生成)", 
-            value=initial_content, 
+            key="manual_input_content", # 必須與跳轉按鈕設定的 Key 一致
             height=300,
             help="您可以修改繼承過來的文字，或手動輸入新素材。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個隨堂練習題、標註重點、改為英文版...")
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個隨堂練習題、標註重點...")
         
-        # 3. 支付確認與生成按鈕
+        # --- 3. 支付確認與生成按鈕 ---
+        current_balance = st.session_state.get("user_balance", 0)
         st.markdown(f"""
             <div style='background: #fff7ed; padding: 15px; border-radius: 8px; border: 1px solid #fdba74;'>
                 <p style='margin:0; color: #9a3412;'><b>💰 生成費用：10 元 / 次</b></p>
@@ -565,48 +561,54 @@ def run_handout_app():
         
         if st.button("🚀 確認支付並開始生成", type="primary", use_container_width=True):
             if current_balance < 10:
-                st.error("❌ 餘額不足，請聯繫管理員儲值。")
-            elif not manual_input and not uploaded_file:
-                st.warning("⚠️ 請提供文字素材或上傳圖片。")
+                st.error("❌ 餘額不足，請點擊左上角贊助支持以獲得點數。")
+            elif not st.session_state.manual_input_content and not uploaded_file:
+                st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
             else:
                 with st.spinner("💸 正在扣款並調用 AI 進行深度排版..."):
                     # A. 執行扣款
                     st.session_state.user_balance -= 10
                     
-                    # B. 強化 AI Prompt (若有繼承資料，告知 AI 這是解碼後的精確資訊)
-                    enhanced_prompt = manual_input
+                    # B. 準備 AI 提示 (若有繼承資料，強化 Prompt)
+                    final_prompt = st.session_state.manual_input_content
                     if inherited_data:
-                        enhanced_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備邏輯深度的教學講義：\n\n{manual_input}"
+                        final_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備教學邏輯的專業講義：\n\n{final_prompt}"
                     
                     # C. 調用 AI 生成
-                    generated_res = handout_ai_generate(image, enhanced_prompt, ai_instr)
+                    generated_res = handout_ai_generate(image, final_prompt, ai_instr)
                     
-                    # D. 儲存結果並清除繼承緩存 (避免下次手動進入時被干擾)
+                    # D. 儲存結果
                     st.session_state.generated_text = generated_res
-                    if "handout_prefill" in st.session_state: del st.session_state.handout_prefill
-                    if "inherited_word_data" in st.session_state: del st.session_state.inherited_word_data
+                    
+                    # E. 清除繼承標記（讓成功提示消失），但保留輸入框文字供參考
+                    if "inherited_word_data" in st.session_state:
+                        del st.session_state.inherited_word_data
                     
                     st.success("✅ 支付成功！講義內容已生成。")
                     st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 說明：</b>藍色為起點，紅色為終點。編輯完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 說明：</b>編輯完成後點擊下載 PDF。輸入 [換頁] 可強制分頁。</div>', unsafe_allow_html=True)
         
-        # 獲取內容
+        # 獲取 AI 生成內容 (若無則顯示預設)
         content_to_show = st.session_state.get("generated_text", "### 預覽區\n完成左側支付後，AI 生成的講義將顯示在此處。")
         
-        # 內容修訂
+        # 內容修訂區 (用戶可手動微調 AI 生成的結果)
         edited_content = st.text_area("📝 講義內容編輯", value=content_to_show, height=450)
-        handout_title = st.text_input("講義標題", value=f"{inherited_data.get('word') if inherited_data else 'AI'} 專題講義")
         
-        # 準備圖片
+        # 標題設定 (若有繼承單字則預設為單字名)
+        default_title = "AI 專題講義"
+        if inherited_data: default_title = f"{inherited_data.get('word')} 專題講義"
+        handout_title = st.text_input("講義標題", value=default_title)
+        
+        # 準備圖片 Base64
         img_b64 = get_image_base64(image) if image else ""
         
-        # 生成 HTML
+        # 生成最終列印用 HTML
         final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
         
-        # 渲染 HTML 預覽
+        # 渲染 HTML 預覽組件
         components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
