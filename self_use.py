@@ -1,289 +1,158 @@
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-from PIL import Image, ImageOps
-import base64
-from io import BytesIO
-import streamlit.components.v1 as components
+from streamlit_gsheets import GSheetsConnection
 import time
-import markdown
-import re
 
 # ==========================================
-# 1. 介面設定
+# 0. 基礎配置與安全性
 # ==========================================
-st.set_page_config(page_title="AI 講義排版大師 Pro", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="Etymon Admin", page_icon="⚙️", layout="centered")
 
-st.markdown("""
-    <style>
-        .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
-        .stButton button { width: 100%; border-radius: 8px; font-weight: bold; height: 3.2em; }
-        .info-card { background-color: #f0f9ff; border-left: 5px solid #0ea5e9; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    </style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# 2. 工具函式
-# ==========================================
-
-def fix_image_orientation(image):
-    try: image = ImageOps.exif_transpose(image)
-    except: pass
-    return image
-
-def get_image_base64(image):
-    if image is None: return ""
-    buffered = BytesIO()
-    if image.mode in ("RGBA", "P"): image = image.convert("RGB")
-    image.save(buffered, format="JPEG", quality=95)
-    return base64.b64encode(buffered.getvalue()).decode()
-
-def ai_generate_content(image, manual_input, instruction):
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return "❌ 錯誤：API Key 未設定"
+def check_password():
+    """簡單的密碼檢查"""
+    if "admin_authenticated" not in st.session_state:
+        st.session_state.admin_authenticated = False
     
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-
-    prompt = """
-    你是一位專業教師。請撰寫講義。
-    【格式】使用 $...$ 或 $$...$$ 撰寫 LaTeX。
-    【排版】請直接開始內容，不要有前言或空白行。
-    """
-    parts = [prompt]
-    if manual_input: parts.append(f"【補充/指令】：{manual_input}")
-    if instruction: parts.append(f"【特別要求】：{instruction}")
-    if image: parts.append(image)
-
-    try:
-        with st.spinner("🤖 AI 正在精確計算排版空間..."):
-            response = model.generate_content(parts)
-            return response.text
-    except Exception as e:
-        return f"AI 異常：{str(e)}"
-
-# ==========================================
-# 3. 嚴格 A4 容器模板 (固定高度起點與終點)
-# ==========================================
-def generate_printable_html(title, text_content, img_b64, img_width_percent):
-    # 清理開頭贅字與換行
-    text_content = text_content.strip()
-    text_content = re.sub(r'^(\[換頁\]|\s|\n)+', '', text_content)
-    
-    # 處理換頁與 LaTeX
-    processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
-    processed_content = processed_content.replace('\\\\', '\\')
-    
-    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
-    date_str = time.strftime("%Y-%m-%d")
-    
-    img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-
-    return f"""
-    <html>
-    <head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-        <script>
-        window.MathJax = {{
-          tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']], processEscapes: true }},
-          svg: {{ fontCache: 'global' }}
-        }};
-        </script>
-        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-        
-        <style>
-            @page {{ size: A4; margin: 0; }}
-            
-            body {{ 
-                font-family: 'Noto Sans TC', sans-serif; 
-                line-height: 1.8; 
-                padding: 0; margin: 0;
-                background: #2c2c2c;
-                display: flex; flex-direction: column; align-items: center;
-            }}
-            
-            #printable-area {{ 
-                background: white; 
-                width: 210mm; 
-                min-height: 297mm;
-                margin: 20px 0; 
-                /* 【核心設定】固定高度起點與終點 */
-                padding: 20mm 25mm; /* 上下固定 20mm 邊距 */
-                box-sizing: border-box; 
-                position: relative;
-
-                /* 【視覺導引】藍色為起點，紅色為終點 */
-                background-image: 
-                    linear-gradient(to bottom, #e0f2fe 20mm, transparent 20mm), /* 頂部固定高度標示 */
-                    linear-gradient(to bottom, transparent 277mm, #fee2e2 277mm); /* 底部固定低度標示 */
-                background-size: 100% 297mm;
-            }}
-
-            /* 內容容器 */
-            .content {{ 
-                font-size: 16px; 
-                text-align: justify; 
-                position: relative;
-                z-index: 2;
-            }}
-
-            /* 標題分頁邏輯 */
-            .content h2 {{
-                page-break-before: always;
-                break-before: always;
-                color: #1a237e; 
-                border-left: 5px solid #1a237e; 
-                padding-left: 10px; 
-                margin-top: 30px; 
-            }}
-            
-            /* 確保第一頁從固定高度開始，不換頁 */
-            .content h2:first-child {{
-                page-break-before: avoid !important;
-                margin-top: 0 !important;
-            }}
-
-            .manual-page-break {{ page-break-before: always; height: 1px; }}
-
-            /* 智慧避讓：確保物件不跨越固定低度 */
-            .content p, .content li, .img-wrapper, mjx-container, table {{
-                page-break-inside: avoid;
-                break-inside: avoid;
-                margin-bottom: 15px;
-            }}
-
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
-            .img-wrapper {{ text-align: center; margin: 15px 0; }}
-            mjx-container {{ margin: 8px 0 !important; vertical-align: middle !important; display: inline-block !important; }}
-
-            #btn-container {{ 
-                text-align: center; padding: 15px; width: 100%;
-                position: sticky; top: 0; background: #1a1a1a; z-index: 9999;
-            }}
-            .download-btn {{ 
-                background: #0284c7; color: white; border: none; padding: 12px 60px; 
-                border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; 
-            }}
-
-            @media print {{
-                body {{ background: white !important; }}
-                #printable-area {{ 
-                    margin: 0 !important; box-shadow: none !important; 
-                    background-image: none !important; /* 下載時移除導引色塊 */
-                }}
-                #btn-container {{ display: none; }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div id="btn-container">
-            <button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義 (固定邊距校正版)</button>
-        </div>
-
-        <div id="printable-area">
-            <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
-            {img_section}
-            <div class="content">{html_body}</div>
-        </div>
-        
-        <script>
-            function downloadPDF() {{
-                const element = document.getElementById('printable-area');
-                const opt = {{
-                    margin: 0,
-                    filename: '{title}.pdf',
-                    image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ 
-                        scale: 3, 
-                        useCORS: true, 
-                        logging: false,
-                        scrollY: 0 
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                }};
-                
-                MathJax.typesetPromise().then(() => {{
-                    setTimeout(() => {{
-                        html2pdf().set(opt).from(element).save();
-                    }}, 1200);
-                }});
-            }}
-        </script>
-    </body>
-    </html>
-    """
-
-# ==========================================
-# 4. 主程式入口
-# ==========================================
-
-def main():
-    st.title("🎓 AI 講義排版大師 Pro")
-    
-    if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
-    if 'generated_text' not in st.session_state: st.session_state.generated_text = ""
-
-    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
-
-    with col_ctrl:
-        st.subheader("1. 素材與設定")
-        uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
-        
-        image = None
-        img_width = 80
-        
-        if uploaded_file:
-            img_obj = Image.open(uploaded_file)
-            image = fix_image_orientation(img_obj)
-            if st.session_state.rotate_angle != 0:
-                image = image.rotate(-st.session_state.rotate_angle, expand=True)
-
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                if st.button("🔄 旋轉 90°"):
-                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
-                    st.rerun()
-            with c2:
-                img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
-            
-            st.image(image, use_container_width=True)
-
-        st.divider()
-        manual_input = st.text_area("補充文字", height=150)
-        ai_instr = st.text_input("AI 指令")
-
-        if st.button("🚀 呼叫 AI 生成內容", type="primary"):
-            if not image and not manual_input:
-                st.warning("⚠️ 請提供素材！")
-            else:
-                result = ai_generate_content(image, manual_input, ai_instr)
-                st.session_state.generated_text = result
+    if not st.session_state.admin_authenticated:
+        st.title("🔐 管理員登入")
+        pwd = st.text_input("輸入管理密碼", type="password")
+        if st.button("進入戰情室"):
+            if pwd == st.secrets.get("ADMIN_PASSWORD", "0000"):
+                st.session_state.admin_authenticated = True
                 st.rerun()
+            else:
+                st.error("密碼錯誤")
+        return False
+    return True
 
-    with col_prev:
-        st.subheader("2. 嚴格 A4 預覽")
+# ==========================================
+# 1. 核心工具與 AI 邏輯
+# ==========================================
+
+def get_spreadsheet_url():
+    return st.secrets["connections"]["gsheets"]["spreadsheet"]
+
+@st.cache_data(ttl=60)
+def load_full_db():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    return conn.read(spreadsheet=get_spreadsheet_url(), ttl=0)
+
+def ai_generate_word_data(word, category):
+    """呼叫 AI 生成標準的 JSON 單字資料"""
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    prompt = f"""
+    請以「{category}」專家的視角，解碼單字「{word}」。
+    請直接輸出 JSON 格式，不含 markdown 代碼塊，欄位如下：
+    {{
+        "category": "{category}",
+        "roots": "字根源頭/核心邏輯",
+        "meaning": "本質意義",
+        "word": "{word}",
+        "breakdown": "結構拆解",
+        "definition": "易懂的定義",
+        "phonetic": "音標/發音提示",
+        "example": "生活化例句",
+        "translation": "中文翻譯",
+        "native_vibe": "專家心得"
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        # 清理 JSON 字串
+        clean_json = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean_json)
+    except Exception as e:
+        st.error(f"AI 生成失敗: {e}")
+        return None
+
+# ==========================================
+# 2. UI 介面 (爆改管理員版)
+# ==========================================
+
+def admin_ui():
+    st.markdown("""
+        <style>
+            .main { background-color: #f0f2f6; }
+            .stButton > button { width: 100%; border-radius: 10px; }
+            .data-card { background: white; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #1976D2; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.title("🧪 Etymon 戰情室")
+    
+    tab1, tab2, tab3 = st.tabs(["🆕 新增單字", "🔍 管理庫存", "📊 數據統計"])
+
+    # --- Tab 1: AI 輔助新增 ---
+    with tab1:
+        st.subheader("🤖 AI 自動補完")
+        new_w = st.text_input("要新增的單字", placeholder="例如: Entropy")
+        new_c = st.selectbox("所屬領域", ["英語辭源", "物理科學", "商業商戰", "人工智慧", "心理學", "自定義"])
         
-        st.markdown("""
-            <div class="info-card">
-                <b>📏 固定高度說明：</b><br>
-                1. 頂部<b>藍色區塊</b>為固定起點 (20mm)。<br>
-                2. 底部<b>紅色區塊</b>為固定終點 (277mm)。<br>
-                3. 內容會自動在此區間內排版，下載時色塊會自動消失。
-                4. 可以打「[換頁]」換頁
-            </div>
-        """, unsafe_allow_html=True)
+        if st.button("✨ 呼叫 AI 生成資料庫內容"):
+            with st.spinner("AI 正在解析中..."):
+                res = ai_generate_word_data(new_w, new_c)
+                if res:
+                    st.session_state.temp_data = res
+                    st.success("解析成功！請檢查下方內容並確認存檔。")
+
+        if "temp_data" in st.session_state:
+            with st.form("confirm_form"):
+                d = st.session_state.temp_data
+                f_word = st.text_input("單字", d['word'])
+                f_roots = st.text_input("字根", d['roots'])
+                f_def = st.text_area("定義", d['definition'])
+                f_ex = st.text_area("例句", d['example'])
+                f_cat = st.text_input("分類", d['category'])
+                
+                if st.form_submit_button("💾 確認存入雲端資料庫"):
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    df = load_full_db()
+                    new_row = pd.DataFrame([d])
+                    updated_df = pd.concat([df, new_row], ignore_index=True)
+                    conn.update(spreadsheet=get_spreadsheet_url(), data=updated_df)
+                    st.balloons()
+                    st.success(f"已存入：{f_word}")
+                    del st.session_state.temp_data
+
+    # --- Tab 2: 庫存管理 (搜尋、修改、刪除) ---
+    with tab2:
+        df = load_full_db()
+        st.subheader(f"目前總量: {len(df)}")
+        search = st.text_input("🔍 搜尋現有單字進行管理")
         
-        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 預覽區"
-        edited_content = st.text_area("📝 內容修訂", value=content_to_show, height=300)
-        handout_title = st.text_input("講義標題", value="精選解析")
+        if search:
+            match = df[df['word'].str.contains(search, case=False)]
+            for idx, row in match.iterrows():
+                with st.expander(f"📦 {row['word']} ({row['category']})"):
+                    st.write(row.to_dict())
+                    if st.button("🗑️ 刪除此筆資料", key=f"del_{idx}"):
+                        df = df.drop(idx)
+                        conn = st.connection("gsheets", type=GSheetsConnection)
+                        conn.update(spreadsheet=get_spreadsheet_url(), data=df)
+                        st.warning("已刪除，請重新整理頁面。")
+                        st.rerun()
 
-        img_b64 = get_image_base64(image) if image else ""
-        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+    # --- Tab 3: 數據統計 (Metrics) ---
+    with tab3:
+        st.subheader("📈 用戶意圖統計")
+        try:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            m_df = conn.read(spreadsheet=get_spreadsheet_url(), worksheet="metrics", ttl=0)
+            st.dataframe(m_df.sort_values(by='count', ascending=False), use_container_width=True)
+            
+            if st.button("🧹 重設統計數據"):
+                empty_m = pd.DataFrame(columns=['label', 'count'])
+                conn.update(spreadsheet=get_spreadsheet_url(), worksheet="metrics", data=empty_m)
+                st.rerun()
+        except:
+            st.info("尚無統計數據。")
 
-        components.html(final_html, height=1000, scrolling=True)
-
+# ==========================================
+# 3. 執行入口
+# ==========================================
 if __name__ == "__main__":
-    main()
+    if check_password():
+        admin_ui()
