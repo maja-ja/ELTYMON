@@ -238,8 +238,8 @@ def ai_decode_and_save(input_text, fixed_category):
     
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
-def show_encyclopedia_card(row):
-    # 變數定義與清洗
+def show_encyclopedia_card(row):def show_encyclopedia_card(row):
+    # 1. 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -250,13 +250,12 @@ def show_encyclopedia_card(row):
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
 
-    # 1. 標題區 (會隨系統主題變色)
+    # 2. 標題與發音區
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    
     if r_phonetic and r_phonetic != "無":
         st.caption(f"/{r_phonetic}/")
 
-    # 2. 邏輯拆解 (深色底漸層)
+    # 3. 邏輯拆解區 (漸層外框)
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
@@ -266,7 +265,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
     
-    # 3. 核心內容區
+    # 4. 核心內容區 (定義與原理)
     c1, c2 = st.columns(2)
     r_ex = fix_content(row.get('example', ""))
     
@@ -283,7 +282,7 @@ def show_encyclopedia_card(row):
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 4. 專家視角
+    # 5. 專家視角
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
@@ -292,7 +291,7 @@ def show_encyclopedia_card(row):
             </div>
         """, unsafe_allow_html=True)
 
-    # 5. 深度百科
+    # 6. 深度百科 (隱藏細節)
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -301,12 +300,32 @@ def show_encyclopedia_card(row):
             st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
 
     st.write("---")
-    rep_col1, rep_col2 = st.columns([3, 1])
-    with rep_col1: st.caption("發現解析有誤？點擊按鈕一鍵送入修復清單。")
-    with rep_col2:
-        if st.button("🚩 有誤", key=f"rep_card_{r_word}", use_container_width=True):
-            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
 
+    # 7. 功能操作區 (跳轉與支付邏輯)
+    op1, op2, op3 = st.columns([1, 1, 1.5])
+    
+    with op1:
+        speak(r_word, f"card_{r_word}")
+        
+    with op2:
+        if st.button("🚩 有誤回報", key=f"rep_{r_word}", use_container_width=True):
+            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
+            
+    with op3:
+        # 關鍵跳轉按鈕：將資料帶入講義模組並切換頁面
+        if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
+            # 封裝預填資料至 Session State
+            st.session_state.handout_prefill = (
+                f"請針對以下內容製作專業講義：\n\n"
+                f"【主題】：{r_word}\n"
+                f"【核心原理】：{r_roots}\n"
+                f"【邏輯拆解】：{r_breakdown}\n"
+                f"【詳細定義】：{r_def}\n"
+                f"【應用實例】：{r_ex}"
+            )
+            # 切換導航模式
+            st.session_state.app_mode = "Handout Pro (講義排版)"
+            st.rerun()
 # ==========================================
 # 4. Etymon 模組: 頁面邏輯
 # ==========================================
@@ -437,7 +456,96 @@ def page_etymon_home(df):
 
     st.write("---")
     st.info("👈 點擊左側選單進入「學習與搜尋」查看完整資料庫。")
+def run_handout_app():
+    st.header("🎓 AI 講義排版大師 Pro")
+    
+    # 1. 處理從 Etymon 跳轉過來的預填資料
+    initial_content = ""
+    if "handout_prefill" in st.session_state:
+        initial_content = st.session_state.handout_prefill
+        st.toast("📝 已成功導入單字解碼資料", icon="✨")
 
+    # 2. 頁面佈局：左側控制區，右側預覽區
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+    
+    with col_ctrl:
+        st.subheader("1. 素材與設定")
+        
+        # 圖片上傳與處理
+        uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
+        image = None
+        img_width = 80
+        if uploaded_file:
+            img_obj = Image.open(uploaded_file)
+            image = fix_image_orientation(img_obj)
+            if st.session_state.get('rotate_angle', 0) != 0:
+                image = image.rotate(-st.session_state.rotate_angle, expand=True)
+            
+            c1, c2 = st.columns([1, 2])
+            with c1: 
+                if st.button("🔄 旋轉 90°"): 
+                    st.session_state.rotate_angle = (st.session_state.get('rotate_angle', 0) + 90) % 360
+                    st.rerun()
+            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
+            st.image(image, use_container_width=True)
+
+        st.divider()
+        
+        # 文字輸入與 AI 指令
+        manual_input = st.text_area("講義素材內容 (可手動修改)", value=initial_content, height=250)
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點...")
+        
+        # 3. 支付與生成邏輯
+        current_balance = st.session_state.get("user_balance", 0)
+        st.markdown(f"""
+            <div style='background: #f0f9ff; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd;'>
+                <p style='margin:0; color: #0369a1;'><b>💰 本次生成費用：10 元</b></p>
+                <p style='margin:0; font-size: 0.9rem; color: #0c4a6e;'>當前帳戶餘額：{current_balance} 元</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.write("") # 間距
+        
+        if st.button("🚀 確認支付並開始生成", type="primary", use_container_width=True):
+            if current_balance < 10:
+                st.error("❌ 餘額不足，請聯繫管理員儲值後再試。")
+            elif not manual_input and not uploaded_file:
+                st.warning("⚠️ 請提供文字素材或上傳圖片。")
+            else:
+                with st.spinner("💸 正在扣款並調用 AI 進行排版運算..."):
+                    # 執行模擬扣款
+                    st.session_state.user_balance -= 10
+                    
+                    # 調用 AI 生成內容 (傳入圖片、文字與指令)
+                    generated_res = handout_ai_generate(image, manual_input, ai_instr)
+                    
+                    # 儲存結果到 session 並清除預填緩存
+                    st.session_state.generated_text = generated_res
+                    if "handout_prefill" in st.session_state:
+                        del st.session_state.handout_prefill
+                    
+                    st.success("✅ 支付成功！講義內容已生成。")
+                    st.rerun()
+
+    with col_prev:
+        st.subheader("2. A4 預覽與修訂")
+        st.markdown('<div class="info-card"><b>📏 提示：</b>您可以在下方直接編輯內容，輸入 [換頁] 可強制分頁。</div>', unsafe_allow_html=True)
+        
+        # 獲取生成內容或顯示預設提示
+        content_to_show = st.session_state.get("generated_text", "### 預覽區\n完成左側支付後，AI 生成的講義將顯示在此處。")
+        
+        # 內容修訂區
+        edited_content = st.text_area("📝 講義內容修訂", value=content_to_show, height=400)
+        handout_title = st.text_input("講義標題", value="AI 智慧學習講義")
+        
+        # 準備圖片 Base64 以供 HTML 渲染
+        img_b64 = get_image_base64(image) if image else ""
+        
+        # 生成最終列印用 HTML 組件
+        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+        
+        # 渲染 HTML 預覽與下載按鈕
+        components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
     if df.empty:
@@ -671,50 +779,50 @@ def run_handout_app():
 def main():
     inject_custom_css()
     
+    # 初始化導航狀態與模擬餘額
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "Etymon Decoder (單字解碼)"
+    if "user_balance" not in st.session_state:
+        st.session_state.user_balance = 100
+
     st.sidebar.title("🏫 AI 教育工作站")
     
-    # --- 贊助區塊 (保留 v3.0 風格) ---
+    # 側邊欄帳戶資訊
     with st.sidebar:
-        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
-        if st.button("☕ Buy Me a Coffee", key="btn_coffee"):
-            log_user_intent("click_coffee")
-            st.info("### 🚧 帳號系統準備中，感謝支持！")
-            st.balloons()
-        if st.button("🍚 贊助一碗米糕", key="btn_rice"):
-            log_user_intent("click_ricecake")
-            st.success("### 🏗️ 帳號系統準備中，感謝支持！")
+        st.markdown(f"""
+            <div style='background: #fff3e0; padding: 15px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center;'>
+                <span style='color: #e65100; font-weight: bold;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            </div>
+        """, unsafe_allow_html=True)
         st.markdown("---")
 
-    # --- 模式選擇 ---
-    app_mode = st.sidebar.selectbox("選擇功能模組", ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"])
+    # 模式選擇 (與 session_state 綁定)
+    st.session_state.app_mode = st.sidebar.selectbox(
+        "選擇功能模組", 
+        ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"],
+        index=0 if st.session_state.app_mode == "Etymon Decoder (單字解碼)" else 1
+    )
     st.sidebar.markdown("---")
 
-    # --- 權限管理 (僅影響 Etymon 的 Lab) ---
-    is_admin = False
-    if app_mode == "Etymon Decoder (單字解碼)":
-        with st.sidebar.expander("🔐 管理員登入"):
-            if st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD"):
-                is_admin = True
-                st.success("已登入")
-
-    # --- 路由邏輯 ---
-    if app_mode == "Etymon Decoder (單字解碼)":
-        menu = ["首頁", "學習與搜尋", "測驗模式"]
-        if is_admin: menu.append("🔬 解碼實驗室")
-        page = st.sidebar.radio("Etymon 選單", menu)
-        
+    # 路由邏輯
+    if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
         df = load_db()
+        menu = ["首頁", "學習與搜尋", "測驗模式"]
+        # 檢查管理員權限
+        with st.sidebar.expander("🔐 管理員登入"):
+            is_admin = st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD", "0000")
+        if is_admin: menu.append("🔬 解碼實驗室")
+        
+        page = st.sidebar.radio("Etymon 選單", menu)
         if page == "首頁": page_etymon_home(df)
         elif page == "學習與搜尋": page_etymon_learn(df)
         elif page == "測驗模式": page_etymon_quiz(df)
         elif page == "🔬 解碼實驗室": page_etymon_lab()
         
-    elif app_mode == "Handout Pro (講義排版)":
+    elif st.session_state.app_mode == "Handout Pro (講義排版)":
         run_handout_app()
 
-    st.sidebar.markdown("---")
-    status = "🔴 管理員" if is_admin else "🟢 訪客"
-    st.sidebar.caption(f"v4.0 Integrated | {status}")
+    st.sidebar.caption(f"v4.1 Integrated)
 
 if __name__ == "__main__":
     main()
