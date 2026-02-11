@@ -882,7 +882,7 @@ def main():
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">
                     💳 綠界贊助 (ECPay)
                 </a>
-                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="btn-bmc">
+                <a href="https://buymeacoffee.com/kadowsella" target="_blank" class="btn-bmc">
                     <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
                     Buy Me a Coffee
                 </a>
@@ -910,7 +910,7 @@ def main():
         menu = ["首頁", "學習與搜尋", "測驗模式"]
         # 檢查管理員權限
         with st.sidebar.expander("🔐 管理員登入"):
-            is_admin = st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD", "0000")
+            is_admin = st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD")
         if is_admin: menu.append("🔬 解碼實驗室")
         
         page = st.sidebar.radio("Etymon 選單", menu)
