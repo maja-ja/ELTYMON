@@ -503,7 +503,7 @@ def show_encyclopedia_card(row):
     with op3:
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
             # 🔥 修改這裡：將單字名稱加入紀錄標籤 (例如: jump_Entropy)
-            log_user_intent(f"{r_word}") 
+            log_user_intent(f"jump_{r_word}") 
             
            # 2. 執行跳轉邏輯
             inherited_draft = (
