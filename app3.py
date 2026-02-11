@@ -158,42 +158,70 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
 # ==========================================
 # 2. 手機版 UI 介面與組件
 # ==========================================
-
-def inject_mobile_ui():
-    """注入手機版專用的 CSS 樣式"""
+def inject_dual_theme_ui():
+    """注入支援淺色/深色模式的 CSS"""
     st.markdown("""
         <style>
-            /* 強制手機版面與背景 */
-            .main { background-color: #F8F9FA; }
+            /* 1. 定義顏色變數 */
+            :root {
+                --main-bg: #F8F9FA;
+                --card-bg: white;
+                --text-color: #212529;
+                --subtle-text-color: #6c757d;
+                --border-color: #f0f0f0;
+                --shadow-color: rgba(0, 0, 0, 0.07);
+                --accent-bg: #E3F2FD;
+                --accent-text-color: #1976D2;
+                --speak-btn-bg: #F0F7FF;
+                --h1-color: #1A237E;
+            }
+
+            /* 2. 深色模式下的顏色變數 */
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --main-bg: #0E1117;
+                    --card-bg: #161B22;
+                    --text-color: #e3e3e3;
+                    --subtle-text-color: #a0a0a0;
+                    --border-color: #30363d;
+                    --shadow-color: rgba(0, 0, 0, 0.2);
+                    --accent-bg: #1f6feb;
+                    --accent-text-color: #f0f6fc;
+                    --speak-btn-bg: #0d1117;
+                    --h1-color: #90CAF9;
+                }
+            }
+
+            /* 3. 將變數應用到元件上 */
+            .main { background-color: var(--main-bg) !important; }
+            body { color: var(--text-color); }
             .block-container { max-width: 480px !important; padding: 1rem 1.2rem 5rem 1.2rem !important; }
+            [data-testid="stSidebar"], header { display: none; }
             
-            /* 隱藏桌面版元素 */
-            [data-testid="stSidebar"] { display: none; }
-            header { visibility: hidden; }
-            
-            /* 卡片設計 */
             .word-card {
-                background: white; border-radius: 20px; padding: 25px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.07); margin-bottom: 20px;
-                border: 1px solid #f0f0f0;
+                background: var(--card-bg);
+                border-radius: 20px;
+                padding: 25px;
+                box-shadow: 0 10px 30px var(--shadow-color);
+                margin-bottom: 20px;
+                border: 1px solid var(--border-color);
             }
             .roots-tag {
-                background: #E3F2FD; color: #1976D2; padding: 6px 14px;
-                border-radius: 12px; font-size: 0.9rem; font-weight: bold;
+                background: var(--accent-bg);
+                color: var(--accent-text-color);
+                padding: 6px 14px;
+                border-radius: 12px;
+                font-size: 0.9rem;
+                font-weight: bold;
                 display: inline-block;
             }
-            
-            /* 按鈕與輸入框優化 */
-            .stButton > button {
-                border-radius: 15px !important; height: 55px !important;
-                width: 100%; font-weight: 700 !important; font-size: 1rem !important;
+            p, div, h1, h2, h3, span { color: var(--text-color); }
+            .stButton > button, .stTextInput > div > div > input {
+                border-radius: 15px !important;
+                height: 55px !important;
                 transition: transform 0.2s ease;
             }
             .stButton > button:active { transform: scale(0.95); }
-            .stTextInput > div > div > input {
-                border-radius: 15px !important; height: 55px !important;
-                padding: 10px 15px !important;
-            }
         </style>
     """, unsafe_allow_html=True)
 
