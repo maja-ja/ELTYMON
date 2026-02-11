@@ -55,9 +55,54 @@ def inject_custom_css():
                 .stMarkdown p, .stMarkdown li { color: #E0E0E0 !important; }
                 .sponsor-title { color: #ccc; }
             }
+                        /* 贊助按鈕容器 */
+            .sponsor-container {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                margin-bottom: 20px;
+            }
+
+            /* 綠界按鈕樣式 */
+            .btn-ecpay {
+                background-color: #00A650;
+                color: white !important;
+                text-decoration: none;
+                padding: 10px 15px;
+                border-radius: 8px;
+                font-weight: bold;
+                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                border: none;
+                transition: 0.3s;
+            }
+            .btn-ecpay:hover { background-color: #008540; transform: translateY(-2px); }
+
+            /* Buy Me a Coffee 按鈕樣式 */
+            .btn-bmc {
+                background-color: #FFDD00;
+                color: black !important;
+                text-decoration: none;
+                padding: 10px 15px;
+                border-radius: 8px;
+                font-weight: bold;
+                text-align: center;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
+                border: none;
+                transition: 0.3s;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .btn-bmc:hover { background-color: #ffea00; transform: translateY(-2px); }
+            
+            .btn-icon { width: 20px; height: 20px; }
         </style>
     """, unsafe_allow_html=True)
-
 # ==========================================
 # 2. 共用工具函式
 # ==========================================
@@ -239,7 +284,7 @@ def ai_decode_and_save(input_text, fixed_category):
     st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗
+    # 1. 變數定義與清洗 (繼承 v3.0 完整欄位)
     r_word = str(row.get('word', '未命名主題'))
     r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
     r_phonetic = fix_content(row.get('phonetic', "")) 
@@ -249,13 +294,14 @@ def show_encyclopedia_card(row):
     r_hook = fix_content(row.get('memory_hook', ""))
     r_vibe = fix_content(row.get('native_vibe', ""))
     r_trans = str(row.get('translation', ""))
+    r_ex = fix_content(row.get('example', ""))
 
     # 2. 標題與發音區
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     if r_phonetic and r_phonetic != "無":
         st.caption(f"/{r_phonetic}/")
 
-    # 3. 邏輯拆解區 (漸層外框)
+    # 3. 邏輯拆解區 (視覺化漸層外框)
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
@@ -267,8 +313,6 @@ def show_encyclopedia_card(row):
     
     # 4. 核心內容區 (定義與原理)
     c1, c2 = st.columns(2)
-    r_ex = fix_content(row.get('example', ""))
-    
     with c1:
         st.info("### 🎯 定義與解釋")
         st.write(r_def) 
@@ -282,7 +326,7 @@ def show_encyclopedia_card(row):
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 5. 專家視角
+    # 5. 專家視角 (內行心法)
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
@@ -301,7 +345,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
 
-    # 7. 功能操作區 (跳轉與支付邏輯)
+    # 7. 功能操作區 (發音、回報、跳轉講義)
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
@@ -312,21 +356,23 @@ def show_encyclopedia_card(row):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
     with op3:
-        # 關鍵修改：繼承完整單字資訊物件
+        # 關鍵功能：繼承資訊並跳轉至講義生成
         if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
-            # 1. 儲存原始資料字典，供 AI 深度繼承
+            # A. 封裝完整單字物件資料
             st.session_state.inherited_word_data = row.to_dict() if hasattr(row, 'to_dict') else row
             
-            # 2. 建立預視文字（讓用戶在講義頁面也能看到素材）
+            # B. 格式化預填文字 (供講義模組 AI 參考)
             st.session_state.handout_prefill = (
-                f"【單字解碼繼承】\n"
-                f"單字：{r_word}\n"
-                f"字根原理：{r_roots}\n"
-                f"邏輯拆解：{r_breakdown}\n"
-                f"核心定義：{r_def}\n"
-                f"應用實例：{r_ex}"
+                f"【單字解碼繼承資料】\n"
+                f"● 單字：{r_word}\n"
+                f"● 字根原理：{r_roots}\n"
+                f"● 邏輯拆解：{r_breakdown}\n"
+                f"● 核心定義：{r_def}\n"
+                f"● 應用場景：{r_ex}\n"
+                f"● 專家心法：{r_vibe}"
             )
             
+            # C. 切換導航模式並重整頁面
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 # ==========================================
@@ -462,19 +508,22 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 處理從 Etymon 跳轉過來的預填資料
-    initial_content = ""
-    if "handout_prefill" in st.session_state:
-        initial_content = st.session_state.handout_prefill
-        st.toast("📝 已成功導入單字解碼資料", icon="✨")
+    # 1. 讀取繼承資訊與帳戶餘額
+    inherited_data = st.session_state.get("inherited_word_data")
+    initial_content = st.session_state.get("handout_prefill", "")
+    current_balance = st.session_state.get("user_balance", 0)
 
-    # 2. 頁面佈局：左側控制區，右側預覽區
+    # 如果有繼承單字，顯示提示
+    if inherited_data:
+        st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的深度解碼資訊")
+
+    # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
         st.subheader("1. 素材與設定")
         
-        # 圖片上傳與處理
+        # 圖片處理區
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
@@ -494,60 +543,70 @@ def run_handout_app():
 
         st.divider()
         
-        # 文字輸入與 AI 指令
-        manual_input = st.text_area("講義素材內容 (可手動修改)", value=initial_content, height=250)
-        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點...")
+        # 講義內容素材 (預填繼承資料)
+        manual_input = st.text_area(
+            "講義素材內容 (AI 將根據此內容生成)", 
+            value=initial_content, 
+            height=300,
+            help="您可以修改繼承過來的文字，或手動輸入新素材。"
+        )
         
-        # 3. 支付與生成邏輯
-        current_balance = st.session_state.get("user_balance", 0)
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個隨堂練習題、標註重點、改為英文版...")
+        
+        # 3. 支付確認與生成按鈕
         st.markdown(f"""
-            <div style='background: #f0f9ff; padding: 15px; border-radius: 8px; border: 1px solid #bae6fd;'>
-                <p style='margin:0; color: #0369a1;'><b>💰 本次生成費用：10 元</b></p>
-                <p style='margin:0; font-size: 0.9rem; color: #0c4a6e;'>當前帳戶餘額：{current_balance} 元</p>
+            <div style='background: #fff7ed; padding: 15px; border-radius: 8px; border: 1px solid #fdba74;'>
+                <p style='margin:0; color: #9a3412;'><b>💰 生成費用：10 元 / 次</b></p>
+                <p style='margin:0; font-size: 0.9rem; color: #c2410c;'>當前帳戶餘額：{current_balance} 元</p>
             </div>
         """, unsafe_allow_html=True)
         
-        st.write("") # 間距
+        st.write("") 
         
         if st.button("🚀 確認支付並開始生成", type="primary", use_container_width=True):
             if current_balance < 10:
-                st.error("❌ 餘額不足，請聯繫管理員儲值後再試。")
+                st.error("❌ 餘額不足，請聯繫管理員儲值。")
             elif not manual_input and not uploaded_file:
                 st.warning("⚠️ 請提供文字素材或上傳圖片。")
             else:
-                with st.spinner("💸 正在扣款並調用 AI 進行排版運算..."):
-                    # 執行模擬扣款
+                with st.spinner("💸 正在扣款並調用 AI 進行深度排版..."):
+                    # A. 執行扣款
                     st.session_state.user_balance -= 10
                     
-                    # 調用 AI 生成內容 (傳入圖片、文字與指令)
-                    generated_res = handout_ai_generate(image, manual_input, ai_instr)
+                    # B. 強化 AI Prompt (若有繼承資料，告知 AI 這是解碼後的精確資訊)
+                    enhanced_prompt = manual_input
+                    if inherited_data:
+                        enhanced_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備邏輯深度的教學講義：\n\n{manual_input}"
                     
-                    # 儲存結果到 session 並清除預填緩存
+                    # C. 調用 AI 生成
+                    generated_res = handout_ai_generate(image, enhanced_prompt, ai_instr)
+                    
+                    # D. 儲存結果並清除繼承緩存 (避免下次手動進入時被干擾)
                     st.session_state.generated_text = generated_res
-                    if "handout_prefill" in st.session_state:
-                        del st.session_state.handout_prefill
+                    if "handout_prefill" in st.session_state: del st.session_state.handout_prefill
+                    if "inherited_word_data" in st.session_state: del st.session_state.inherited_word_data
                     
                     st.success("✅ 支付成功！講義內容已生成。")
                     st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 提示：</b>您可以在下方直接編輯內容，輸入 [換頁] 可強制分頁。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 說明：</b>藍色為起點，紅色為終點。編輯完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
         
-        # 獲取生成內容或顯示預設提示
+        # 獲取內容
         content_to_show = st.session_state.get("generated_text", "### 預覽區\n完成左側支付後，AI 生成的講義將顯示在此處。")
         
-        # 內容修訂區
-        edited_content = st.text_area("📝 講義內容修訂", value=content_to_show, height=400)
-        handout_title = st.text_input("講義標題", value="AI 智慧學習講義")
+        # 內容修訂
+        edited_content = st.text_area("📝 講義內容編輯", value=content_to_show, height=450)
+        handout_title = st.text_input("講義標題", value=f"{inherited_data.get('word') if inherited_data else 'AI'} 專題講義")
         
-        # 準備圖片 Base64 以供 HTML 渲染
+        # 準備圖片
         img_b64 = get_image_base64(image) if image else ""
         
-        # 生成最終列印用 HTML 組件
+        # 生成 HTML
         final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
         
-        # 渲染 HTML 預覽與下載按鈕
+        # 渲染 HTML 預覽
         components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
@@ -778,35 +837,47 @@ def run_handout_app():
 # ==========================================
 # 6. 主程式入口與導航
 # ==========================================
-
 def main():
     inject_custom_css()
     
-    # 初始化導航狀態與模擬餘額
+    # 1. 初始化狀態
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "Etymon Decoder (單字解碼)"
     if "user_balance" not in st.session_state:
         st.session_state.user_balance = 100
 
-    st.sidebar.title("🏫 AI 教育工作站")
-    
-    # 側邊欄帳戶資訊
+    # 2. 側邊欄頂部：贊助按鈕與帳戶資訊
     with st.sidebar:
+        st.markdown("### 💖 支持與贊助")
+        
+        # 綠界與 BMC 按鈕 (請自行替換 href 中的網址)
         st.markdown(f"""
-            <div style='background: #fff3e0; padding: 15px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center;'>
-                <span style='color: #e65100; font-weight: bold;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            <div class="sponsor-container">
+                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">
+                    💳 綠界贊助 (ECPay)
+                </a>
+                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="btn-bmc">
+                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
+                    Buy Me a Coffee
+                </a>
             </div>
         """, unsafe_allow_html=True)
+
+        # 帳戶餘額顯示
+        st.markdown(f"""
+            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-bottom: 20px;'>
+                <span style='color: #e65100; font-weight: bold; font-size: 0.9rem;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("---")
 
-    # 模式選擇 (與 session_state 綁定)
+    # 3. 模式選擇
     st.session_state.app_mode = st.sidebar.selectbox(
         "選擇功能模組", 
         ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"],
         index=0 if st.session_state.app_mode == "Etymon Decoder (單字解碼)" else 1
     )
-    st.sidebar.markdown("---")
-
     # 路由邏輯
     if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
         df = load_db()
