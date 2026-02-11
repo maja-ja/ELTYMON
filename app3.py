@@ -280,4 +280,5 @@ def main():
     elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
     elif st.session_state.mobile_nav == "💖 支持": mobile_sponsor_page()
 
-if __name__ == "
+if __name__ == "__main__":
+    main()
