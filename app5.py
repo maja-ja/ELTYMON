@@ -13,7 +13,114 @@ import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 import markdown
+# ==========================================
+# 0. 用戶系統核心工具 (移植自 Kadowsella)
+# ==========================================
+def hash_password(password): 
+    import hashlib
+    return hashlib.sha256(str.encode(password)).hexdigest()
 
+def load_user_db():
+    """讀取用戶資料表"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(worksheet="users", ttl=0)
+        # 確保必要欄位存在
+        cols = ['username', 'password', 'role', 'membership', 'ai_usage', 'is_online', 'last_seen']
+        for col in cols:
+            if col not in df.columns: 
+                df[col] = "free" if col=="membership" else (0 if col=="ai_usage" else "無")
+        return df.fillna("無")
+    except: 
+        return pd.DataFrame(columns=['username', 'password', 'role', 'membership', 'ai_usage', 'is_online', 'last_seen'])
+
+def save_user_to_db(new_data):
+    """註冊新用戶"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(worksheet="users", ttl=0)
+        new_data['created_at'] = time.strftime("%Y-%m-%d")
+        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+        conn.update(worksheet="users", data=updated_df)
+        return True
+    except: return False
+
+def update_user_status(username, column, value):
+    """更新用戶特定狀態 (如在線時間、餘額)"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(worksheet="users", ttl=0)
+        df.loc[df['username'] == username, column] = value
+        conn.update(worksheet="users", data=df)
+    except: pass
+# ==========================================
+# 2. 登入頁面 UI (移植自 Kadowsella)
+# ==========================================
+def login_page():
+    st.markdown("""
+        <style>
+            .login-header { text-align: center; padding: 20px; }
+            .stTabs [data-baseweb="tab-list"] { justify-content: center; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<div class='login-header'><h1>🏫 AI 教育工作站</h1><p>Etymon Decoder + Handout Pro 整合版</p></div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
+        
+        with tab1:
+            with st.form("login_form"):
+                u = st.text_input("帳號")
+                p = st.text_input("密碼", type="password")
+                submit = st.form_submit_button("進入戰情室", use_container_width=True)
+                if submit:
+                    users = load_user_db()
+                    hashed_p = hash_password(p)
+                    user = users[(users['username'] == u) & (users['password'] == hashed_p)]
+                    if not user.empty:
+                        st.session_state.logged_in = True
+                        st.session_state.username = u
+                        st.session_state.role = user.iloc[0]['role']
+                        st.session_state.user_balance = 100 # 模擬初始餘額
+                        update_user_status(u, "is_online", "TRUE")
+                        st.rerun()
+                    else:
+                        st.error("❌ 帳號或密碼錯誤")
+        
+        with tab2:
+            with st.form("register_form"):
+                nu = st.text_input("設定帳號")
+                np = st.text_input("設定密碼", type="password")
+                code = st.text_input("邀請碼 (選填)", type="password")
+                reg_submit = st.form_submit_button("完成註冊", use_container_width=True)
+                if reg_submit:
+                    if not nu or not np:
+                        st.warning("請填寫帳號密碼")
+                    else:
+                        is_admin = (code == st.secrets.get("ADMIN_PASSWORD", "0000"))
+                        user_data = {
+                            "username": nu, 
+                            "password": hash_password(np), 
+                            "role": "admin" if is_admin else "student",
+                            "membership": "pro" if is_admin else "free",
+                            "ai_usage": 0, "is_online": "FALSE"
+                        }
+                        if save_user_to_db(user_data):
+                            st.success("✅ 註冊成功！請切換至登入分頁。")
+                        else:
+                            st.error("註冊失敗，請聯繫管理員")
+
+        st.markdown("---")
+        st.write("🚀 **想先看看內容？**")
+        if st.button("🚪 以訪客身分試用", use_container_width=True):
+            st.session_state.logged_in = True
+            st.session_state.username = "訪客"
+            st.session_state.role = "guest"
+            st.session_state.user_balance = 20 # 訪客給較少餘額
+            st.rerun()
 # ==========================================
 # 1. 核心配置與視覺美化 (CSS)
 # ==========================================
@@ -866,63 +973,63 @@ def run_handout_app():
 def main():
     inject_custom_css()
     
-    # 1. 初始化狀態
-    if "app_mode" not in st.session_state:
-        st.session_state.app_mode = "Etymon Decoder (單字解碼)"
-    if "user_balance" not in st.session_state:
-        st.session_state.user_balance = 100
+    # 初始化登入狀態
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
 
-    # 2. 側邊欄頂部：贊助按鈕與帳戶資訊
+    # 判斷是否已登入
+    if not st.session_state.logged_in:
+        login_page()
+        return
+
+    # --- 以下為登入後的內容 ---
+    
+    # 側邊欄用戶資訊
     with st.sidebar:
-        st.markdown("### 💖 支持與贊助")
+        st.markdown(f"### 👋 {st.session_state.username}")
+        role_label = "🔴 管理員" if st.session_state.role == "admin" else "🟢 學生"
+        if st.session_state.role == "guest": role_label = "⚪ 訪客"
+        st.caption(role_label)
         
-        # 綠界與 BMC 按鈕 (請自行替換 href 中的網址)
-        st.markdown(f"""
-            <div class="sponsor-container">
-                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="btn-ecpay">
-                    💳 綠界贊助 (ECPay)
-                </a>
-                <a href="https://buymeacoffee.com/kadowsella" target="_blank" class="btn-bmc">
-                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
-                    Buy Me a Coffee
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
-
-        # 帳戶餘額顯示
-        st.markdown(f"""
-            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-bottom: 20px;'>
-                <span style='color: #e65100; font-weight: bold; font-size: 0.9rem;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
-            </div>
-        """, unsafe_allow_html=True)
+        # 登出按鈕
+        if st.button("🚪 登出系統"):
+            if st.session_state.username != "訪客":
+                update_user_status(st.session_state.username, "is_online", "FALSE")
+            st.session_state.logged_in = False
+            st.rerun()
         
         st.markdown("---")
+        # 贊助按鈕區 (原本的區塊)
+        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
+        # ... (ECPay, BMC 按鈕代碼) ...
+        
+        # 餘額顯示
+        st.markdown(f"""
+            <div style='background: #fff3e0; padding: 12px; border-radius: 10px; border: 1px solid #ffb74d; text-align: center; margin-bottom: 20px;'>
+                <span style='color: #e65100; font-weight: bold;'>💰 帳戶餘額：{st.session_state.user_balance} 元</span>
+            </div>
+        """, unsafe_allow_html=True)
 
-    # 3. 模式選擇
-    st.session_state.app_mode = st.sidebar.selectbox(
-        "選擇功能模組", 
-        ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"],
-        index=0 if st.session_state.app_mode == "Etymon Decoder (單字解碼)" else 1
-    )
+    # 模式選擇
+    app_mode = st.sidebar.selectbox("選擇功能模組", ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"])
+    
     # 路由邏輯
-    if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
-        df = load_db()
+    if app_mode == "Etymon Decoder (單字解碼)":
         menu = ["首頁", "學習與搜尋", "測驗模式"]
-        # 檢查管理員權限
-        with st.sidebar.expander("🔐 管理員登入"):
-            is_admin = st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD")
-        if is_admin: menu.append("🔬 解碼實驗室")
+        # 只有管理員可以看到實驗室
+        if st.session_state.role == "admin":
+            menu.append("🔬 解碼實驗室")
         
         page = st.sidebar.radio("Etymon 選單", menu)
+        df = load_db() # 這是原本讀取單字庫的函式
+        
         if page == "首頁": page_etymon_home(df)
         elif page == "學習與搜尋": page_etymon_learn(df)
         elif page == "測驗模式": page_etymon_quiz(df)
         elif page == "🔬 解碼實驗室": page_etymon_lab()
         
-    elif st.session_state.app_mode == "Handout Pro (講義排版)":
+    elif app_mode == "Handout Pro (講義排版)":
         run_handout_app()
-
-    st.sidebar.caption(f"v4.1 Integrated")
 
 if __name__ == "__main__":
     main()
