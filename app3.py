@@ -49,7 +49,7 @@ def speak(text, key_suffix=""):
                 .speak-btn:active {{ transform: scale(0.96); }}
             </style>
             <button class="speak-btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
-            <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
+            <audio id="{unique_id}" src="data:audio/mp3;base64,{audio_base64}"></audio>
         </body></html>""", height=50)
     except: pass
 
