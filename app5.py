@@ -57,69 +57,103 @@ def update_user_status(username, column, value):
 # 2. 登入頁面 UI (移植自 Kadowsella)
 # ==========================================
 def login_page():
+    # 1. 注入自定義 CSS 樣式
     st.markdown("""
         <style>
-            .login-header { text-align: center; padding: 20px; }
+            .login-container { max-width: 600px; margin: auto; padding-top: 2rem; }
+            .login-header { text-align: center; padding-bottom: 2rem; }
             .stTabs [data-baseweb="tab-list"] { justify-content: center; }
+            .stButton>button { width: 100%; }
         </style>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div class='login-header'><h1>🏫 AI 教育工作站</h1><p>Etymon Decoder + Handout Pro 整合版</p></div>", unsafe_allow_html=True)
+    # 2. 頁面標題
+    st.markdown("<div class='login-header'><h1>🏫 AI 教育工作站</h1><p>Etymon Decoder + Handout Pro 整合版 v4.1</p></div>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # 3. 登入與註冊表單佈局
+    col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
+        tab_login, tab_register = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
         
-        with tab1:
+        # --- 登入分頁 ---
+        with tab_login:
             with st.form("login_form"):
-                u = st.text_input("帳號")
-                p = st.text_input("密碼", type="password")
-                submit = st.form_submit_button("進入戰情室", use_container_width=True)
-                if submit:
-                    users = load_user_db()
-                    hashed_p = hash_password(p)
-                    user = users[(users['username'] == u) & (users['password'] == hashed_p)]
-                    if not user.empty:
+                username_input = st.text_input("帳號")
+                password_input = st.text_input("密碼", type="password")
+                submit_button = st.form_submit_button("進入戰情室", use_container_width=True)
+
+                if submit_button:
+                    # 讀取用戶資料庫
+                    users_db = load_user_db()
+                    hashed_password_input = hash_password(password_input)
+                    
+                    # 驗證用戶
+                    user_record = users_db[
+                        (users_db['username'] == username_input) & 
+                        (users_db['password'] == hashed_password_input)
+                    ]
+                    
+                    if not user_record.empty:
+                        user_data = user_record.iloc[0]
+                        
+                        # A. 設定 Session State
                         st.session_state.logged_in = True
-                        st.session_state.username = u
-                        st.session_state.role = user.iloc[0]['role']
-                        st.session_state.user_balance = 100 # 模擬初始餘額
-                        update_user_status(u, "is_online", "TRUE")
+                        st.session_state.username = username_input
+                        st.session_state.role = user_data['role']
+                        
+                        # B.【關鍵修正】：從資料庫讀取真實餘額
+                        try:
+                            # 嘗試將資料庫中的餘額 (ai_usage) 轉為整數
+                            st.session_state.user_balance = int(user_data['ai_usage'])
+                        except (ValueError, TypeError):
+                            # 如果儲存格是空的或格式錯誤，給一個預設值 0
+                            st.session_state.user_balance = 0
+                            
+                        # C. 更新在線狀態
+                        update_user_status(username_input, "is_online", "TRUE")
+                        
+                        # D. 重新整理頁面進入主程式
                         st.rerun()
                     else:
-                        st.error("❌ 帳號或密碼錯誤")
+                        st.error("❌ 帳號或密碼錯誤，請重新輸入。")
         
-        with tab2:
+        # --- 註冊分頁 ---
+        with tab_register:
             with st.form("register_form"):
-                nu = st.text_input("設定帳號")
-                np = st.text_input("設定密碼", type="password")
-                code = st.text_input("邀請碼 (選填)", type="password")
-                reg_submit = st.form_submit_button("完成註冊", use_container_width=True)
-                if reg_submit:
-                    if not nu or not np:
-                        st.warning("請填寫帳號密碼")
+                new_username = st.text_input("設定帳號")
+                new_password = st.text_input("設定密碼", type="password")
+                invite_code = st.text_input("管理員邀請碼 (選填)", type="password")
+                register_submit = st.form_submit_button("完成註冊", use_container_width=True)
+
+                if register_submit:
+                    if not new_username or not new_password:
+                        st.warning("⚠️ 請務必填寫帳號與密碼。")
                     else:
-                        is_admin = (code == st.secrets.get("ADMIN_PASSWORD", "0000"))
+                        is_admin = (invite_code == st.secrets.get("ADMIN_PASSWORD", "0000"))
+                        # 新用戶預設給予 100 元餘額
                         user_data = {
-                            "username": nu, 
-                            "password": hash_password(np), 
+                            "username": new_username, 
+                            "password": hash_password(new_password), 
                             "role": "admin" if is_admin else "student",
                             "membership": "pro" if is_admin else "free",
-                            "ai_usage": 0, "is_online": "FALSE"
+                            "ai_usage": 100,  # 新用戶的初始餘額
+                            "is_online": "FALSE"
                         }
                         if save_user_to_db(user_data):
-                            st.success("✅ 註冊成功！請切換至登入分頁。")
+                            st.success("✅ 註冊成功！請切換至「帳號登入」分頁進入系統。")
                         else:
-                            st.error("註冊失敗，請聯繫管理員")
+                            st.error("❌ 註冊失敗，可能帳號已存在或系統異常，請聯繫管理員。")
 
         st.markdown("---")
-        st.write("🚀 **想先看看內容？**")
+        
+        # --- 訪客登入 ---
+        st.write("🚀 **不想註冊？**")
         if st.button("🚪 以訪客身分試用", use_container_width=True):
             st.session_state.logged_in = True
             st.session_state.username = "訪客"
             st.session_state.role = "guest"
-            st.session_state.user_balance = 0 # 訪客給較少餘額
+            st.session_state.user_balance = 20 # 訪客每次登入都重設為 20 元試用額度
             st.rerun()
 # ==========================================
 # 1. 核心配置與視覺美化 (CSS)
@@ -623,26 +657,28 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 初始化與檢查狀態
-    inherited_data = st.session_state.get("inherited_word_data")
-    current_balance = st.session_state.get("user_balance", 0)
+    # 1. 初始化狀態與權限檢查
+    role = st.session_state.get("role", "guest")
+    username = st.session_state.get("username", "訪客")
     
-    # 確保必要的 Session State Key 存在，避免報錯
-    if "manual_input_content" not in st.session_state:
-        st.session_state.manual_input_content = ""
-    if "generated_text" not in st.session_state:
-        st.session_state.generated_text = ""
-    if "is_paid" not in st.session_state:
-        st.session_state.is_paid = False
-
+    # 從 session 讀取今日已使用次數 (若為正式用戶，建議從資料庫讀取 ai_usage 欄位)
+    if "daily_used" not in st.session_state:
+        # 如果是正式用戶，初始化時先抓取資料庫數值，這裡簡化處理
+        st.session_state.daily_used = 0
+        
+    daily_limit = 10
+    daily_left = max(0, daily_limit - st.session_state.daily_used)
+    
+    # 檢查是否有繼承資訊
+    inherited_data = st.session_state.get("inherited_word_data")
     if inherited_data:
         st.success(f"🧬 已成功繼承單字「{inherited_data.get('word')}」的免費草稿")
 
-    # 2. 頁面佈局：左側控制區，右側預覽區
+    # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
-        st.subheader("1. 素材與設定")
+        st.subheader("1. 素材與生成控制")
         
         # --- 圖片處理區 ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
@@ -656,102 +692,88 @@ def run_handout_app():
             
             c1, c2 = st.columns([1, 2])
             with c1: 
-                if st.button("🔄 旋轉 90°"): 
+                if st.button("🔄 旋轉"): 
                     st.session_state.rotate_angle = (st.session_state.get('rotate_angle', 0) + 90) % 360
                     st.rerun()
-            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
+            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
         
-        # --- 文字輸入區 (左側素材框) ---
+        # --- 文字素材框 ---
         st.text_area(
-            "講義素材內容 (AI 將根據此內容進行專業排版)", 
+            "講義素材內容 (草稿已填入)", 
             key="manual_input_content", 
-            height=300,
-            help="您可以修改草稿文字，或手動輸入新素材。"
+            height=250,
+            help="訪客僅能修改此處文字並預覽，無法啟動 AI 生成專業格式。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題、標註重點...")
+        ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加練習題、標註公式重點...")
         
-        # --- 3. 支付確認與收費點 ---
-        st.markdown(f"""
-            <div style='background: #fff7ed; padding: 15px; border-radius: 8px; border: 1px solid #fdba74;'>
-                <p style='margin:0; color: #9a3412;'><b>💰 AI 專業生成費用：10 元 / 次</b></p>
-                <p style='margin:0; font-size: 0.9rem; color: #c2410c;'>當前帳戶餘額：{current_balance} 元</p>
-                <p style='margin:0; font-size: 0.8rem; color: #7c2d12; margin-top:5px;'><i>* 預覽草稿免費，點擊下方按鈕後才扣款並解鎖下載。</i></p>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        # --- 權限與額度顯示區 ---
+        if role == "guest":
+            st.warning("⚠️ **訪客限制**：僅限編輯與預覽草稿，無法啟動 AI 專業生成。請先註冊/登入以解鎖權限。")
+            btn_disabled = True
+        elif daily_left <= 0:
+            st.error("❌ **額度用罄**：今日 10 次免費 AI 生成額度已達上限。")
+            btn_disabled = True
+        else:
+            st.info(f"🎁 **正式用戶福利**：今日剩餘免費 AI 生成額度 **{daily_left}** 次。")
+            btn_disabled = False
+
         st.write("") 
         
-        # 這是系統唯一的收費按鈕
-        if st.button("🚀 確認支付 10 元並啟動 AI 生成", type="primary", use_container_width=True):
-            if current_balance < 10:
-                st.error("❌ 餘額不足，請點擊左上角贊助支持以獲得點數。")
-            elif not st.session_state.manual_input_content and not uploaded_file:
-                st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
-            else:
-                with st.spinner("💸 正在扣款並調用 AI 進行深度排版..."):
-                    # A. 執行扣款
-                    st.session_state.user_balance -= 10
-                    
-                    # B. 更新資料庫餘額 (若非訪客)
-                    if st.session_state.get("username") != "訪客":
-                        update_user_status(st.session_state.username, "ai_usage", st.session_state.user_balance)
-                    
-                    # C. 調用 AI 生成專業內容
-                    final_prompt = st.session_state.manual_input_content
-                    if inherited_data:
-                        final_prompt = f"請根據以下解碼後的單字精華資訊，製作一份具備教學邏輯的專業講義：\n\n{final_prompt}"
-                    
-                    generated_res = handout_ai_generate(image, final_prompt, ai_instr)
-                    
-                    # D. 更新右側預覽內容
-                    st.session_state.generated_text = generated_res
-                    
-                    # E. 關鍵：解鎖下載權限
-                    st.session_state.is_paid = True
-                    
-                    # F. 清除繼承標記，但保留輸入框文字
-                    if "inherited_word_data" in st.session_state:
-                        del st.session_state.inherited_word_data
-                    
-                    st.success("✅ 支付成功！專業講義已生成，下載功能已解鎖。")
-                    st.rerun()
+        # --- 核心收費/生成按鈕 ---
+        if st.button("🚀 啟動 AI 專業生成 (解鎖下載)", type="primary", use_container_width=True, disabled=btn_disabled):
+            with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
+                # A. 準備 Prompt
+                final_prompt = st.session_state.manual_input_content
+                if inherited_data:
+                    final_prompt = f"請根據以下解碼後的單字資訊，製作一份教學講義：\n\n{final_prompt}"
+                
+                # B. 調用 AI 生成
+                generated_res = handout_ai_generate(image, final_prompt, ai_instr)
+                
+                # C. 更新狀態
+                st.session_state.generated_text = generated_res
+                st.session_state.is_paid = True # 標記為已支付/解鎖
+                st.session_state.daily_used += 1 # 消耗次數
+                
+                # D. 同步寫回資料庫 (記錄總使用次數)
+                if username != "訪客":
+                    # 這裡將使用次數存入 ai_usage
+                    update_user_status(username, "ai_usage", st.session_state.daily_used)
+                
+                st.success("✅ 生成成功！PDF 下載功能已解鎖。")
+                st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時預覽。您可以直接修改文字，完成後點擊下載 PDF。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 提示：</b>AI 生成後按鈕會變為可下載狀態。若覺得好用歡迎隨喜贊助！</div>', unsafe_allow_html=True)
         
-        # --- 內容修訂區 (右側預覽) ---
-        edited_content = st.text_area(
-            "📝 講義內容編輯", 
-            value=st.session_state.generated_text, 
-            height=450,
-            key="preview_editor"
-        )
+        # --- 內容修訂區 ---
+        content_to_show = st.session_state.get("generated_text", "### 預覽區\n完成左側支付後，AI 生成的講義將顯示在此處。")
+        edited_content = st.text_area("📝 講義內容編輯", value=content_to_show, height=450, key="preview_editor")
         
-        # --- 標題設定 ---
+        # 標題設定
         default_title = "AI 專題講義"
-        if inherited_data: 
-            default_title = f"{inherited_data.get('word')} 專題講義"
-            
+        if inherited_data: default_title = f"{inherited_data.get('word')} 專題講義"
         handout_title = st.text_input("講義標題", value=default_title)
         
-        # --- 準備圖片 ---
+        # 準備圖片
         img_b64 = get_image_base64(image) if image else ""
         
-        # 4. 生成最終列印用 HTML，並傳入支付狀態
+        # 3. 渲染 HTML 下載組件
         final_html = generate_printable_html(
-            handout_title, 
-            edited_content, 
-            img_b64, 
-            img_width,
-            is_paid=st.session_state.is_paid  # 關鍵：將支付狀態傳入，控制按鈕鎖定
+            title=handout_title, 
+            text_content=edited_content, 
+            img_b64=img_b64, 
+            img_width_percent=img_width,
+            is_paid=st.session_state.get("is_paid", False), # 是否已解鎖
+            daily_left=daily_left,                          # 剩餘額度
+            role=role                                       # 用戶身分
         )
         
-        # --- 渲染 HTML 預覽組件 ---
         components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
@@ -880,36 +902,57 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
 
-def generate_printable_html(title, text_content, img_b64, img_width_percent, is_paid=False):
+def generate_printable_html(title, text_content, img_b64, img_width_percent, is_paid=False, daily_left=10, role='guest'):
     """
-    生成 A4 列印用 HTML，並根據支付狀態鎖定下載按鈕。
+    生成 A4 列印用 HTML。
+    邏輯：正式用戶每日 10 次免費，訪客禁止下載與生成。
     """
-    # 1. 處理文本內容 (Markdown 轉 HTML)
+    # 1. 文本處理 (Markdown 轉 HTML)
     text_content = text_content.strip()
     text_content = re.sub(r'^(\[換頁\]|\s|\n)+', '', text_content)
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     
-    # 2. 準備其他資訊
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
 
-    # 3. 根據支付狀態 (is_paid) 動態生成按鈕的 HTML
+    # 2. 智能按鈕邏輯
+    btn_html = ""
     if is_paid:
-        # 已支付：顯示藍色、可點擊的下載按鈕
-        btn_html = f'<button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義 (已授權)</button>'
-    else:
-        # 未支付：顯示灰色、不可點擊的鎖定按鈕
-        # onclick 事件改為彈出提示，而不是執行下載
+        # 情況 A：已經點擊過生成，顯示下載按鈕並提示隨喜
         btn_html = (
-            '<button class="download-btn locked-btn" '
-            'onclick="alert(\'請點擊左側「確認支付」按鈕以解鎖 PDF 下載功能。\')">'
-            '🔒 支付 10 元解鎖下載'
+            '<button class="download-btn" onclick="downloadPDF()">'
+            '📥 下載講義 (今日免費額度內)'
             '</button>'
+            '<p style="color:#cbd5e1; font-size:12px; margin-top:5px;">❤️ 覺得好用？歡迎點擊左側贊助隨喜支持！</p>'
         )
+    else:
+        # 情況 B：尚未生成/未支付
+        if role == 'guest':
+            # 訪客身分
+            btn_html = (
+                '<button class="download-btn locked-btn" '
+                'onclick="alert(\'🔒 訪客僅限預覽。請先註冊/登入帳號以解鎖每日 10 次免費生成功能。\')">'
+                '🔒 訪客登入後即可下載'
+                '</button>'
+            )
+        elif daily_left <= 0:
+            # 今日額度已用完
+            btn_html = (
+                '<button class="download-btn locked-btn" '
+                'onclick="alert(\'⚠️ 今日 10 次免費額度已用完。您可以明天再試，或點擊左側隨喜贊助支持開發者！\')">'
+                '⚠️ 今日額度已達上限'
+                '</button>'
+            )
+        else:
+            # 有額度但尚未點擊生成
+            btn_html = (
+                f'<button class="download-btn locked-btn" '
+                f'onclick="alert(\'請先點擊左側「🚀 啟動 AI 生成」按鈕。\\n(今日剩餘免費額度：{daily_left} 次)\')">'
+                f'🔒 解鎖下載 (今日剩餘 {daily_left} 次)'
+                '</button>'
+            )
 
-    # 4. 組合完整的 HTML 頁面
-    # 注意：f-string 中的 CSS 和 JS 大括號必須使用 {{ }} 進行轉義
     return f"""
     <html>
     <head>
@@ -922,15 +965,12 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, is_
         <style>
             @page {{ size: A4; margin: 0; }}
             body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #2c2c2c; display: flex; flex-direction: column; align-items: center; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; background-image: linear-gradient(to bottom, #e0f2fe 20mm, transparent 20mm), linear-gradient(to bottom, transparent 277mm, #fee2e2 277mm); background-size: 100% 297mm; }}
-            .content {{ font-size: 16px; text-align: justify; position: relative; z-index: 2; }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
-            .img-wrapper {{ text-align: center; margin: 15px 0; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; }}
+            .content {{ font-size: 16px; text-align: justify; }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
             #btn-container {{ text-align: center; padding: 15px; width: 100%; position: sticky; top: 0; background: #1a1a1a; z-index: 9999; }}
-            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 60px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background-color 0.3s; }}
-            .download-btn.locked-btn {{ background: #64748b; cursor: not-allowed; }}
-            .download-btn.locked-btn:hover {{ background: #475569; }}
-            @media print {{ #btn-container {{ display: none; }} }}
+            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 50px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; }}
+            .download-btn.locked-btn {{ background: #475569; cursor: not-allowed; }}
         </style>
     </head>
     <body>
@@ -946,14 +986,10 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, is_
                     margin: 0,
                     filename: '{title}.pdf',
                     image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 3, useCORS: true, logging: false, scrollY: 0 }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
+                    html2canvas: {{ scale: 3, useCORS: true }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
-                // 渲染 MathJax 公式後再執行下載
-                MathJax.typesetPromise().then(() => {{
-                    setTimeout(() => {{ html2pdf().set(opt).from(element).save(); }}, 500);
-                }});
+                html2pdf().set(opt).from(element).save();
             }}
         </script>
     </body>
