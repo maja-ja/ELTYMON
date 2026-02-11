@@ -311,19 +311,22 @@ def show_encyclopedia_card(row):
         if st.button("🚩 有誤回報", key=f"rep_{r_word}", use_container_width=True):
             submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
             
-    with op3:
-        # 關鍵跳轉按鈕：將資料帶入講義模組並切換頁面
+   with op3:
+        # 關鍵修改：繼承完整單字資訊物件
         if st.button("📄 生成講義 (10元)", key=f"gen_ho_{r_word}", type="primary", use_container_width=True):
-            # 封裝預填資料至 Session State
+            # 1. 儲存原始資料字典，供 AI 深度繼承
+            st.session_state.inherited_word_data = row.to_dict() if hasattr(row, 'to_dict') else row
+            
+            # 2. 建立預視文字（讓用戶在講義頁面也能看到素材）
             st.session_state.handout_prefill = (
-                f"請針對以下內容製作專業講義：\n\n"
-                f"【主題】：{r_word}\n"
-                f"【核心原理】：{r_roots}\n"
-                f"【邏輯拆解】：{r_breakdown}\n"
-                f"【詳細定義】：{r_def}\n"
-                f"【應用實例】：{r_ex}"
+                f"【單字解碼繼承】\n"
+                f"單字：{r_word}\n"
+                f"字根原理：{r_roots}\n"
+                f"邏輯拆解：{r_breakdown}\n"
+                f"核心定義：{r_def}\n"
+                f"應用實例：{r_ex}"
             )
-            # 切換導航模式
+            
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 # ==========================================
