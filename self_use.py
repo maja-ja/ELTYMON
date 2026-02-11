@@ -41,7 +41,7 @@ def load_full_db():
 def ai_generate_word_data(word, category):
     """呼叫 AI 生成標準的 JSON 單字資料"""
     genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
     prompt = f"""
     請以「{category}」專家的視角，解碼單字「{word}」。
