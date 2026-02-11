@@ -511,16 +511,13 @@ def show_encyclopedia_card(row):
                 f"**專家心法**：{r_vibe}"
             )
             
-            # B. 雙向同步：預填 Handout 模組內容
-            st.session_state.manual_input_content = inherited_draft
+           st.session_state.manual_input_content = inherited_draft
             st.session_state.generated_text = inherited_draft
             
-            # C. 【關鍵修正】：同步更新導航狀態與 Selectbox 的 Key
-            target_mode = "Handout Pro (講義排版)"
-            st.session_state.app_mode = target_mode
-            st.session_state.navigation_select = target_mode # 強制 UI 組件同步切換
+            # C. 【修正】：只需更新 app_mode，不需要也不可以更新導航 Widget 的 key
+            st.session_state.app_mode = "Handout Pro (講義排版)"
             
-            # D. 執行頁面刷新
+            # D. 執行刷新
             st.rerun()
 # ==========================================
 # 4. Etymon 模組: 頁面邏輯
@@ -997,14 +994,14 @@ def main():
     inject_custom_css()
     
     # 2. 初始化核心 Session State 變數
+    # 定義選單選項清單
     modes = ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"]
     
+    # 初始化 app_mode，這是我們用來控制頁面的核心變數
     if 'app_mode' not in st.session_state:
         st.session_state.app_mode = modes[0]
-    
-    if 'navigation_select' not in st.session_state:
-        st.session_state.navigation_select = modes[0]
         
+    # 管理員權限初始化
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
 
@@ -1027,20 +1024,26 @@ def main():
                 </a>
             </div>
         """, unsafe_allow_html=True)
-        st.caption("講義生成與下載完全免費。您的贊助將用於支持 AI 算力支出，感謝支持！")
+        st.caption("講義下載完全免費。您的贊助將用於支持 AI 算力支出，感謝支持！")
         
         st.markdown("---")
 
-        # --- 🧭 導航控制 (關鍵修正：使用 Key 綁定實現強制跳轉) ---
-        # 這裡不使用 index 參數，直接透過 key="navigation_select" 讓系統自動同步
-        st.sidebar.selectbox(
+        # --- 🧭 導航控制 (修正版：解決 StreamlitAPIException) ---
+        # A. 根據當前的 app_mode 計算 index 數值
+        try:
+            current_mode_index = modes.index(st.session_state.app_mode)
+        except ValueError:
+            current_mode_index = 0
+
+        # B. 渲染 Selectbox：使用 index 參數控制跳轉，且不可設定 key
+        selected_mode = st.sidebar.selectbox(
             "切換工具模組", 
             modes, 
-            key="navigation_select"
+            index=current_mode_index
         )
         
-        # 同步全局模式變數
-        st.session_state.app_mode = st.session_state.navigation_select
+        # C. 將用戶手動選取的模式更新回變數 (若是程式觸發的跳轉，這行會保持不變)
+        st.session_state.app_mode = selected_mode
 
         st.markdown("---")
 
