@@ -21,12 +21,10 @@ from streamlit_gsheets import GSheetsConnection
 # ==========================================
 
 def fix_content(text):
-    """全域字串清洗"""
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
     return str(text).replace('\\n', '  \n').replace('\n', '  \n').strip('"').strip("'")
 
 def speak(text, key_suffix=""):
-    """TTS 發音生成 (HTML 按鈕版，已支援雙色主題)"""
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
     if not english_only: return
     try:
@@ -38,28 +36,21 @@ def speak(text, key_suffix=""):
         components.html(f"""
         <html><body>
             <style>
-                .speak-btn {{ 
-                    background: var(--speak-btn-bg); border: 1px solid var(--border-color); 
-                    border-radius: 12px; padding: 10px; cursor: pointer; display: flex; 
-                    align-items: center; justify-content: center; width: 100%; 
-                    font-family: sans-serif; font-size: 14px; color: var(--accent-text-color); 
-                    transition: 0.2s; 
-                }}
-                .speak-btn:hover {{ filter: brightness(0.95); }}
+                :root {{ --border-color: #B3E5FC; --accent-text-color: #0277BD; --speak-btn-bg: #F0F7FF; }}
+                @media (prefers-color-scheme: dark) {{ :root {{ --border-color: #30363d; --accent-text-color: #f0f6fc; --speak-btn-bg: #161B22; }} }}
+                .speak-btn {{ background: var(--speak-btn-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 100%; font-family: sans-serif; font-size: 14px; font-weight: 600; color: var(--accent-text-color); transition: 0.2s; }}
                 .speak-btn:active {{ transform: scale(0.96); }}
             </style>
             <button class="speak-btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
-            <audio id="{unique_id}" src="data:audio/mp3;base64,{audio_base64}"></audio>
+            <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
         </body></html>""", height=50)
     except: pass
 
 def get_spreadsheet_url():
-    """從 Streamlit Secrets 獲取 Google Sheet URL"""
     try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
     except: return st.secrets.get("gsheets", {}).get("spreadsheet")
 
 def log_user_intent(label):
-    """靜默紀錄用戶行為"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
@@ -74,7 +65,6 @@ def log_user_intent(label):
 
 @st.cache_data(ttl=3600) 
 def load_db():
-    """從 Google Sheets 載入單字資料庫"""
     COL_NAMES = ['category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 'example', 'translation', 'native_vibe']
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -87,7 +77,6 @@ def load_db():
         return pd.DataFrame(columns=COL_NAMES)
 
 def generate_printable_html(title, text_content, **kwargs):
-    """生成講義 HTML"""
     html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
     auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if kwargs.get("auto_download") else ""
     return f"""
@@ -101,90 +90,68 @@ def generate_printable_html(title, text_content, **kwargs):
     </body></html>"""
 
 # ==========================================
-# 2. 手機版 UI (支援雙色介面)
+# 2. 手機版 UI (雙色主題與贊助視覺優化)
 # ==========================================
 
 def inject_dual_theme_ui():
-    """注入支援淺色/深色模式的 CSS"""
     st.markdown("""
         <style>
-            /* 1. 定義顏色變數 */
             :root {
-                --main-bg: #F8F9FA;
-                --card-bg: white;
-                --text-color: #212529;
-                --subtle-text-color: #6c757d;
-                --border-color: #f0f0f0;
-                --shadow-color: rgba(0, 0, 0, 0.07);
-                --accent-bg: #E3F2FD;
-                --accent-text-color: #1976D2;
-                --speak-btn-bg: #F0F7FF;
-                --h1-color: #1A237E;
+                --main-bg: #F8F9FA; --card-bg: white; --text-color: #212529; --subtle-text-color: #6c757d;
+                --border-color: #f0f0f0; --shadow-color: rgba(0, 0, 0, 0.07);
+                --accent-bg: #E3F2FD; --accent-text-color: #1976D2; --h1-color: #1A237E;
+                --sponsor-btn: #00A650;
             }
-
-            /* 2. 深色模式下的顏色變數 */
             @media (prefers-color-scheme: dark) {
                 :root {
-                    --main-bg: #0E1117;
-                    --card-bg: #161B22;
-                    --text-color: #e3e3e3;
-                    --subtle-text-color: #a0a0a0;
-                    --border-color: #30363d;
-                    --shadow-color: rgba(0, 0, 0, 0.2);
-                    --accent-bg: #1f6feb;
-                    --accent-text-color: #f0f6fc;
-                    --speak-btn-bg: #0d1117;
-                    --h1-color: #90CAF9;
+                    --main-bg: #0E1117; --card-bg: #161B22; --text-color: #e3e3e3; --subtle-text-color: #a0a0a0;
+                    --border-color: #30363d; --shadow-color: rgba(0, 0, 0, 0.2);
+                    --accent-bg: #1f6feb; --accent-text-color: #f0f6fc; --h1-color: #90CAF9;
                 }
             }
-
-            /* 3. 將變數應用到元件上 */
             .main { background-color: var(--main-bg) !important; }
-            body { color: var(--text-color); }
-            
-            /* 🔥 修正點：增加上下 padding，讓內容下移 */
-            .block-container { 
-                max-width: 480px !important; 
-                padding: 2.5rem 1.2rem 6rem 1.2rem !important; 
-            }
-            
+            .block-container { max-width: 480px !important; padding: 2.5rem 1.2rem 6rem 1.2rem !important; }
             [data-testid="stSidebar"], header { display: none; }
-            
             .word-card {
-                background: var(--card-bg);
-                border-radius: 20px;
-                padding: 25px;
-                box-shadow: 0 10px 30px var(--shadow-color);
-                margin-bottom: 20px;
-                border: 1px solid var(--border-color);
+                background: var(--card-bg); border-radius: 20px; padding: 25px;
+                box-shadow: 0 10px 30px var(--shadow-color); margin-bottom: 20px; border: 1px solid var(--border-color);
             }
             .roots-tag {
-                background: var(--accent-bg);
-                color: var(--accent-text-color);
-                padding: 6px 14px;
-                border-radius: 12px;
-                font-size: 0.9rem;
-                font-weight: bold;
-                display: inline-block;
+                background: var(--accent-bg); color: var(--accent-text-color); padding: 6px 14px;
+                border-radius: 12px; font-size: 0.9rem; font-weight: bold; display: inline-block;
             }
             .stButton > button, .stTextInput > div > div > input {
-                border-radius: 15px !important;
-                height: 55px !important;
-                transition: transform 0.2s ease;
+                border-radius: 15px !important; height: 55px !important; transition: transform 0.2s ease;
             }
             .stButton > button:active { transform: scale(0.95); }
+            
+            /* 贊助橫幅樣式 */
+            .sponsor-banner {
+                background: linear-gradient(90deg, #FFDD00, #FBB03B);
+                color: #000 !important; padding: 10px; border-radius: 15px;
+                text-align: center; font-weight: bold; font-size: 0.85rem;
+                margin-bottom: 15px; cursor: pointer; display: block; text-decoration: none;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            }
         </style>
     """, unsafe_allow_html=True)
 
 def mobile_home_page(df):
-    """手機版首頁：整合搜尋與隨機探索"""
+    """手機版首頁：整合搜尋、隨機探索與贊助印象"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>🔍 探索知識</h2>", unsafe_allow_html=True)
     
+    # --- 1. 頂部贊助印象橫幅 (第一眼可見) ---
+    st.markdown("""
+        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">
+            💖 喜歡這個工具嗎？點此贊助支持伺服器維運！
+        </a>
+    """, unsafe_allow_html=True)
+
     col_search, col_rand = st.columns([4, 1])
     with col_search:
         query = st.text_input("搜尋單字或含意...", placeholder="例如: 熵", label_visibility="collapsed")
     with col_rand:
-        if st.button("🎲", help="隨機抽一張卡片"): 
+        if st.button("🎲"): 
             if not df.empty:
                 st.session_state.selected_word = df.sample(1).iloc[0].to_dict()
                 st.rerun()
@@ -194,7 +161,6 @@ def mobile_home_page(df):
         mask = df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)
         res = df[mask]
         target_row = res.iloc[0].to_dict() if not res.empty else None
-        if not target_row: st.info("找不到相關內容，試試其他關鍵字？")
     elif "selected_word" in st.session_state:
         target_row = st.session_state.selected_word
     elif not df.empty:
@@ -224,9 +190,18 @@ def mobile_home_page(df):
                 st.session_state.manual_input_content = f"## 專題講義：{w}\n\n### 🧬 核心邏輯\n{fix_content(target_row['breakdown'])}\n\n### 🎯 核心定義\n{fix_content(target_row['definition'])}\n\n### 💡 應用實例\n{fix_content(target_row['example'])}"
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
+        
+        # --- 2. 卡片底部第二次贊助印象 ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f"""
+            <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
+                <div style="background:var(--card-bg); border: 2px dashed #FFDD00; color:var(--text-color); padding:15px; border-radius:15px; text-align:center; font-size:0.9rem; font-weight:bold;">
+                    ☕ 覺得內容有幫助？請我喝杯咖啡吧！
+                </div>
+            </a>
+        """, unsafe_allow_html=True)
 
 def mobile_handout_page():
-    """手機版講義製作與預覽頁面"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>📄 講義預覽與下載</h2>", unsafe_allow_html=True)
     with st.expander("📝 編輯講義內容 (可選)"):
         st.session_state.manual_input_content = st.text_area("講義內容", value=st.session_state.get("manual_input_content", ""), height=250, label_visibility="collapsed")
@@ -241,11 +216,11 @@ def mobile_handout_page():
     components.html(final_html, height=450, scrolling=True)
 
 def mobile_sponsor_page():
-    """手機版贊助頁面"""
+    """手機版專屬贊助頁 (保持詳細資訊)"""
     st.markdown("<h2 style='text-align:center; color: var(--text-color);'>💖 支持我們</h2>", unsafe_allow_html=True)
     st.markdown("""
     <div class="word-card" style="text-align:center;">
-        <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">如果這個免費工具對你有幫助，<br>歡迎贊助支持伺服器與開發成本！</p>
+        <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">這是一個免費工具，<br>您的贊助將用於 AI 算力支出與開發維護。</p>
         <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;"><div style="background:#00A650; color:white; padding:15px; border-radius:15px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界贊助 (ECPay)</div></a>
         <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;"><div style="background:#FFDD00; color:black; padding:15px; border-radius:15px; font-weight:bold;">☕ Buy Me a Coffee</div></a>
     </div>
