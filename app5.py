@@ -949,47 +949,133 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent):
     """
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
-    if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
-    if 'generated_text' not in st.session_state: st.session_state.generated_text = ""
+    
+    # 1. 取得管理員狀態 (會從 session_state 取得最新的值)
+    is_admin = st.session_state.get("is_admin", False)
+    
+    # 初始化 Session State 變數 (確保跳轉內容存在)
+    if "manual_input_content" not in st.session_state:
+        st.session_state.manual_input_content = ""
+    if "generated_text" not in st.session_state:
+        st.session_state.generated_text = ""
+    if "rotate_angle" not in st.session_state:
+        st.session_state.rotate_angle = 0
 
+    # 顯示跳轉成功提示 (若內容包含預填草稿標籤)
+    if "專題講義" in st.session_state.manual_input_content:
+        st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
+
+    # 2. 頁面佈局：左側控制區，右側預覽區
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+    
     with col_ctrl:
-        st.subheader("1. 素材與設定")
-        uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
+        st.subheader("1. 素材與生成控制")
+        
+        # --- 圖片處理區 (所有人可用) ---
+        uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
+            # 旋轉邏輯
             if st.session_state.rotate_angle != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
+            
             c1, c2 = st.columns([1, 2])
             with c1: 
                 if st.button("🔄 旋轉 90°"): 
                     st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
                     st.rerun()
-            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
+            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
-        manual_input = st.text_area("補充文字", height=150)
-        ai_instr = st.text_input("AI 指令")
-        if st.button("🚀 生成內容", type="primary"):
-            if not image and not manual_input: st.warning("⚠️ 請提供素材！")
-            else:
-                with st.spinner("🤖 AI 排版運算中 (多 Key 輪詢)..."):
-                    res = handout_ai_generate(image, manual_input, ai_instr)
-                    st.session_state.generated_text = res
-                    st.rerun()
+        
+        # --- 文字輸入區 (所有人可用，可手動編輯) ---
+        st.text_area(
+            "講義素材內容 (AI 將根據此內容進行專業排版)", 
+            key="manual_input_content", 
+            height=300,
+            help="您可以修改跳轉過來的草稿，或在此輸入新的教學素材。"
+        )
+        
+        # --- 【權限控管核心區塊】：只在 is_admin 為 True 時顯示 AI 工具 ---
+        if is_admin:
+            # === 管理員視角：顯示 AI 生成工具 ===
+            ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加三個隨堂練習題、標註重點、改為英文版...")
+            st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
+            
+            # 這是管理員專屬的生成按鈕
+            if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
+                current_material = st.session_state.manual_input_content
+                
+                if not current_material and not uploaded_file:
+                    st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
+                else:
+                    with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
+                        image_obj = Image.open(uploaded_file) if uploaded_file else None
+                        # 調用 AI 生成專業講義
+                        generated_res = handout_ai_generate(image_obj, current_material, ai_instr)
+                        
+                        # 更新右側預覽內容 (覆蓋掉原本的草稿)
+                        st.session_state.generated_text = generated_res
+                        st.success("✅ AI 生成成功！右側預覽已更新。")
+                        st.rerun()
+        else:
+            # === 公開/訪客視角：隱藏按鈕，顯示提示 ===
+            st.warning("🔒 **AI 專業生成功能僅限管理員使用**")
+            st.caption("""
+                公開模式權限說明：
+                1. 您可以 **手動編輯** 上方的文字素材。
+                2. 您可以 **上傳圖片**。
+                3. 右側預覽區會即時更新，並可 **免費下載 PDF**。
+                4. 若您需要 AI 自動排版優化服務，請聯繫管理員獲取權限或贊助支持開發者。
+            """)
 
     with col_prev:
-        st.subheader("2. A4 預覽")
-        st.markdown('<div class="info-card"><b>📏 說明：</b>藍色為起點，紅色為終點。輸入 [換頁] 可強制分頁。</div>', unsafe_allow_html=True)
-        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 預覽區\n請在左側上傳圖片或輸入文字以生成講義。"
-        edited_content = st.text_area("📝 內容修訂", value=content_to_show, height=300)
-        handout_title = st.text_input("講義標題", value="精選解析")
+        st.subheader("2. A4 預覽與修訂")
+        st.markdown('<div class="info-card"><b>📏 說明：</b>下方為即時列印預覽。編輯滿意後，點擊上方按鈕下載 PDF。</div>', unsafe_allow_html=True)
+        
+        # --- 內容修訂區 (右側預覽編輯器) ---
+        # 綁定 generated_text：確保跳轉後的草稿或 AI 生成後的正式版都會出現在編輯器中
+        # 訪客即使沒有 AI 生成權限，其手動編輯的內容也會通過 preview_editor 顯示在這裡
+        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
+        if not preview_source: # 如果兩個都沒內容，顯示預設提示
+            preview_source = "### 預覽區\n請在左側輸入內容，或從單字解碼跳轉匯入草稿。"
+
+        edited_content = st.text_area(
+            "📝 講義內容編輯", 
+            value=preview_source, 
+            height=450,
+            key="preview_editor"
+        )
+        
+        # 標題設定：嘗試從內容第一行自動抓取
+        default_title = "AI 專題講義"
+        if edited_content:
+            first_lines = edited_content.split('\n')
+            for line in first_lines:
+                clean_line = line.replace('#', '').strip()
+                if clean_line:
+                    default_title = clean_line
+                    break
+            
+        handout_title = st.text_input("講義標題", value=default_title)
+        
+        # 準備圖片 Base64 數據
         img_b64 = get_image_base64(image) if image else ""
-        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+        
+        # --- 3. 渲染最終列印用 HTML 下載組件 (全功能開放) ---
+        # 注意：此處需確保 generate_printable_html 函式已正確定義
+        final_html = generate_printable_html(
+            title=handout_title, 
+            text_content=edited_content, 
+            img_b64=img_b64, 
+            img_width_percent=img_width
+        )
+        
+        # 渲染 HTML 組件
         components.html(final_html, height=1000, scrolling=True)
 
 # ==========================================
@@ -1034,7 +1120,23 @@ def main():
         
         st.markdown("---")
 
-        # --- 🧭 導航控制 (修正版：解決 StreamlitAPIException) ---
+        # --- 🔐 管理員入口 (修正點在此) ---
+        with st.sidebar.expander("🔐 管理員登入"):
+            admin_pwd_input = st.text_input("輸入管理密碼", type="password", key="admin_pwd_input_sidebar") # 使用唯一的 key
+            
+            # 【關鍵修正】：嚴格控制 is_admin 的狀態
+            if admin_pwd_input == st.secrets.get("ADMIN_PASSWORD", "0000"):
+                st.session_state.is_admin = True
+                st.success("🔓 上帝模式：已解鎖實驗室與 AI 生成")
+            else:
+                # 如果密碼不正確或為空，則明確設為 False
+                st.session_state.is_admin = False
+                if admin_pwd_input: # 如果輸入了密碼但卻不正確
+                    st.error("❌ 密碼錯誤")
+
+        st.markdown("---")
+
+        # --- 🧭 導航控制 (已修正，保持穩定) ---
         # A. 根據當前的 app_mode 計算 index 數值
         try:
             current_mode_index = modes.index(st.session_state.app_mode)
@@ -1050,17 +1152,6 @@ def main():
         
         # C. 將用戶手動選取的模式更新回變數 (若是程式觸發的跳轉，這行會保持不變)
         st.session_state.app_mode = selected_mode
-
-        st.markdown("---")
-
-        # --- 🔐 管理員入口 (僅解鎖解碼實驗室) ---
-        with st.sidebar.expander("🔐 管理員登入"):
-            pwd = st.text_input("管理密碼", type="password")
-            if pwd == st.secrets.get("ADMIN_PASSWORD", "0000"):
-                st.session_state.is_admin = True
-                st.success("上帝模式：已解鎖實驗室")
-            else:
-                st.session_state.is_admin = False
 
     # ==========================================
     # 4. 路由邏輯 (Routing)
@@ -1086,7 +1177,11 @@ def main():
         elif page == "測驗模式":
             page_etymon_quiz(df)
         elif page == "🔬 解碼實驗室":
-            page_etymon_lab()
+            # 確保實驗室頁面也檢查 is_admin 狀態
+            if st.session_state.is_admin:
+                page_etymon_lab()
+            else:
+                st.error("⛔ 您沒有權限訪問解碼實驗室。")
             
     elif st.session_state.app_mode == "Handout Pro (講義排版)":
         # 講義排版模組 (公開免費使用)
