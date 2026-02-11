@@ -652,7 +652,10 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 初始化 Session State 變數 (確保跳轉內容存在)
+    # 1. 取得權限狀態
+    is_admin = st.session_state.get("is_admin", False)
+    
+    # 初始化變數
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
@@ -660,99 +663,103 @@ def run_handout_app():
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
 
-    # 顯示跳轉成功提示 (若內容包含預填草稿標籤)
+    # 提示訊息
     if "專題講義" in st.session_state.manual_input_content:
-        st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
+        st.toast("📝 已導入單字草稿", icon="✨")
 
-    # 2. 頁面佈局：左側控制區，右側預覽區
+    # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
         
-        # --- 圖片處理區 ---
+        # --- 圖片處理區 (所有人可用) ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
-            # 旋轉邏輯
             if st.session_state.rotate_angle != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
             
             c1, c2 = st.columns([1, 2])
             with c1: 
-                if st.button("🔄 旋轉 90°"): 
+                if st.button("🔄 旋轉"): 
                     st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
                     st.rerun()
-            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
+            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
         
-        # --- 文字輸入區 (關鍵：綁定 manual_input_content) ---
-        # 這裡使用 key 直接綁定，確保跳轉過來的文字自動出現在框內
+        # --- 文字輸入區 (所有人可用，可手動編輯) ---
         st.text_area(
-            "講義素材內容 (AI 將根據此內容進行專業排版)", 
+            "講義素材內容", 
             key="manual_input_content", 
             height=300,
-            help="您可以修改跳轉過來的草稿，或在此輸入新的教學素材。"
+            help="此處內容將直接顯示於右側預覽。管理員可使用 AI 進行優化。"
         )
         
-        ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加三個練習題、標註重點、改為英文版...")
-        
-        st.info("💡 公開模式：服務完全免費，點擊下方按鈕將調用 AI 進行專業排版。")
-        
-        # --- 啟動 AI 生成按鈕 ---
-        if st.button("🚀 啟動 AI 專業生成", type="primary", use_container_width=True):
-            # 取得目前的素材內容
-            current_material = st.session_state.manual_input_content
+        # --- 權限控管核心區塊 ---
+        if is_admin:
+            # === 管理員視角：顯示 AI 生成工具 ===
+            ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加練習題...")
+            st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
             
-            if not current_material and not uploaded_file:
-                st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
-            else:
-                with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
-                    # 調用 AI 生成專業講義
-                    image_obj = Image.open(uploaded_file) if uploaded_file else None
-                    # 注意：此處需確保 handout_ai_generate 函式已正確定義
-                    generated_res = handout_ai_generate(image_obj, current_material, ai_instr)
-                    
-                    # 更新右側預覽內容 (覆蓋掉原本的草稿)
-                    st.session_state.generated_text = generated_res
-                    st.success("✅ AI 生成成功！右側預覽已更新。")
-                    st.rerun()
+            if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
+                current_material = st.session_state.manual_input_content
+                if not current_material and not uploaded_file:
+                    st.warning("⚠️ 請提供素材。")
+                else:
+                    with st.spinner("🤖 AI 正在進行深度排版..."):
+                        image_obj = Image.open(uploaded_file) if uploaded_file else None
+                        res = handout_ai_generate(image_obj, current_material, ai_instr)
+                        st.session_state.generated_text = res
+                        st.success("✅ 生成成功！")
+                        st.rerun()
+        else:
+            # === 訪客視角：隱藏按鈕，顯示提示 ===
+            st.warning("🔒 **AI 生成功能僅限管理員使用**")
+            st.caption("""
+                訪客權限說明：
+                1. 您可以 **手動編輯** 上方的文字素材。
+                2. 您可以 **上傳圖片**。
+                3. 右側預覽區會即時更新，並可 **免費下載 PDF**。
+                4. 若需 AI 自動排版服務，請聯繫管理員或贊助支持。
+            """)
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
-        st.markdown('<div class="info-card"><b>📏 提示：</b>下方為即時列印預覽。編輯完成後，點擊預覽區上方的下載按鈕。</div>', unsafe_allow_html=True)
+        st.markdown('<div class="info-card"><b>📏 說明：</b>右側預覽區對所有人開放。編輯滿意後可直接下載 PDF。</div>', unsafe_allow_html=True)
         
-        # --- 內容修訂區 (右側預覽編輯器) ---
-        # 綁定 generated_text：確保跳轉後的草稿或 AI 生成後的正式版都會出現在編輯器中
+        # 決定預覽內容：優先顯示 AI 生成的結果，如果沒有則顯示手動輸入的內容
+        # 這樣訪客手動打字也能看到預覽
+        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
+        
+        if not preview_source:
+            preview_source = "### 預覽區\n請在左側輸入內容，或從單字解碼跳轉匯入草稿。"
+
+        # --- 內容修訂區 ---
         edited_content = st.text_area(
-            "📝 講義內容編輯", 
-            value=st.session_state.generated_text, 
+            "📝 講義內容編輯 (最終列印版)", 
+            value=preview_source, 
             height=450,
             key="preview_editor"
         )
         
-        # 標題設定：嘗試從內容第一行自動抓取
+        # 標題設定
         default_title = "AI 專題講義"
-        if st.session_state.generated_text:
-            first_lines = st.session_state.generated_text.split('\n')
-            for line in first_lines:
-                clean_line = line.replace('#', '').strip()
-                if clean_line:
-                    default_title = clean_line
-                    break
+        if edited_content:
+            first_line = edited_content.split('\n')[0].replace('#', '').strip()
+            if first_line: default_title = first_line
             
         handout_title = st.text_input("講義標題", value=default_title)
         
-        # 準備圖片 Base64 數據
+        # 準備圖片
         img_b64 = get_image_base64(image) if image else ""
         
-        # --- 3. 渲染最終列印用 HTML 下載組件 ---
-        # 注意：此處需確保 generate_printable_html 函式已正確定義
+        # --- 渲染 HTML 下載組件 (全開放) ---
         final_html = generate_printable_html(
             title=handout_title, 
             text_content=edited_content, 
@@ -760,7 +767,6 @@ def run_handout_app():
             img_width_percent=img_width
         )
         
-        # 渲染 HTML 組件
         components.html(final_html, height=1000, scrolling=True)
 def page_etymon_learn(df):
     st.title("📖 學習與搜尋")
