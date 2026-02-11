@@ -652,20 +652,18 @@ def page_etymon_home(df):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 取得權限狀態
+    # 1. 取得管理員狀態
     is_admin = st.session_state.get("is_admin", False)
     
-    # 初始化變數
+    # 初始化 Session State 變數
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
-
-    # 提示訊息
-    if "專題講義" in st.session_state.manual_input_content:
-        st.toast("📝 已導入單字草稿", icon="✨")
+    if "trigger_download" not in st.session_state:
+        st.session_state.trigger_download = False
 
     # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
@@ -673,7 +671,7 @@ def run_handout_app():
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
         
-        # --- 圖片處理區 (所有人可用) ---
+        # --- 圖片處理區 ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
@@ -685,95 +683,81 @@ def run_handout_app():
             
             c1, c2 = st.columns([1, 2])
             with c1: 
-                if st.button("🔄 旋轉"): 
+                if st.button("🔄 旋轉 90°"): 
                     st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
                     st.rerun()
-            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
+            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
         
-        # --- 文字輸入區 (所有人可用，可手動編輯) ---
+        # --- 文字輸入區 ---
         st.text_area(
-            "講義素材內容", 
+            "講義素材內容 (AI 將根據此內容進行專業排版)", 
             key="manual_input_content", 
-            height=300,
-            help="此處內容將直接顯示於右側預覽。管理員可使用 AI 進行優化。"
+            height=300
         )
         
-        # --- 權限控管核心區塊 ---
+        # 管理員 AI 生成按鈕
         if is_admin:
-            # === 管理員視角：顯示 AI 生成工具 ===
-            ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加練習題...")
-            st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
-            
+            ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加練習題...")
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
                 current_material = st.session_state.manual_input_content
-                if not current_material and not uploaded_file:
-                    st.warning("⚠️ 請提供素材。")
-                else:
-                    with st.spinner("🤖 AI 正在進行深度排版..."):
+                if current_material or uploaded_file:
+                    with st.spinner("🤖 AI 正在生成..."):
                         image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        res = handout_ai_generate(image_obj, current_material, ai_instr)
-                        st.session_state.generated_text = res
-                        st.success("✅ 生成成功！")
+                        st.session_state.generated_text = handout_ai_generate(image_obj, current_material, ai_instr)
                         st.rerun()
         else:
-            # === 訪客視角：隱藏按鈕，顯示提示 ===
-            st.warning("🔒 **AI 生成功能僅限管理員使用**")
-            st.caption("""
-                訪客權限說明：
-                1. 您可以 **手動編輯** 上方的文字素材。
-                2. 您可以 **上傳圖片**。
-                3. 右側預覽區會即時更新，並可 **免費下載 PDF**。
-                4. 若需 AI 自動排版服務，請聯繫管理員或贊助支持。
-            """)
+            st.warning("🔒 AI 生成功能僅限管理員，訪客可手動編輯右側預覽。")
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # 在資訊卡下方、編輯器上方加入紀錄按鈕
-        st.markdown('<div class="info-card"><b>📏 說明：</b>下方為即時列印預覽。</div>', unsafe_allow_html=True)
-        
-        if st.button("📊 點此紀錄下載數據", use_container_width=True):
-            log_user_intent("pdf_download")
-            st.toast("✅ 已紀錄下載意向！", icon="📈")
-        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
-        
-        if not preview_source:
-            preview_source = "### 預覽區\n請在左側輸入內容，或從單字解碼跳轉匯入草稿。"
+        # --- 下載按鈕 (這會觸發背景紀錄與 JS 下載) ---
+        if st.button("📥 下載 A4 講義 (PDF)", type="primary", use_container_width=True):
+            log_user_intent("pdf_download") # 靜默紀錄
+            st.session_state.trigger_download = True # 設定旗標
+            st.rerun()
 
-        # --- 內容修訂區 ---
+        # 決定預覽內容來源
+        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
+        if not preview_source:
+            preview_source = "### 預覽區\n請在左側輸入內容。"
+
+        # --- 內容編輯區 ---
         edited_content = st.text_area(
-            "📝 講義內容編輯 (最終列印版)", 
+            "📝 講義內容編輯", 
             value=preview_source, 
             height=450,
             key="preview_editor"
         )
         
-        # 標題設定
+        # --- 關鍵修正：確保 handout_title 在傳入 generate_printable_html 前被定義 ---
         default_title = "AI 專題講義"
         if edited_content:
-            first_line = edited_content.split('\n')[0].replace('#', '').strip()
-            if first_line: default_title = first_line
-            
+            for line in edited_content.split('\n'):
+                clean_line = line.replace('#', '').strip()
+                if clean_line:
+                    default_title = clean_line
+                    break
         handout_title = st.text_input("講義標題", value=default_title)
         
         # 準備圖片
         img_b64 = get_image_base64(image) if image else ""
         
-        # 只要編輯器內有內容，且正在準備渲染 HTML 給用戶看，就背景紀錄一次
-        if len(edited_content) > 20: # 確保不是空內容才紀錄
-             # 為了避免每次編輯輸入都觸發紀錄，我們檢查一個臨時 session 變數
-             if st.session_state.get("last_logged_content") != edited_content[:20]:
-                 log_user_intent("pdf_ready") # 代表用戶已經準備好一份可以下載的講義
-                 st.session_state.last_logged_content = edited_content[:20]
-
+        # 取得下載旗標並立即重置
+        do_download = st.session_state.trigger_download
+        if do_download:
+            st.session_state.trigger_download = False
+            
+        # 渲染 HTML (將 auto_download 旗標傳入)
         final_html = generate_printable_html(
             title=handout_title, 
             text_content=edited_content, 
             img_b64=img_b64, 
-            img_width_percent=img_width
+            img_width_percent=img_width,
+            auto_download=do_download
         )
         
         components.html(final_html, height=1000, scrolling=True)
@@ -905,14 +889,15 @@ def handout_ai_generate(image, manual_input, instruction):
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
 
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
+    """生成 A4 HTML，支援自動下載指令"""
     text_content = text_content.strip()
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
 
-    # 如果 auto_download 為 True，則在頁面載入後 1 秒自動觸發下載
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1000); };" if auto_download else ""
+    # 若 auto_download 為 True，則 JS 在載入後自動執行下載
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
 
     return f"""
     <html>
@@ -926,7 +911,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
             #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; }}
             .content {{ font-size: 16px; text-align: justify; }}
             h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
-            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 20px; }}
+            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }}
         </style>
     </head>
     <body>
