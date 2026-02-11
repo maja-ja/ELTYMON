@@ -4,1170 +4,717 @@ import base64
 import time
 import json
 import re
-import hashlib
 import random
+import os
 from io import BytesIO
-from datetime import datetime
+from PIL import Image, ImageOps
 from gtts import gTTS
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
-def get_screen_width_js():
-    """
-    修正說明：
-    Streamlit 的 components.html 是單向渲染 iframe，無法直接透過 setComponentValue 回傳數值
-    給單一檔案的 Python 腳本 (這需要編寫完整的 Custom Component)。
-    
-    為了避免無效的 JS 執行與誤導，建議依靠 CSS 的 @media 查詢來處理響應式佈局。
-    此函式保留結構但回傳 None，避免程式報錯。
-    """
-    return None
-
-@st.cache_data(show_spinner="正在同步雲端數據...", ttl=300)
-def load_sheet(worksheet_name):
-    """
-    修正說明：
-    1. 針對 vocabulary 分頁，強制檢查並初始化 'term' (報錯狀態) 欄位。
-    2. 確保數值欄位格式正確，防止後台篩選時發生型別錯誤。
-    """
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = conn.read(spreadsheet=url, worksheet=worksheet_name, ttl=0)
-        
-        if df.empty:
-            return pd.DataFrame()
-            
-        # 針對 vocabulary 分頁進行標準化處理
-        if worksheet_name == "vocabulary":
-            # 確保必要文字欄位存在
-            required_cols = ['word', 'definition', 'category', 'roots', 'breakdown']
-            for col in required_cols:
-                if col not in df.columns:
-                    df[col] = "無"
-            
-            # [新增] 確保 'term' 欄位存在 (0=正常, 1=報錯)
-            if 'term' not in df.columns:
-                df['term'] = 0
-            
-            # 強制將 term 轉為整數，處理空值或字串殘留
-            df['term'] = pd.to_numeric(df['term'], errors='coerce').fillna(0).astype(int)
-                    
-        return df.fillna("無")
-    except Exception as e:
-        st.error(f"📡 雲端連線失敗: {e}")
-        return pd.DataFrame()
-
-def submit_report(row_data):
-    """
-    [新增函式] 處理單字報錯邏輯
-    功能：接收單字資料，在資料庫中將該單字的 'term' 欄位設為 1 (標記為錯誤)。
-    """
-    target_word = row_data.get('word')
-    if not target_word:
-        st.error("無法識別單字，回報失敗。")
-        return
-
-    with st.spinner(f"正在提交「{target_word}」的修復回報..."):
-        try:
-            # 1. 讀取最新資料 (不使用快取，確保準確)
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-            df = conn.read(spreadsheet=url, worksheet="vocabulary", ttl=0)
-
-            # 2. 確保 term 欄位存在
-            if 'term' not in df.columns:
-                df['term'] = 0
-
-            # 3. 尋找目標單字並標記
-            # 使用 str.lower() 進行不分大小寫比對
-            mask = df['word'].astype(str).str.lower() == str(target_word).lower()
-            
-            if mask.any():
-                df.loc[mask, 'term'] = 1  # 設定錯誤旗標
-                conn.update(spreadsheet=url, worksheet="vocabulary", data=df)
-                st.cache_data.clear() # 清除快取以反映變更
-                st.toast(f"✅ 已成功回報：{target_word}，我們會盡快修復！", icon="🚩")
-            else:
-                st.warning("資料庫中找不到此單字，可能已被刪除。")
-                
-        except Exception as e:
-            st.error(f"回報過程發生錯誤: {str(e)}")
-
+import markdown
 
 # ==========================================
-# 1. 核心配置與視覺美化 (最高規格 CSS)
+# 1. 核心配置與視覺美化 (CSS)
 # ==========================================
-st.set_page_config(
-    page_title="Kadowsella | Etymon Decoder Pro", 
-    page_icon="🧩", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="AI 教育工作站 (Etymon + Handout)", page_icon="🏫", layout="wide")
+
 def inject_custom_css():
     st.markdown("""
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+TC:wght@500;700&display=swap');
+            
+            /* --- 全域樣式 --- */
+            .stMainContainer { transition: background-color 0.3s ease; }
 
-            /* --- 1. 定義變數系統 (Light Mode 預設) --- */
-            :root {
-                --bg-main: #f8fafc;       /* 極淺灰藍 */
-                --bg-card: #ffffff;       /* 純白卡片 */
-                --text-main: #1e293b;     /* 深灰主字 */
-                --text-sub: #64748b;      /* 淺灰副字 */
-                --border-color: #e2e8f0;  /* 淺灰邊框 */
-                --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
-                
-                /* 功能色 (使用 RGBA 以便在深色模式下通透) */
-                --accent-blue-bg: rgba(59, 130, 246, 0.1);
-                --accent-blue-text: #2563eb;
-                --accent-green-bg: rgba(34, 197, 94, 0.1);
-                --accent-green-text: #166534;
-                --accent-orange-bg: rgba(249, 115, 22, 0.1);
-                --accent-orange-text: #c2410c;
-                
-                /* 漸層 */
-                --hero-gradient: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-                --logic-gradient: linear-gradient(120deg, #2563eb 0%, #4f46e5 100%);
-            }
-
-            /* --- 2. 深色模式覆寫 (Dark Mode Overrides) --- */
-            @media (prefers-color-scheme: dark) {
-                :root {
-                    --bg-main: #0f172a;       /* 質感深藍灰 (Slate-900) */
-                    --bg-card: #1e293b;       /* 卡片深色 (Slate-800) */
-                    --text-main: #f1f5f9;     /* 亮白文字 */
-                    --text-sub: #94a3b8;      /* 灰白副字 */
-                    --border-color: #334155;  /* 深色邊框 */
-                    --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-                    
-                    /* 功能色 (深色模式下，背景稍微亮一點，文字變亮) */
-                    --accent-blue-bg: rgba(59, 130, 246, 0.15);
-                    --accent-blue-text: #60a5fa;
-                    --accent-green-bg: rgba(34, 197, 94, 0.15);
-                    --accent-green-text: #4ade80;
-                    --accent-orange-bg: rgba(249, 115, 22, 0.15);
-                    --accent-orange-text: #fb923c;
-                    
-                    /* 漸層 (調整為更亮的色調以適應黑底) */
-                    --hero-gradient: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
-                }
-                
-                /* 強制修正 Streamlit 原生組件 */
-                .stApp { background-color: var(--bg-main) !important; }
-                .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 {
-                    color: var(--text-main) !important;
-                }
-                /* 輸入框優化 */
-                .stTextInput input, .stSelectbox div[data-baseweb="select"] {
-                    background-color: var(--bg-card) !important;
-                    color: var(--text-main) !important;
-                    border-color: var(--border-color) !important;
-                }
-            }
-
-            /* --- 3. 通用樣式應用 --- */
-            .stApp {
-                font-family: 'Inter', 'Noto Sans TC', sans-serif;
-                background-color: var(--bg-main);
-            }
-
-            /* 標題 Hero Word */
+            /* --- Etymon Decoder 樣式 (v3.0 保留) --- */
             .hero-word { 
-                font-size: 2.5rem; 
-                font-weight: 900; 
-                background: var(--hero-gradient);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                margin-bottom: 10px;
-                text-align: center;
+                font-size: 2.8rem; font-weight: 800; color: #1A237E; margin-bottom: 5px;
             }
-
-            /* 卡片容器 (自動適應) */
-            div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlock"] {
-                background-color: var(--bg-card);
-                border-radius: 16px;
-                padding: 20px;
-                box-shadow: var(--shadow); 
-                border: 1px solid var(--border-color);
+            .vibe-box { 
+                background-color: #F0F7FF; padding: 20px; border-radius: 12px; 
+                border-left: 6px solid #2196F3; color: #2C3E50 !important; margin: 15px 0;
             }
-
-            /* 按鈕優化 */
-            .stButton button {
-                border: none !important;
-                border-radius: 12px !important;
-                background-color: var(--bg-card) !important;
-                color: var(--text-main) !important;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05) !important;
-                border: 1px solid var(--border-color) !important;
-                transition: all 0.2s ease !important;
-            }
-            .stButton button:hover {
-                transform: translateY(-2px);
-                border-color: #6366f1 !important;
-                color: #6366f1 !important;
+            .breakdown-wrapper {
+                background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%);
+                padding: 25px 30px; border-radius: 15px; color: white !important;
             }
             
-            /* 側邊欄 */
-            section[data-testid="stSidebar"] {
-                background-color: var(--bg-card);
-                border-right: 1px solid var(--border-color);
-            }
-            
-            /* Expander (搜尋結果) */
-            .streamlit-expanderHeader {
-                background-color: var(--bg-card) !important;
-                color: var(--text-main) !important;
-                border-radius: 10px !important;
-                border: 1px solid var(--border-color);
-            }
-            .streamlit-expanderContent {
-                background-color: var(--bg-card) !important;
-                color: var(--text-main) !important;
-                border-top: none;
-                border-left: 1px solid var(--border-color);
-                border-right: 1px solid var(--border-color);
-                border-bottom: 1px solid var(--border-color);
+            /* --- Handout Pro 樣式 (Code 1 新增) --- */
+            .stTextArea textarea { font-size: 16px; line-height: 1.6; font-family: 'Consolas', monospace; }
+            .info-card { background-color: #f0f9ff; border-left: 5px solid #0ea5e9; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+
+            /* --- 贊助按鈕樣式 --- */
+            .sponsor-box { padding: 10px; text-align: center; margin-bottom: 10px; }
+            .sponsor-title { font-weight: bold; color: #555; }
+
+            /* --- 深色模式適應 --- */
+            @media (prefers-color-scheme: dark) {
+                .hero-word { color: #90CAF9 !important; }
+                .vibe-box { background-color: #1E262E !important; color: #E3F2FD !important; border-left: 6px solid #64B5F6 !important; }
+                .stMarkdown p, .stMarkdown li { color: #E0E0E0 !important; }
+                .sponsor-title { color: #ccc; }
             }
         </style>
     """, unsafe_allow_html=True)
+
 # ==========================================
-# 2. 工具函式 (旗艦級重構: 安全、快取、強健)
+# 2. 共用工具函式
 # ==========================================
 
-def hash_password(password): 
-    """最高規格加密：SHA-256 結合系統鹽值"""
-    salt = st.secrets.get("AUTH_SALT", "kadowsella_default_salt")
-    salted_pass = f"{password}{salt}"
-    return hashlib.sha256(salted_pass.encode()).hexdigest()
+def get_gemini_keys():
+    """獲取並隨機打亂 API Keys (支援單一字串或列表)"""
+    keys = st.secrets.get("GEMINI_FREE_KEYS")
+    if not keys:
+        single_key = st.secrets.get("GEMINI_API_KEY")
+        if single_key: keys = [single_key]
+        else: return []
+    if isinstance(keys, str): keys = [keys]
+    shuffled_keys = keys.copy()
+    random.shuffle(shuffled_keys)
+    return shuffled_keys
 
 def fix_content(text):
-    """
-    極致資料清洗：處理 LaTeX、Markdown 換行與 AI 轉義殘留
-    """
-    if text is None or str(text).strip() in ["無", "nan", "None", ""]: 
-        return ""
-    
+    """全域字串清洗 (v3.0 邏輯)"""
+    if text is None or str(text).strip() in ["無", "nan", ""]: return ""
     text = str(text)
-    # 處理 AI 常見的轉義錯誤
     text = text.replace('\\n', '  \n').replace('\n', '  \n')
-    text = text.replace('\\"', '"').replace('\\\'', "'")
-    
-    # LaTeX 修正：確保反斜線在 Markdown 中能正確渲染
-    if '\\\\' in text:
-        text = text.replace('\\\\', '\\')
-    
-    # 移除 JSON 字串首尾可能殘留的引號
+    if '\\\\' in text: text = text.replace('\\\\', '\\')
     text = text.strip('"').strip("'")
     return text
 
-@st.cache_data(show_spinner=False, ttl=3600)
-def get_audio_base64(text, lang='en'):
-    """快取語音資料，避免重複請求 TTS API"""
-    try:
-        tts = gTTS(text=text, lang=lang)
-        fp = BytesIO()
-        tts.write_to_fp(fp)
-        return base64.b64encode(fp.getvalue()).decode()
-    except Exception as e:
-        return None
-
 def speak(text, key_suffix=""):
-    """
-    最高規格語音組件：具備快取功能與現代化 UI 按鈕
-    """
-    # 過濾非英語內容
+    """TTS 發音生成 (v3.0 HTML 按鈕版)"""
+    if not text: return
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text))
     english_only = " ".join(english_only.split()).strip()
     if not english_only: return
 
-    audio_b64 = get_audio_base64(english_only)
-    if not audio_b64: return
-
-    unique_id = f"audio_{hashlib.md5(english_only.encode()).hexdigest()[:8]}_{key_suffix}"
-    
-    # 現代化 SaaS 風格按鈕 HTML
-    html_code = f"""
-    <div style="display: flex; align-items: center; gap: 10px; margin: 5px 0;">
-        <button id="btn_{unique_id}" onclick="play_{unique_id}()" 
-            style="
-                background: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 10px;
-                padding: 6px 14px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-family: 'Inter', sans-serif;
-                font-size: 13px;
-                font-weight: 600;
-                color: #4338ca;
-                transition: all 0.2s ease;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            "
-            onmouseover="this.style.background='#f8fafc'; this.style.transform='translateY(-1px)';"
-            onmouseout="this.style.background='white'; this.style.transform='translateY(0)';"
-        >
-            <span style="font-size: 16px;">🔊</span> 聽發音
-        </button>
-        <audio id="{unique_id}" style="display:none">
-            <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
-        </audio>
-        <script>
-            function play_{unique_id}() {{
-                var audio = document.getElementById('{unique_id}');
-                audio.currentTime = 0;
-                audio.play();
-                var btn = document.getElementById('btn_{unique_id}');
-                btn.style.borderColor = '#6366f1';
-                setTimeout(() => {{ btn.style.borderColor = '#e2e8f0'; }}, 500);
-            }}
-        </script>
-    </div>
-    """
-    components.html(html_code, height=45)
-
-@st.cache_data(show_spinner="正在同步雲端數據...", ttl=300)
-def load_sheet(worksheet_name):
-    """
-    強健型資料載入：具備自動欄位校驗與錯誤處理
-    """
     try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = conn.read(spreadsheet=url, worksheet=worksheet_name, ttl=0)
+        tts = gTTS(text=english_only, lang='en')
+        fp = BytesIO()
+        tts.write_to_fp(fp)
+        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
         
-        if df.empty:
-            return pd.DataFrame()
-            
-        # 針對 vocabulary 分頁進行標準化處理
-        if worksheet_name == "vocabulary":
-            required_cols = ['word', 'definition', 'category']
-            for col in required_cols:
-                if col not in df.columns:
-                    df[col] = "無"
-                    
-        return df.fillna("無")
-    except Exception as e:
-        st.error(f"📡 雲端連線失敗: {e}")
-        return pd.DataFrame()
+        html_code = f"""
+        <html>
+        <style>
+            .btn {{ background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 5px 10px; cursor: pointer; display: flex; align-items: center; gap: 5px; font-family: sans-serif; font-size: 14px; color: #333; transition: 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+            .btn:hover {{ background: #f8f9fa; border-color: #ccc; }}
+            .btn:active {{ background: #eef; transform: scale(0.98); }}
+        </style>
+        <body>
+            <button class="btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
+            <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
+        </body>
+        </html>
+        """
+        components.html(html_code, height=40)
+    except Exception:
+        pass
 
-def update_sheet(df, worksheet_name):
-    """
-    安全型資料更新：確保寫入前資料格式正確
-    """
+def get_spreadsheet_url():
+    try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
+    except: return st.secrets["gsheets"]["spreadsheet"]
+
+def log_user_intent(label):
+    """紀錄用戶意願 (Metrics)"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        # 確保資料中沒有不可見的特殊字元
-        df = df.astype(str).replace('nan', '無')
-        conn.update(spreadsheet=url, worksheet=worksheet_name, data=df)
-        st.cache_data.clear() # 更新後強制清除快取
+        url = get_spreadsheet_url()
+        try: m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
+        except: m_df = pd.DataFrame(columns=['label', 'count'])
+        
+        if label in m_df['label'].values:
+            m_df.loc[m_df['label'] == label, 'count'] = m_df.loc[m_df['label'] == label, 'count'].astype(int) + 1
+        else:
+            new_record = pd.DataFrame([{'label': label, 'count': 1}])
+            m_df = pd.concat([m_df, new_record], ignore_index=True)
+        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
+    except: pass
+
+@st.cache_data(ttl=360) 
+def load_db(source_type="Google Sheets"):
+    COL_NAMES = ['category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 'social_status', 'emotional_tone', 'street_usage', 'collocation', 'etymon_story', 'usage_warning', 'memory_hook', 'audio_tag', 'term']
+    df = pd.DataFrame(columns=COL_NAMES)
+    try:
+        if source_type == "Google Sheets":
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            url = get_spreadsheet_url()
+            df = conn.read(spreadsheet=url, ttl=0)
+        elif source_type == "Local JSON":
+            if os.path.exists("master_db.json"):
+                with open("master_db.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if data: df = pd.DataFrame(data)
+        for col in COL_NAMES:
+            if col not in df.columns: df[col] = 0 if col == 'term' else "無"
+        return df.dropna(subset=['word']).fillna("無")[COL_NAMES].reset_index(drop=True)
+    except Exception as e:
+        st.error(f"❌ 資料庫載入失敗: {e}")
+        return pd.DataFrame(columns=COL_NAMES)
+
+def submit_report(row_data):
+    try:
+        FEEDBACK_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0"
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        report_row = row_data.copy()
+        report_row['term'] = 1
+        try: existing = conn.read(spreadsheet=FEEDBACK_URL, ttl=0)
+        except: existing = pd.DataFrame()
+        updated = pd.concat([existing, pd.DataFrame([report_row])], ignore_index=True)
+        conn.update(spreadsheet=FEEDBACK_URL, data=updated)
+        st.toast(f"✅ 已回報「{row_data.get('word')}」", icon="🛠️")
         return True
     except Exception as e:
-        st.error(f"❌ 寫入失敗: {e}")
+        st.error(f"回報失敗: {e}")
         return False
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-import random
 
-def get_api_keys():
-    """從 secrets 獲取 API Key 列表，支援單一字串或列表"""
-    keys = st.secrets.get("GEMINI_API_KEYS")
-    if isinstance(keys, list): return keys
-    if isinstance(keys, str): return [keys]
-    return [st.secrets.get("GEMINI_API_KEY")]
+# ==========================================
+# 3. Etymon 模組: AI 解碼核心 (詳細版)
+# ==========================================
 
-def ai_call(system_prompt, user_input, tier="free"):
+def ai_decode_and_save(input_text, fixed_category):
     """
-    最高規格 AI 呼叫：具備 Key 輪替、自動重試與錯誤處理
+    核心解碼函式 (多 Key 輪詢版)：
+    保留 v3.0 的詳細 Prompt 與欄位定義。
     """
-    keys = get_api_keys()
-    if not keys or not keys[0]:
-        st.error("❌ 未設定 API Key")
+    keys = get_gemini_keys()
+    if not keys:
+        st.error("❌ 找不到 GEMINI_FREE_KEYS")
         return None
-    
-    # 隨機打亂 Key 順序，實現負載平衡
-    random.shuffle(keys)
-    
-    # 模型選擇
-    model_name = "gemini-2.0-flash" if tier == "free" else "gemini-2.0-pro-exp-02-05"
-    
-    # 安全設定：解除所有限制，確保教育內容不被誤擋
-    safety_settings = {
-        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    }
 
+    # 保留 v3.0 的詳細 Prompt
+    SYSTEM_PROMPT = f"""
+    Role: 全領域知識解構專家 (Polymath Decoder).
+    Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
+    
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。
+
+    ## 處理邏輯 (Field Mapping Strategy):
+    1. category: 必須固定填寫為「{fixed_category}」。
+    2. word: 核心概念名稱 (標題)。
+    3. roots: 底層邏輯 / 核心原理 / 關鍵公式。使用 LaTeX 格式並用 $ 包圍。
+    4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
+    5. breakdown: 結構拆解。步驟流程或組成要素，逐步條列並使用 \\n 換行。
+    6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
+    7. phonetic: 關鍵年代、發明人名、或該領域的專門術語。標註正確發音與背景。
+    8. example: 兩個以上最具代表性的實際應用場景。
+    9. translation: 生活類比。以「🍎 生活比喻：」開頭。
+    10. native_vibe: 專家視角。以「🌊 專家心法：」開頭。
+    11. synonym_nuance: 相似概念對比與辨析。
+    12. visual_prompt: 視覺化圖景描述。
+    13. social_status: 在該領域的重要性評級。
+    14. emotional_tone: 學習此知識的心理感受。
+    15. street_usage: 避坑指南。常見認知誤區。
+    16. collocation: 關聯圖譜。三個延伸知識點。
+    17. etymon_story: 歷史脈絡或發現瞬間。
+    18. usage_warning: 邊界條件與失效場景。
+    19. memory_hook: 記憶金句。
+    20. audio_tag: 相關標籤 (以 # 開頭)。
+
+    ## 輸出規範 (Strict JSON Rules):
+    1. 必須輸出純 JSON 格式，不含任何 Markdown 標記。
+    2. 所有的鍵名 (Keys) 與字串值 (Values) 必須使用雙引號 (") 包裹。
+    3. LaTeX 公式請使用單個反斜線格式，但在 JSON 內需雙重轉義。
+    4. 換行統一使用 \\\\n。
+    """
+    final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
+
+    last_error = None
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name, system_instruction=system_prompt)
-            response = model.generate_content(
-                user_input,
-                generation_config={"temperature": 0.3}, # 降低溫度以確保輸出穩定
-                safety_settings=safety_settings
-            )
-            if response.text:
+            # 使用較新的模型
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(final_prompt)
+            if response and response.text:
                 return response.text
         except Exception as e:
-            # 記錄錯誤並嘗試下一個 Key
-            print(f"Key {key[:5]}... failed: {e}")
+            last_error = e
+            print(f"⚠️ Etymon Key failed: {e}")
             continue
-            
+    
+    st.error(f"❌ 所有 Key 皆失敗: {last_error}")
     return None
+def show_encyclopedia_card(row):
+    # 變數定義與清洗
+    r_word = str(row.get('word', '未命名主題'))
+    r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
+    r_phonetic = fix_content(row.get('phonetic', "")) 
+    r_breakdown = fix_content(row.get('breakdown', ""))
+    r_def = fix_content(row.get('definition', ""))
+    r_meaning = str(row.get('meaning', ""))
+    r_hook = fix_content(row.get('memory_hook', ""))
+    r_vibe = fix_content(row.get('native_vibe', ""))
+    r_trans = str(row.get('translation', ""))
 
-def ai_decode_concept(input_text, category):
-    """
-    最高規格解碼：強制 JSON 輸出與多重解析防護
-    """
-    system_prompt = f"""
-    You are a world-class expert in {category}. 
-    Your task is to decompose the concept: "{input_text}".
-    
-    STRICT OUTPUT RULES:
-    1. Output ONLY valid JSON. No markdown formatting (no ```json).
-    2. Ensure all keys and string values are wrapped in double quotes.
-    3. Use LaTeX format for math formulas (e.g., $x^2$).
-    4. Escape backslashes properly for JSON (e.g., \\n).
-    
-    Required JSON Schema:
-    {{
-        "category": "{category}",
-        "word": "{input_text}",
-        "roots": "string",
-        "meaning": "string",
-        "breakdown": "string",
-        "definition": "string",
-        "phonetic": "string",
-        "example": "string",
-        "translation": "string",
-        "native_vibe": "string",
-        "synonym_nuance": "string",
-        "usage_warning": "string",
-        "memory_hook": "string",
-        "audio_tag": "string"
-    }}
-    """
-    
-    raw_response = ai_call(system_prompt, input_text, tier="pro")
-    
-    if not raw_response:
-        return None
-
-    # 多重解析防護：先嘗試直接解析，失敗則用 Regex 提取
-    try:
-        # 嘗試直接解析
-        return json.loads(raw_response)
-    except json.JSONDecodeError:
-        # 如果失敗，嘗試用 Regex 提取 JSON 區塊
-        match = re.search(r'\{.*\}', raw_response, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group(0))
-            except:
-                return None
-    return None
-# ==========================================
-# 4. UI 組件 (旗艦級：視覺層次與專業講義)
-# ==========================================
-def show_encyclopedia_card(row, show_report=True, key_suffix=""):
-    """
-    增加 key_suffix 參數，防止在不同頁面渲染同一單字時發生 ID 衝突
-    """
-    r_word = str(row.get('word', '未命名'))
-    
-    # 1. 標題與發音
+    # 1. 標題區 (會隨系統主題變色)
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    col_audio, _ = st.columns([1, 4])
-    with col_audio:
-        # 發音按鈕也加上 suffix 以防萬一
-        speak(r_word, f"card_{r_word}_{key_suffix}")
+    
+    if r_phonetic and r_phonetic != "無":
+        st.caption(f"/{r_phonetic}/")
 
-    # 2. 邏輯拆解區
+    # 2. 邏輯拆解 (深色底漸層)
     st.markdown(f"""
-        <div style="
-            background: var(--logic-gradient);
-            padding: 25px;
-            border-radius: 16px;
-            color: white;
-            margin: 20px 0;
-            box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.4);
-        ">
-            <div style="font-size: 0.9rem; opacity: 0.9; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px;">Logic Breakdown</div>
-            <div style="font-size: 1.2rem; font-weight: 700; line-height: 1.6;">
-                {fix_content(row.get('breakdown', ''))}
-            </div>
+        <div class='breakdown-wrapper'>
+            <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
+            <div style='color: white; font-weight: 700;'>{r_breakdown}</div>
         </div>
     """, unsafe_allow_html=True)
-
-    # 3. 定義與原理
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"""
-            <div style="background: var(--accent-blue); padding: 20px; border-radius: 12px; border-left: 5px solid #3b82f6; height: 100%;">
-                <h4 style="color: #3b82f6; margin: 0 0 10px 0;">🎯 定義與解釋</h4>
-                <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('definition', ''))}</p>
-            </div>
-        """, unsafe_allow_html=True)
-    
-    with c2:
-        st.markdown(f"""
-            <div style="background: var(--accent-green); padding: 20px; border-radius: 12px; border-left: 5px solid #22c55e; height: 100%;">
-                <h4 style="color: #22c55e; margin: 0 0 10px 0;">💡 核心原理</h4>
-                <p style="color: var(--text-main); line-height: 1.6;">{fix_content(row.get('roots', ''))}</p>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # 4. 專家視角
-    if row.get('native_vibe'):
-        st.markdown(f"""
-            <div style="margin-top: 20px; background: var(--accent-orange); padding: 15px; border-radius: 10px; border: 1px solid var(--accent-orange-border); color: var(--text-main);">
-                <b style="color: #f97316;">🌊 專家心法：</b> {fix_content(row['native_vibe'])}
-            </div>
-        """, unsafe_allow_html=True)
-
-    # 5. 底部回報按鈕 (關鍵修改處！)
-    if show_report:
-        st.write("")
-        # 使用 r_word + key_suffix 確保唯一性
-        unique_key = f"rep_{r_word}_{key_suffix}"
-        if st.button(f"🚩 內容有誤，回報修復", key=unique_key, use_container_width=True):
-            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
-def show_pro_paper_with_download(title, content):
-    """最高規格 PDF 生成：具備專業排版與品牌標示"""
-    js_content = json.dumps(content, ensure_ascii=False)
-    
-    # PDF 專用 CSS 樣式
-    pdf_style = """
-        <style>
-            .pdf-body { font-family: 'Noto Sans TC', sans-serif; padding: 40px; color: #1e293b; }
-            .pdf-header { border-bottom: 2px solid #6366f1; margin-bottom: 30px; padding-bottom: 10px; }
-            .pdf-title { color: #4338ca; font-size: 28px; font-weight: 900; }
-            .pdf-section { margin-bottom: 25px; }
-            .pdf-label { color: #6366f1; font-weight: bold; font-size: 14px; text-transform: uppercase; }
-            .pdf-text { font-size: 16px; line-height: 1.8; margin-top: 5px; }
-            .pdf-footer { margin-top: 50px; font-size: 12px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-        </style>
-    """
-    
-    html_code = f"""
-    {pdf_style}
-    <div style="background: #0f172a; padding: 20px; border-radius: 20px; border: 1px solid #334155;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <span style="color: #818cf8; font-weight: bold; font-size: 0.9rem;">📄 PRO 講義預覽系統</span>
-            <button id="dl_btn" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: white; border: none; border-radius: 10px; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.3s;">📥 下載完整 PDF</button>
-        </div>
-        <div id="preview" style="height: 350px; overflow-y: auto; background: white; padding: 30px; border-radius: 12px; color: #1e293b; line-height: 1.6; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
-            載入講義內容中...
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script>
-        const rawContent = {js_content};
-        const previewEl = document.getElementById('preview');
-        previewEl.innerHTML = marked.parse(rawContent);
-
-        document.getElementById('dl_btn').onclick = function() {{
-            const element = document.createElement('div');
-            element.className = 'pdf-body';
-            element.innerHTML = `
-                <div class="pdf-header">
-                    <div class="pdf-title">⚡ Kadowsella Pro 數位講義</div>
-                    <div style="color: #64748b;">主題：{title} | 生成日期：${{new Date().toLocaleDateString()}}</div>
-                </div>
-                <div class="pdf-section">${{marked.parse(rawContent)}}</div>
-                <div class="pdf-footer">© 2026 Kadowsella Etymon Decoder Pro - 僅供個人學習使用</div>
-            `;
-            
-            const opt = {{
-                margin: 10,
-                filename: 'Kadowsella_Pro_{title}.pdf',
-                image: {{ type: 'jpeg', quality: 0.98 }},
-                html2canvas: {{ scale: 2, useCORS: true }},
-                jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-            }};
-            html2pdf().set(opt).from(element).save();
-        }};
-    </script>
-    """
-    components.html(html_code, height=500)
-
-# ==========================================
-# 5. 頁面邏輯 (最高規格響應式首頁)
-# ==========================================
-# ==========================================
-# 5. 頁面邏輯 (修正版：首頁推薦只顯示一個單字)
-# ==========================================
-def page_home(df):
-    """最高規格首頁：品牌 Hero 區與數據可視化"""
-    
-    # 1. Hero Section (保持不變)
-    st.markdown("""
-        <div style="text-align: center; padding: 40px 0; background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(168, 85, 247, 0.05) 100%); border-radius: 30px; margin-bottom: 40px;">
-            <h1 style="font-size: 3.5rem; font-weight: 900; margin-bottom: 10px; background: linear-gradient(135deg, #4338ca 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Etymon Decoder</h1>
-            <p style="font-size: 1.2rem; color: #64748b; font-weight: 500;">116 級數位戰情室：以 AI 邏輯重構你的學測知識圖譜</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 2. 倒數計時與核心指標 (保持不變)
-    days_left = (datetime(2027, 1, 15) - datetime.now()).days
-    
-    def custom_metric(label, value, icon, color_gradient):
-        return f"""
-            <div style="background: white; padding: 25px; border-radius: 24px; border: 1px solid #f1f5f9; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); text-align: center;">
-                <div style="font-size: 2rem; margin-bottom: 10px;">{icon}</div>
-                <div style="font-size: 0.85rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">{label}</div>
-                <div style="font-size: 2rem; font-weight: 900; background: {color_gradient}; -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{value}</div>
-            </div>
-        """
-
-    m1, m2, m3, m4 = st.columns(4)
-    with m1: st.markdown(custom_metric("學測倒數", f"{days_left} Days", "🎯", "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)"), unsafe_allow_html=True)
-    with m2: st.markdown(custom_metric("總單字量", len(df), "📚", "linear-gradient(135deg, #6366f1 0%, #4338ca 100%)"), unsafe_allow_html=True)
-    with m3: st.markdown(custom_metric("分類主題", df['category'].nunique() if not df.empty else 0, "🏷️", "linear-gradient(135deg, #10b981 0%, #059669 100%)"), unsafe_allow_html=True)
-    with m4: st.markdown(custom_metric("邏輯字根", df['roots'].nunique() if not df.empty else 0, "🧩", "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"), unsafe_allow_html=True)
-
-    st.write("")
-    st.write("")
-
-    # 3. 隨機推薦區 (只顯示一個單字)
-    st.markdown("### 💡 今日邏輯推薦")
-    
-    if not df.empty:
-        # --- [核心修改] 安全存取 home_single_sample ---
-        # 確保 home_single_sample 始終是一個字典，即使是空的
-        if 'home_single_sample' not in st.session_state or st.button("🔄 換一批", key="refresh_home_sample", use_container_width=True):
-            st.session_state.home_single_sample = df.sample(1).iloc[0].to_dict()
-            
-            # 比較時也進行安全檢查
-            current_word_in_session = st.session_state.get("curr_w", {}).get("word")
-            new_sample_word = st.session_state.home_single_sample.get("word")
-            
-            if current_word_in_session == new_sample_word:
-                st.session_state.curr_w = None
-            st.rerun()
-
-        # 確保有單字可以顯示
-        if st.session_state.get('home_single_sample'):
-            row = st.session_state.home_single_sample
-            unique_key_prefix = f"home_single_{row['word']}" # 確保 key 唯一
-            
-            # 直接渲染單張卡片，不使用 st.columns
-            st.markdown(f"""
-                <div style="background: white; padding: 25px; border-radius: 20px; border: 1px solid #e2e8f0; height: 220px; position: relative; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.02);">
-                    <div style="color: #6366f1; font-weight: 700; font-size: 0.8rem; margin-bottom: 10px;">#{row['category']}</div>
-                    <div style="font-size: 1.6rem; font-weight: 800; color: #1e293b; margin-bottom: 10px;">{row['word']}</div>
-                    <div style="font-size: 0.95rem; color: #64748b; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
-                        {fix_content(row['definition'])}
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # 展開詳解按鈕
-            if st.button("展開深度解析", key=f"view_{unique_key_prefix}", use_container_width=True):
-                st.session_state.curr_w = row # 直接將當前單字設為要顯示的詳解
-                st.rerun() # 重新執行以顯示詳解
-
-    # 顯示選中的詳解卡片 (邏輯保持不變)
-    if st.session_state.get("curr_w"):
-        st.write("---")
-        show_encyclopedia_card(st.session_state.curr_w, key_suffix="home_view")
-def page_ai_lab():
-    """最高規格 AI 實驗室：專業級解碼工作流"""
-    
-    # 1. 標題與權限檢查
-    st.markdown("""
-        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 30px;">
-            <h1 style="margin: 0;">🔬 AI 解碼實驗室</h1>
-            <span style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 800; letter-spacing: 1px;">PRO ONLY</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-    if st.session_state.role == "guest":
-        st.markdown("""
-            <div style="background: #fff7ed; border: 1px solid #ffedd5; padding: 30px; border-radius: 20px; text-align: center;">
-                <div style="font-size: 3rem; margin-bottom: 15px;">🔒</div>
-                <h3 style="color: #9a3412; margin-top: 0;">此功能僅限 Pro 會員使用</h3>
-                <p style="color: #c2410c;">登入後即可解鎖 AI 即時解碼、個人收藏夾與 PDF 講義下載功能。</p>
-            </div>
-        """, unsafe_allow_html=True)
-        return
-    
-    # 2. 解碼控制面板
-    with st.container(border=True):
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            new_word = st.text_input("輸入解碼主題 (單字、公式或概念)：", placeholder="例如: 'meticulous' 或 '二次函數頂點式'...")
-        with c2:
-            cat_options = ["英語辭源", "物理科學", "數學邏輯", "生物醫學", "歷史文明", "自定義"]
-            cat = st.selectbox("領域標籤", cat_options)
-        
-        btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
-        with btn_col2:
-            start_decode = st.button("🚀 啟動三位一體解碼", type="primary", use_container_width=True)
-
-    # 3. 執行解碼與結果呈現
-    if start_decode:
-        if not new_word:
-            st.warning("請輸入內容")
-        else:
-            with st.status("🤖 AI 正在進行深度邏輯重構...", expanded=True) as status:
-                st.write("🔍 檢索底層字源與原理...")
-                time.sleep(0.5)
-                st.write("🧬 拆解結構化知識點...")
-                res = ai_decode_concept(new_word, cat)
-                if res:
-                    st.session_state.last_ai = res
-                    status.update(label="✅ 解碼完成！", state="complete", expanded=False)
-                else:
-                    status.update(label="❌ 解碼失敗", state="error")
-
-    if "last_ai" in st.session_state:
-        st.write("")
-        show_encyclopedia_card(st.session_state.last_ai, show_report=False)
-        
-        # 存檔動作區
-        st.write("---")
-        save_c1, save_c2, save_c3 = st.columns([1, 2, 1])
-        with save_c2:
-            if st.button("💾 將此解碼結果存入雲端資料庫", use_container_width=True):
-                with st.spinner("正在同步至雲端..."):
-                    df = load_sheet("vocabulary")
-                    # 檢查是否已存在
-                    if new_word.lower() in df['word'].str.lower().values:
-                        st.warning("此單字已存在於資料庫中。")
-                    else:
-                        new_df = pd.concat([df, pd.DataFrame([st.session_state.last_ai])], ignore_index=True)
-                        if update_sheet(new_df, "vocabulary"):
-                            st.balloons()
-                            st.success(f"🎉 「{new_word}」已成功存入書架！")
-                            del st.session_state.last_ai # 存完清除暫存
-def page_admin_center():
-    """最高規格管理員後台：具備即時編輯與數據監控功能"""
-    
-    st.markdown("""
-        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 30px;">
-            <h1 style="margin: 0;">👑 上帝模式：戰略指揮中心</h1>
-            <span style="background: #ef4444; color: white; padding: 4px 12px; border-radius: 8px; font-size: 0.8rem; font-weight: 800; letter-spacing: 1px;">GOD MODE</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 1. 核心數據監控 (Metrics)
-    users_df = load_sheet("users")
-    vocab_df = load_sheet("vocabulary")
-    
-    # 讀取 metrics 分頁 (假設你在 Section 2 有實作 track_intent)
-    try:
-        metrics_df = load_sheet("metrics")
-        total_clicks = metrics_df['count'].sum() if not metrics_df.empty else 0
-    except:
-        total_clicks = 0
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("👥 總註冊用戶", len(users_df))
-    c2.metric("💎 Pro 會員數", len(users_df[users_df['membership'] == 'pro']))
-    c3.metric("🚩 待修復單字", len(vocab_df[vocab_df['term'] == 1]))
-    c4.metric("🖱️ 總互動次數", total_clicks)
 
     st.write("---")
-
-    # 2. 功能分頁
-    tab_users, tab_content, tab_system = st.tabs(["👤 用戶調度", "🛠️ 內容修復", "⚙️ 系統維護"])
-
-    # --- Tab 1: 用戶調度 (Data Editor) ---
-    with tab_users:
-        st.subheader("用戶權限與能量管理")
-        st.caption("提示：您可以直接在表格中修改資料，完成後點擊右上方「儲存變更」。")
-        
-        # 排除敏感資訊 (如密碼) 供編輯
-        display_users = users_df.drop(columns=['password']) if 'password' in users_df.columns else users_df
-        
-        edited_users = st.data_editor(
-            display_users,
-            use_container_width=True,
-            num_rows="dynamic",
-            column_config={
-                "membership": st.column_config.SelectboxColumn(
-                    "會員等級", options=["free", "pro"], help="升級用戶為 Pro 以解鎖 AI 功能"
-                ),
-                "role": st.column_config.SelectboxColumn(
-                    "角色", options=["student", "admin", "guest"]
-                ),
-                "ai_usage": st.column_config.NumberColumn(
-                    "AI 消耗量", help="手動調整用戶已使用的 AI 次數"
-                )
-            },
-            key="user_editor"
-        )
-        
-        if st.button("💾 儲存用戶變更", type="primary"):
-            with st.spinner("正在同步用戶權限..."):
-                # 這裡需要將密碼補回去再存入
-                if 'password' in users_df.columns:
-                    edited_users['password'] = users_df['password']
-                if update_sheet(edited_users, "users"):
-                    st.success("用戶資料已更新！")
-                    st.balloons()
-
-    # --- Tab 2: 內容修復 (處理 term=1) ---
-    with tab_content:
-        st.subheader("🚩 待修復單字清單")
-        error_vocab = vocab_df[vocab_df['term'] == 1]
-        
-        if error_vocab.empty:
-            st.success("目前沒有任何回報錯誤的單字，資料庫非常健康！")
-        else:
-            st.warning(f"發現 {len(error_vocab)} 筆資料需要校對。")
-            for idx, row in error_vocab.iterrows():
-                with st.expander(f"校對：{row['word']} (分類：{row['category']})"):
-                    # 顯示當前內容
-                    st.write("**當前定義：**", row['definition'])
-                    st.write("**當前拆解：**", row['breakdown'])
-                    
-                    col_fix1, col_fix2 = st.columns(2)
-                    if col_fix1.button("✅ 標記為已修復", key=f"fix_{idx}"):
-                        vocab_df.at[idx, 'term'] = 0
-                        if update_sheet(vocab_df, "vocabulary"):
-                            st.success(f"{row['word']} 已恢復正常狀態")
-                            st.rerun()
-                            
-                    if col_fix2.button("🗑️ 刪除此單字", key=f"del_{idx}"):
-                        vocab_df = vocab_df.drop(idx)
-                        if update_sheet(vocab_df, "vocabulary"):
-                            st.error(f"{row['word']} 已從資料庫移除")
-                            st.rerun()
-
-    # --- Tab 3: 系統維護 ---
-    with tab_system:
-        st.subheader("系統核心控制")
-        
-        col_sys1, col_sys2 = st.columns(2)
-        
-        with col_sys1:
-            with st.container(border=True):
-                st.markdown("#### 🧹 快取管理")
-                st.write("如果雲端資料更新後 App 沒反應，請執行強制刷新。")
-                if st.button("清除全域快取 (Clear Cache)", use_container_width=True):
-                    st.cache_data.clear()
-                    st.success("快取已清空，下次載入將讀取最新雲端數據。")
-        
-        with col_sys2:
-            with st.container(border=True):
-                st.markdown("#### 🤖 AI 狀態檢查")
-                api_key = st.secrets.get("GEMINI_API_KEY", "未設定")
-                st.write(f"**API Key 狀態：** {'✅ 已配置' if api_key != '未設定' else '❌ 缺失'}")
-                if st.button("測試 AI 連線", use_container_width=True):
-                    test_res = ai_call("請回覆『Pong』", "Ping", tier="free")
-                    if test_res:
-                        st.success(f"AI 回應正常：{test_res}")
-                    else:
-                        st.error("AI 連線失敗，請檢查 API Key 或配額。")
-
-        st.write("")
-        with st.expander("📥 資料庫備份 (JSON 格式)"):
-            json_vocab = vocab_df.to_json(orient='records', force_ascii=False)
-            st.download_button(
-                label="下載完整單字庫備份",
-                data=json_vocab,
-                file_name=f"vocab_backup_{datetime.now().strftime('%Y%m%d')}.json",
-                mime="application/json",
-                use_container_width=True
-            )
-def register_user(username, password):
-    """處理用戶註冊邏輯"""
-    users = load_sheet("users")
-    if not users.empty and username in users['username'].values:
-        return False, "帳號已存在，請更換一個。"
     
-    new_user = pd.DataFrame([{
-        "username": username,
-        "password": hash_password(password),
-        "role": "student",
-        "membership": "free",
-        "ai_usage": 0,
-        "created_at": time.strftime("%Y-%m-%d")
-    }])
+    # 3. 核心內容區
+    c1, c2 = st.columns(2)
+    r_ex = fix_content(row.get('example', ""))
     
-    # 合併並寫入
-    updated_users = pd.concat([users, new_user], ignore_index=True)
-    if update_sheet(updated_users, "users"):
-        return True, "註冊成功！請切換至登入分頁。"
-    else:
-        return False, "資料庫寫入失敗，請稍後再試。"
+    with c1:
+        st.info("### 🎯 定義與解釋")
+        st.write(r_def) 
+        st.caption(f"📝 {r_ex}")
+        if r_trans and r_trans != "無":
+            st.caption(f"（{r_trans}）")
+        
+    with c2:
+        st.success("### 💡 核心原理")
+        st.write(r_roots)
+        st.write(f"**🔍 本質意義：** {r_meaning}")
+        st.write(f"**🪝 記憶鉤子：** {r_hook}")
+
+    # 4. 專家視角
+    if r_vibe and r_vibe != "無":
+        st.markdown(f"""
+            <div class='vibe-box'>
+                <h4 style='margin-top:0;'>🌊 專家視角 / 內行心法</h4>
+                {r_vibe}
+            </div>
+        """, unsafe_allow_html=True)
+
+    # 5. 深度百科
+    with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
+        sub_c1, sub_c2 = st.columns(2)
+        with sub_c1:
+            st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
+        with sub_c2:
+            st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+
+    st.write("---")
+    rep_col1, rep_col2 = st.columns([3, 1])
+    with rep_col1: st.caption("發現解析有誤？點擊按鈕一鍵送入修復清單。")
+    with rep_col2:
+        if st.button("🚩 有誤", key=f"rep_card_{r_word}", use_container_width=True):
+            submit_report(row.to_dict() if hasattr(row, 'to_dict') else row)
+
 # ==========================================
-# 6. 主程式入口 (旗艦級：智慧導航與全域路由)
+# 4. Etymon 模組: 頁面邏輯
+# ==========================================
+
+def page_etymon_lab():
+    st.title("🔬 解碼實驗室")
+    
+    # 保留 v3.0 完整的分類列表
+    FIXED_CATEGORIES = [
+        "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
+        "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
+        "商業商戰", "金融投資", "程式開發", "人工智慧", "產品設計", "數位行銷",
+        "藝術美學", "影視文學", "料理食觀", "運動健身", "流行文化", "雜類", "自定義"
+    ]
+    
+    col_input, col_cat = st.columns([2, 1])
+    with col_input:
+        new_word = st.text_input("輸入解碼主題：", placeholder="例如: '熵增定律'...")
+    with col_cat:
+        selected_category = st.selectbox("選定領域標籤", FIXED_CATEGORIES)
+        
+    if selected_category == "自定義":
+        custom_cat = st.text_input("請輸入自定義領域名稱：")
+        final_category = custom_cat if custom_cat else "未分類"
+    else:
+        final_category = selected_category
+
+    force_refresh = st.checkbox("🔄 強制刷新 (覆蓋舊資料)")
+    
+    if st.button("啟動解碼", type="primary"):
+        if not new_word:
+            st.warning("請先輸入內容。")
+            return
+
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        existing_data = conn.read(spreadsheet=url, ttl=0)
+        
+        is_exist = False
+        if not existing_data.empty:
+            match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower()
+            is_exist = match_mask.any()
+
+        if is_exist and not force_refresh:
+            st.warning(f"⚠️ 「{new_word}」已在書架上。")
+            show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
+            return
+
+        with st.spinner(f'正在以【{final_category}】視角進行三位一體解碼...'):
+            raw_res = ai_decode_and_save(new_word, final_category)
+            
+            if raw_res is None:
+                st.error("AI 無回應。")
+                return
+
+            try:
+                # 1. 提取 JSON
+                match = re.search(r'\{.*\}', raw_res, re.DOTALL)
+                if not match:
+                    st.error("解析失敗：找不到 JSON 結構。")
+                    st.code(raw_res)
+                    return
+                
+                json_str = match.group(0)
+
+                # 2. 解析 JSON
+                try:
+                    res_data = json.loads(json_str, strict=False)
+                except json.JSONDecodeError:
+                    fixed_json = json_str.replace('\n', '\\n').replace('\r', '\\r')
+                    res_data = json.loads(fixed_json, strict=False)
+
+                # 3. 寫回資料庫
+                if is_exist and force_refresh:
+                    existing_data = existing_data[~match_mask]
+                
+                new_row = pd.DataFrame([res_data])
+                updated_df = pd.concat([existing_data, new_row], ignore_index=True)
+                
+                conn.update(spreadsheet=url, data=updated_df)
+                st.success(f"🎉 「{new_word}」解碼完成並已存入雲端！")
+                st.balloons()
+                show_encyclopedia_card(res_data)
+
+            except Exception as e:
+                st.error(f"⚠️ 處理失敗: {e}")
+                with st.expander("查看原始數據回報錯誤"):
+                    st.code(raw_res)
+
+def page_etymon_home(df):
+    st.markdown("<h1 style='text-align: center;'>Etymon Decoder</h1>", unsafe_allow_html=True)
+    st.write("---")
+    
+    # 1. 數據儀表板
+    c1, c2, c3 = st.columns(3)
+    c1.metric("📚 總單字量", len(df))
+    c2.metric("🏷️ 分類主題", df['category'].nunique() if not df.empty else 0)
+    c3.metric("🧩 獨特字根", df['roots'].nunique() if not df.empty else 0)
+    
+    st.write("---")
+
+    # 2. 隨機推薦區
+    col_header, col_btn = st.columns([4, 1])
+    with col_header: st.subheader("💡 今日隨機推薦")
+    with col_btn:
+        if st.button("🔄 換一批", use_container_width=True):
+            if 'home_sample' in st.session_state: del st.session_state.home_sample
+            st.rerun()
+    
+    if not df.empty:
+        if 'home_sample' not in st.session_state:
+            st.session_state.home_sample = df.sample(min(3, len(df)))
+        
+        sample = st.session_state.home_sample
+        cols = st.columns(3)
+        for i, (index, row) in enumerate(sample.iterrows()):
+            with cols[i % 3]:
+                with st.container(border=True):
+                    st.markdown(f"### {row['word']}")
+                    st.caption(f"🏷️ {row['category']}")
+                    st.markdown(f"**定義：** {fix_content(row['definition'])[:50]}...")
+                    st.markdown(f"**核心：** {fix_content(row['roots'])[:50]}...")
+                    
+                    b1, b2 = st.columns(2)
+                    with b1: speak(row['word'], f"home_{i}")
+                    with b2: 
+                        if st.button("🚩 有誤", key=f"h_rep_{i}_{row['word']}"): submit_report(row.to_dict())
+
+    st.write("---")
+    st.info("👈 點擊左側選單進入「學習與搜尋」查看完整資料庫。")
+
+def page_etymon_learn(df):
+    st.title("📖 學習與搜尋")
+    if df.empty:
+        st.warning("目前書架是空的。")
+        return
+
+    tab_card, tab_list = st.tabs(["🎲 隨機探索", "🔍 搜尋與列表"])
+    
+    # --- Tab 1: 隨機探索 ---
+    with tab_card:
+        cats = ["全部"] + sorted(df['category'].unique().tolist())
+        sel_cat = st.selectbox("選擇學習分類", cats, key="learn_cat_select")
+        f_df = df if sel_cat == "全部" else df[df['category'] == sel_cat]
+        
+        if 'curr_w' not in st.session_state: st.session_state.curr_w = None
+        
+        if st.button("🎲 隨機探索下一字 (Next Word)", use_container_width=True, type="primary"):
+            if not f_df.empty:
+                st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
+                st.rerun()
+        
+        if st.session_state.curr_w is None and not f_df.empty:
+            st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
+            
+        if st.session_state.curr_w:
+            show_encyclopedia_card(st.session_state.curr_w)
+
+    # --- Tab 2: 搜尋與列表 ---
+    with tab_list:
+        col_search, col_mode = st.columns([3, 1])
+        with col_search:
+            search_query = st.text_input("🔍 搜尋內容...", placeholder="輸入單字名稱...")
+        with col_mode:
+            search_mode = st.radio("搜尋模式", ["精確匹配", "關鍵字包含"], horizontal=True)
+
+        if search_query:
+            query_clean = search_query.strip().lower()
+            if search_mode == "精確匹配":
+                mask = df['word'].str.strip().str.lower() == query_clean
+            else:
+                mask = df.astype(str).apply(lambda x: x.str.contains(query_clean, case=False)).any(axis=1)
+            
+            display_df = df[mask]
+            
+            if not display_df.empty:
+                st.info(f"💡 找到 {len(display_df)} 筆結果：")
+                for index, row in display_df.iterrows():
+                    with st.container(border=True): show_encyclopedia_card(row)
+            else:
+                st.warning(f"❌ 找不到與「{search_query}」匹配的內容。")
+                if search_mode == "精確匹配":
+                    fuzzy_mask = df['word'].str.contains(query_clean, case=False)
+                    suggestions = df[fuzzy_mask]['word'].tolist()
+                    if suggestions: st.caption(f"你是不是在找：{', '.join(suggestions[:5])}？")
+        else:
+            st.caption("請在上方輸入框輸入單字。")
+            st.dataframe(df[['word', 'definition', 'category']], use_container_width=True, hide_index=True)
+
+def page_etymon_quiz(df):
+    st.title("🧠 字根記憶挑戰")
+    if df.empty: return
+    
+    cat = st.selectbox("選擇測驗範圍", df['category'].unique())
+    pool = df[df['category'] == cat]
+    
+    if 'q' not in st.session_state: st.session_state.q = None
+    if 'show_ans' not in st.session_state: st.session_state.show_ans = False
+
+    if st.button("🎲 抽一題", use_container_width=True):
+        st.session_state.q = pool.sample(1).iloc[0].to_dict()
+        st.session_state.show_ans = False
+        st.rerun()
+
+    if st.session_state.q:
+        st.markdown(f"### ❓ 請問這對應哪個單字？")
+        st.info(st.session_state.q['definition'])
+        st.write(f"**提示 (字根):** {st.session_state.q['roots']} ({st.session_state.q['meaning']})")
+        
+        if st.button("揭曉答案"):
+            st.session_state.show_ans = True
+            st.rerun()
+        
+        if st.session_state.show_ans:
+            st.success(f"💡 答案是：**{st.session_state.q['word']}**")
+            speak(st.session_state.q['word'], "quiz")
+            st.write(f"結構拆解：`{st.session_state.q['breakdown']}`")
+# ==========================================
+# 5. Handout Pro 模組: 講義排版
+# ==========================================
+
+def fix_image_orientation(image):
+    try: image = ImageOps.exif_transpose(image)
+    except: pass
+    return image
+
+def get_image_base64(image):
+    if image is None: return ""
+    buffered = BytesIO()
+    if image.mode in ("RGBA", "P"): image = image.convert("RGB")
+    image.save(buffered, format="JPEG", quality=95)
+    return base64.b64encode(buffered.getvalue()).decode()
+
+def handout_ai_generate(image, manual_input, instruction):
+    """Handout 的 AI 核心 (含輪詢機制)"""
+    keys = get_gemini_keys()
+    if not keys: return "❌ 錯誤：API Key 未設定"
+
+    prompt = "你是一位專業教師。請撰寫講義。【格式】使用 $...$ 或 $$...$$ 撰寫 LaTeX。【排版】請直接開始內容，不要有前言。"
+    parts = [prompt]
+    if manual_input: parts.append(f"【補充】：{manual_input}")
+    if instruction: parts.append(f"【要求】：{instruction}")
+    if image: parts.append(image)
+
+    last_error = None
+    for key in keys:
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(parts)
+            return response.text
+        except Exception as e:
+            last_error = e
+            print(f"⚠️ Handout Key failed: {e}")
+            continue
+    
+    return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
+
+def generate_printable_html(title, text_content, img_b64, img_width_percent):
+    """
+    生成 A4 列印用 HTML。
+    注意：f-string 中的 CSS 和 JS 大括號必須使用 {{ }} 進行轉義。
+    """
+    text_content = text_content.strip()
+    text_content = re.sub(r'^(\[換頁\]|\s|\n)+', '', text_content)
+    processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
+    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
+    date_str = time.strftime("%Y-%m-%d")
+    img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
+
+    return f"""
+    <html>
+    <head>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <script>
+        window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']], processEscapes: true }}, svg: {{ fontCache: 'global' }} }};
+        </script>
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <style>
+            @page {{ size: A4; margin: 0; }}
+            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #2c2c2c; display: flex; flex-direction: column; align-items: center; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; background-image: linear-gradient(to bottom, #e0f2fe 20mm, transparent 20mm), linear-gradient(to bottom, transparent 277mm, #fee2e2 277mm); background-size: 100% 297mm; }}
+            .content {{ font-size: 16px; text-align: justify; position: relative; z-index: 2; }}
+            .content h2 {{ page-break-before: always; break-before: always; color: #1a237e; border-left: 5px solid #1a237e; padding-left: 10px; margin-top: 30px; }}
+            .content h2:first-child {{ page-break-before: avoid !important; margin-top: 0 !important; }}
+            .manual-page-break {{ page-break-before: always; height: 1px; }}
+            .content p, .content li, .img-wrapper, mjx-container, table {{ page-break-inside: avoid; break-inside: avoid; margin-bottom: 15px; }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
+            .img-wrapper {{ text-align: center; margin: 15px 0; }}
+            #btn-container {{ text-align: center; padding: 15px; width: 100%; position: sticky; top: 0; background: #1a1a1a; z-index: 9999; }}
+            .download-btn {{ background: #0284c7; color: white; border: none; padding: 12px 60px; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; }}
+            @media print {{ body {{ background: white !important; }} #printable-area {{ margin: 0 !important; box-shadow: none !important; background-image: none !important; }} #btn-container {{ display: none; }} }}
+        </style>
+    </head>
+    <body>
+        <div id="btn-container"><button class="download-btn" onclick="downloadPDF()">📥 下載 A4 講義</button></div>
+        <div id="printable-area">
+            <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
+            {img_section}<div class="content">{html_body}</div>
+        </div>
+        <script>
+            function downloadPDF() {{
+                const element = document.getElementById('printable-area');
+                const opt = {{ margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }}, html2canvas: {{ scale: 3, useCORS: true, logging: false, scrollY: 0 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}, pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }} }};
+                MathJax.typesetPromise().then(() => {{ setTimeout(() => {{ html2pdf().set(opt).from(element).save(); }}, 1200); }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
+def run_handout_app():
+    st.header("🎓 AI 講義排版大師 Pro")
+    if 'rotate_angle' not in st.session_state: st.session_state.rotate_angle = 0
+    if 'generated_text' not in st.session_state: st.session_state.generated_text = ""
+
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+    with col_ctrl:
+        st.subheader("1. 素材與設定")
+        uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
+        image = None
+        img_width = 80
+        if uploaded_file:
+            img_obj = Image.open(uploaded_file)
+            image = fix_image_orientation(img_obj)
+            if st.session_state.rotate_angle != 0:
+                image = image.rotate(-st.session_state.rotate_angle, expand=True)
+            c1, c2 = st.columns([1, 2])
+            with c1: 
+                if st.button("🔄 旋轉 90°"): 
+                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
+                    st.rerun()
+            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
+            st.image(image, use_container_width=True)
+
+        st.divider()
+        manual_input = st.text_area("補充文字", height=150)
+        ai_instr = st.text_input("AI 指令")
+        if st.button("🚀 生成內容", type="primary"):
+            if not image and not manual_input: st.warning("⚠️ 請提供素材！")
+            else:
+                with st.spinner("🤖 AI 排版運算中 (多 Key 輪詢)..."):
+                    res = handout_ai_generate(image, manual_input, ai_instr)
+                    st.session_state.generated_text = res
+                    st.rerun()
+
+    with col_prev:
+        st.subheader("2. A4 預覽")
+        st.markdown('<div class="info-card"><b>📏 說明：</b>藍色為起點，紅色為終點。輸入 [換頁] 可強制分頁。</div>', unsafe_allow_html=True)
+        content_to_show = st.session_state.generated_text if st.session_state.generated_text else "### 預覽區\n請在左側上傳圖片或輸入文字以生成講義。"
+        edited_content = st.text_area("📝 內容修訂", value=content_to_show, height=300)
+        handout_title = st.text_input("講義標題", value="精選解析")
+        img_b64 = get_image_base64(image) if image else ""
+        final_html = generate_printable_html(handout_title, edited_content, img_b64, img_width)
+        components.html(final_html, height=1000, scrolling=True)
+
+# ==========================================
+# 6. 主程式入口與導航
 # ==========================================
 
 def main():
-    # 1. 注入最高規格視覺樣式 (CSS)
     inject_custom_css()
     
-    # 2. 初始化全域 Session 狀態 (確保不強制登入也能瀏覽)
-    if 'logged_in' not in st.session_state:
-        st.session_state.update({
-            'logged_in': False,
-            'username': "訪客",
-            'role': "guest",
-            'curr_w': None,    # 當前查看的單字詳解
-            'last_ai': None    # 最後一次 AI 解碼結果
-        })
-    detected_width = get_screen_width_js()
-    # 只有在 JS 成功回傳寬度時，才更新 session_state
-    if detected_width is not None:
-        st.session_state.screen_width = detected_width
-    # 3. 側邊欄：旗艦級導航系統
-    # --- 3. 側邊欄：旗艦級導航系統 (修改版) ---
-    with st.sidebar:
-        # [新增功能] 手機排版切換 (注入 CSS 強制調整)
-        is_mobile = st.toggle("📱 開啟手機極速版", value=False, help="放大按鈕與文字，優化觸控體驗")
-        if is_mobile:
-            st.markdown("""
-                <style>
-                    .stButton button { height: 3.8rem !important; font-size: 1.2rem !important; }
-                    .hero-word { font-size: 2rem !important; text-align: center; }
-                    p, li, .stMarkdown { font-size: 1.1rem !important; line-height: 1.6 !important; }
-                </style>
-            """, unsafe_allow_html=True)
-
-        # 品牌標誌區
-        st.markdown("""
-            <div style="padding: 10px 0 20px 0;">
-                <h1 style="font-size: 1.8rem; font-weight: 900; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 0;">⚡ Kadowsella</h1>
-                <p style="font-size: 0.8rem; color: #94a3b8; font-weight: 600; letter-spacing: 1px;">116 DIGITAL WAR ROOM</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # [修改功能] 登入與註冊雙分頁
-        if not st.session_state.logged_in:
-            tab_login, tab_reg = st.tabs(["🔑 登入", "📝 註冊"])
-            
-            with tab_login:
-                u = st.text_input("帳號", key="login_u", placeholder="Username")
-                p = st.text_input("密碼", type="password", key="login_p", placeholder="Password")
-                if st.button("身分驗證", use_container_width=True, type="primary"):
-                    with st.spinner("驗證中..."):
-                        users = load_sheet("users")
-                        if not users.empty:
-                            user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
-                            if not user.empty:
-                                st.session_state.update({
-                                    'logged_in': True, 'username': u, 'role': user.iloc[0]['role']
-                                })
-                                st.rerun()
-                            else:
-                                st.error("帳號或密碼錯誤")
-                        else:
-                            st.error("資料庫連線異常")
-
-            with tab_reg:
-                new_u = st.text_input("設定帳號", key="reg_u")
-                new_p = st.text_input("設定密碼", type="password", key="reg_p")
-                if st.button("建立新帳號", use_container_width=True):
-                    if new_u and new_p:
-                        success, msg = register_user(new_u, new_p)
-                        if success: st.success(msg)
-                        else: st.error(msg)
-                    else:
-                        st.warning("請輸入完整資訊")
-        else:
-            # 已登入狀態
-            st.markdown(f"""
-                <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%); padding: 15px; border-radius: 15px; border: 1px solid rgba(99, 102, 241, 0.2); margin-bottom: 10px;">
-                    <div style="font-size: 0.7rem; color: #6366f1; font-weight: 800; text-transform: uppercase;">Current User</div>
-                    <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">{st.session_state.username}</div>
-                    <div style="font-size: 0.75rem; color: #64748b;">身分：{st.session_state.role.upper()}</div>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("安全登出", use_container_width=True):
-                st.session_state.update({'logged_in': False, 'username': "訪客", 'role': "guest"})
-                st.rerun()
-        
-        st.write("")
-        
-        # 導航選單 (保持原樣，加入管理員選項)
-        st.markdown("---")
-        nav_items = {"🏠 戰情首頁": "home", "🔍 知識庫搜尋": "search", "🧠 記憶挑戰": "quiz"}
-        if st.session_state.logged_in:
-            nav_items.update({"🔬 AI 解碼實驗室": "ai_lab", "📄 Pro 講義生成": "pdf_gen"})
-            if st.session_state.role == "admin":
-                nav_items.update({"👑 管理員中心": "admin_center"})
-        else:
-            nav_items.update({"🔒 AI 解碼 (Pro)": "locked", "🔒 講義生成 (Pro)": "locked"})
-            
-        choice = st.radio("NAVIGATION", list(nav_items.keys()), label_visibility="collapsed")
-        
-        st.divider()
-
-        # [新增功能] 贊助區塊
-        st.markdown("### 💖 支持開發者")
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            if st.button("☕ 咖啡", use_container_width=True):
-                st.toast("感謝您的心意！(功能串接中)", icon="☕")
-        with col_s2:
-            if st.button("🍱 米糕", use_container_width=True):
-                st.toast("工程師充滿了能量！", icon="💪")
-
-        # [新增功能] 免責聲明 (Expander)
-        with st.expander("⚖️ 免責聲明與條款"):
-            st.caption("""
-            1. 本平台內容由 AI 輔助生成，僅供學習參考。
-            2. 密碼經 SHA-256 加密，請勿使用真實姓名。
-            3. Pro 會員權益解釋權歸 Kadowsella 所有。
-            """)
-            
-        st.sidebar.caption(f"v3.1 Ultimate | {datetime.now().strftime('%Y-%m-%d')}")
-    # 4. 載入核心資料庫 (從 Section 2 的 load_sheet)
-    df = load_sheet("vocabulary")
-
-    # 5. 頁面路由邏輯 (Routing)
-    if choice == "🏠 戰情首頁":
-        # 注意：不再需要傳遞 screen_width 參數
-        page_home(df) 
+    st.sidebar.title("🏫 AI 教育工作站")
     
-    elif choice == "🔍 知識庫搜尋":
-        st.title("🔍 知識庫搜尋")
-        st.markdown("搜尋資料庫中已存在的 4500+ 學測邏輯單字。")
-        
-        # --- [新增] 定義每頁顯示的數量 ---
-        ITEMS_PER_PAGE = 10
-
-        # 1. 搜尋工具列
-        col_q, col_cat = st.columns([3, 1])
-        with col_q:
-            q = st.text_input("輸入關鍵字搜尋...", placeholder="可輸入單字、中文意義、字根...", label_visibility="collapsed")
-        with col_cat:
-            all_cats = ["所有分類"] + sorted(df['category'].unique().tolist())
-            sel_cat = st.selectbox("分類過濾", all_cats, label_visibility="collapsed")
-
-        # 2. 狀態管理與搜尋邏輯 (核心修改)
-        # 檢查搜尋條件是否改變，若改變則重置
-        if (st.session_state.get('last_query') != q) or (st.session_state.get('last_cat') != sel_cat):
-            # 這是新的搜尋，執行過濾
-            st.session_state.last_query = q
-            st.session_state.last_cat = sel_cat
-            
-            filtered_df = df.copy()
-            if q:
-                query = q.lower().strip()
-                search_space = (
-                    filtered_df['word'].str.lower() + " " +
-                    filtered_df['definition'].str.lower() + " " +
-                    filtered_df['meaning'].str.lower() + " " +
-                    filtered_df['roots'].str.lower()
-                )
-                filtered_df = filtered_df[search_space.str.contains(query, na=False)]
-
-            if sel_cat != "所有分類":
-                filtered_df = filtered_df[filtered_df['category'] == sel_cat]
-            
-            # 將完整的搜尋結果存入 session_state
-            st.session_state.search_results = filtered_df
-            # 重置顯示數量
-            st.session_state.num_items_to_show = ITEMS_PER_PAGE
-
-        # 3. 從 session_state 中取得要顯示的資料
-        search_results = st.session_state.get('search_results', pd.DataFrame())
-        num_items_to_show = st.session_state.get('num_items_to_show', ITEMS_PER_PAGE)
-        
-        total_results = len(search_results)
-
-        # 4. 結果呈現 (分批渲染)
-        if not search_results.empty:
-            st.caption(f"💡 找到 {total_results} 筆相關結果，目前顯示 {min(num_items_to_show, total_results)} 筆。")
-            
-            # 使用 .head() 只取出要顯示的部分
-            results_to_display = search_results.head(num_items_to_show)
-            
-            for idx, r in results_to_display.iterrows():
-                unique_key_prefix = f"search_{idx}_{r['word']}"
-                with st.expander(f"✨ {r['word']} - {r['definition'][:40]}..."):
-                    show_encyclopedia_card(r, key_suffix=unique_key_prefix)
-            
-            # 5. "載入更多" 按鈕
-            # 只有在還有更多結果時才顯示按鈕
-            if total_results > num_items_to_show:
-                st.write("") # 增加間距
-                if st.button("載入更多結果...", use_container_width=True):
-                    # 增加要顯示的數量
-                    st.session_state.num_items_to_show += ITEMS_PER_PAGE
-                    # 立即重新整理頁面以顯示新內容
-                    st.rerun()
-
-        # 處理搜尋不到結果的情況
-        elif q or sel_cat != "所有分類":
-            st.warning("在當前篩選條件下，找不到匹配的內容。")
-
-    elif choice == "🧠 記憶挑戰":
-        st.title("🧠 記憶挑戰")
-        st.info("測驗模式正在進行 UI 升級，將結合 AI 錯題分析功能，敬請期待！")
-        # 這裡可以保留你原本的 page_quiz(df) 邏輯
-
-    elif choice == "🔬 AI 解碼實驗室":
-        page_ai_lab() # 呼叫 Section 5
-
-    elif choice == "📄 Pro 講義生成":
-        st.title("📄 Pro 講義生成器")
-        st.markdown("選擇資料庫中的概念，一鍵生成具備專業排版的 PDF 複習講義。")
-        
-        # 讓用戶從現有資料庫選擇
-        sel = st.selectbox("選擇要生成的單字或概念", ["--- 請選擇 ---"] + df['word'].tolist())
-        if sel != "--- 請選擇 ---":
-            row = df[df['word'] == sel].iloc[0]
-            # 構建專業 Markdown 內容 (供 PDF 渲染使用)
-            content = f"""
-# {row['word']}
----
-### 🎯 核心定義
-{row['definition']}
-
-### 🧬 邏輯拆解
-{row['breakdown']}
-
-### 💡 底層原理
-{row['roots']}
-
-### 🌊 專家心法
-{row['native_vibe']}
-
-### 🪝 記憶金句
-{row['memory_hook']}
-            """
-            # 呼叫 Section 4 的 PDF 組件
-            show_pro_paper_with_download(sel, content)
-
-    elif choice == "🔒 AI 解碼 (Pro)" or choice == "🔒 講義生成 (Pro)":
-        # 訪客點擊鎖定功能的引導頁面
-        st.warning("### 🔒 權限受限")
-        st.markdown("""
-            <div style="background: rgba(99, 102, 241, 0.05); padding: 30px; border-radius: 20px; border: 1px solid rgba(99, 102, 241, 0.1);">
-                <h3 style="color: #4338ca; margin-top: 0;">此功能為 Pro 會員專屬</h3>
-                <p>您目前以<b>訪客身分</b>瀏覽。升級 Pro 會員或登入學生帳號即可解鎖：</p>
-                <ul style="line-height: 1.8;">
-                    <li><b>AI 即時解碼</b>：輸入任何單字，AI 立即拆解邏輯。</li>
-                    <li><b>個人收藏夾</b>：儲存您的專屬學習筆記。</li>
-                    <li><b>PDF 講義下載</b>：一鍵生成精美複習講義。</li>
-                    <li><b>能量系統</b>：每日點數自動更新。</li>
-                </ul>
-            </div>
-        """, unsafe_allow_html=True)
-        if st.button("了解 Pro 會員開通方案", use_container_width=True, type="primary"):
+    # --- 贊助區塊 (保留 v3.0 風格) ---
+    with st.sidebar:
+        st.markdown('<div class="sponsor-box"><span class="sponsor-title">💖 支持開發者</span></div>', unsafe_allow_html=True)
+        if st.button("☕ Buy Me a Coffee", key="btn_coffee"):
+            log_user_intent("click_coffee")
+            st.info("### 🚧 帳號系統準備中，感謝支持！")
             st.balloons()
-            st.info("請聯繫管理員或加入 Discord 社群獲取邀請碼！")
-    elif choice == "👑 管理員中心":
-        if st.session_state.role == "admin":
-            # 呼叫 Section 7 定義的函式
-            page_admin_center()
-        else:
-            st.error("⛔ 權限不足：此區域僅限管理員進入")
+        if st.button("🍚 贊助一碗米糕", key="btn_rice"):
+            log_user_intent("click_ricecake")
+            st.success("### 🏗️ 帳號系統準備中，感謝支持！")
+        st.markdown("---")
 
+    # --- 模式選擇 ---
+    app_mode = st.sidebar.selectbox("選擇功能模組", ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"])
+    st.sidebar.markdown("---")
 
+    # --- 權限管理 (僅影響 Etymon 的 Lab) ---
+    is_admin = False
+    if app_mode == "Etymon Decoder (單字解碼)":
+        with st.sidebar.expander("🔐 管理員登入"):
+            if st.text_input("密碼", type="password") == st.secrets.get("ADMIN_PASSWORD"):
+                is_admin = True
+                st.success("已登入")
 
-# --- 執行入口 ---
+    # --- 路由邏輯 ---
+    if app_mode == "Etymon Decoder (單字解碼)":
+        menu = ["首頁", "學習與搜尋", "測驗模式"]
+        if is_admin: menu.append("🔬 解碼實驗室")
+        page = st.sidebar.radio("Etymon 選單", menu)
+        
+        df = load_db()
+        if page == "首頁": page_etymon_home(df)
+        elif page == "學習與搜尋": page_etymon_learn(df)
+        elif page == "測驗模式": page_etymon_quiz(df)
+        elif page == "🔬 解碼實驗室": page_etymon_lab()
+        
+    elif app_mode == "Handout Pro (講義排版)":
+        run_handout_app()
+
+    st.sidebar.markdown("---")
+    status = "🔴 管理員" if is_admin else "🟢 訪客"
+    st.sidebar.caption(f"v4.0 Integrated | {status}")
+
 if __name__ == "__main__":
     main()
