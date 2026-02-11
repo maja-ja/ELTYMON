@@ -367,26 +367,22 @@ def submit_report(row_data):
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 取得管理員狀態
-    is_admin = st.session_state.get("is_admin", False)
-    
     # 初始化 Session State 變數
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
-    if "rotate_angle" not in st.session_state:
-        st.session_state.rotate_angle = 0
     if "trigger_download" not in st.session_state:
         st.session_state.trigger_download = False
+    if "rotate_angle" not in st.session_state:
+        st.session_state.rotate_angle = 0
 
-    # 2. 頁面佈局
+    is_admin = st.session_state.get("is_admin", False)
+
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
-        
-        # --- 圖片處理區 ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
@@ -395,60 +391,39 @@ def run_handout_app():
             image = fix_image_orientation(img_obj)
             if st.session_state.rotate_angle != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
-            
             c1, c2 = st.columns([1, 2])
             with c1: 
-                if st.button("🔄 旋轉 90°"): 
+                if st.button("🔄 旋轉"): 
                     st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
                     st.rerun()
-            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
+            with c2: img_width = st.slider("圖片寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
-        st.divider()
+        st.text_area("講義素材內容", key="manual_input_content", height=300)
         
-        # --- 文字輸入區 ---
-        st.text_area(
-            "講義素材內容 (AI 將根據此內容進行專業排版)", 
-            key="manual_input_content", 
-            height=300
-        )
-        
-        # 管理員 AI 生成按鈕
         if is_admin:
-            ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加練習題...")
+            ai_instr = st.text_input("額外 AI 指令", placeholder="例如：增加練習題...")
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
-                current_material = st.session_state.manual_input_content
-                if current_material or uploaded_file:
-                    with st.spinner("🤖 AI 正在生成..."):
-                        image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        st.session_state.generated_text = handout_ai_generate(image_obj, current_material, ai_instr)
-                        st.rerun()
+                with st.spinner("🤖 AI 生成中..."):
+                    img_obj = Image.open(uploaded_file) if uploaded_file else None
+                    res = handout_ai_generate(img_obj, st.session_state.manual_input_content, ai_instr)
+                    st.session_state.generated_text = res
+                    st.rerun()
         else:
-            st.warning("🔒 AI 生成功能僅限管理員，訪客可手動編輯右側預覽。")
+            st.warning("🔒 AI 生成功能僅限管理員，訪客可手動編輯右側。")
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # --- 下載按鈕 (這會觸發背景紀錄與 JS 下載) ---
-        if st.button("📥 下載 A4 講義 (PDF)", type="primary", use_container_width=True):
-            log_user_intent("pdf_download") # 靜默紀錄
-            st.session_state.trigger_download = True # 設定旗標
-            st.rerun()
-
-        # 決定預覽內容來源
+        # --- A. 關鍵步驟：先定義預覽內容與標題，避免 NameError ---
         preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
         if not preview_source:
             preview_source = "### 預覽區\n請在左側輸入內容。"
 
-        # --- 內容編輯區 ---
-        edited_content = st.text_area(
-            "📝 講義內容編輯", 
-            value=preview_source, 
-            height=450,
-            key="preview_editor"
-        )
+        # 編輯器
+        edited_content = st.text_area("📝 講義內容編輯", value=preview_source, height=450, key="preview_editor")
         
-        # --- 關鍵修正：確保 handout_title 在傳入 generate_printable_html 前被定義 ---
+        # 自動抓取標題邏輯 (確保 handout_title 在這裡就被定義)
         default_title = "AI 專題講義"
         if edited_content:
             for line in edited_content.split('\n'):
@@ -457,22 +432,28 @@ def run_handout_app():
                     default_title = clean_line
                     break
         handout_title = st.text_input("講義標題", value=default_title)
-        
-        # 準備圖片
+
+        # --- B. 下載按鈕 (靜默紀錄 + 觸發旗標) ---
+        if st.button("📥 下載 A4 講義 (PDF)", type="primary", use_container_width=True):
+            log_user_intent("pdf_download") # 背景靜默紀錄，不使用 toast
+            st.session_state.trigger_download = True
+            st.rerun()
+
+        # 準備渲染數據
         img_b64 = get_image_base64(image) if image else ""
-        
-        # 取得下載旗標並立即重置
         do_download = st.session_state.trigger_download
+        
+        # 重置旗標避免重複下載
         if do_download:
             st.session_state.trigger_download = False
             
-        # 渲染 HTML (將 auto_download 旗標傳入)
+        # 呼叫更新後的 HTML 生成器
         final_html = generate_printable_html(
             title=handout_title, 
             text_content=edited_content, 
             img_b64=img_b64, 
             img_width_percent=img_width,
-            auto_download=do_download
+            auto_download=do_download  # 傳入自動下載指令
         )
         
         components.html(final_html, height=1000, scrolling=True)
@@ -613,10 +594,10 @@ def show_encyclopedia_card(row):
             
     with op3:
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
-            # --- 靜默紀錄跳轉 ---
+            # 靜默紀錄跳轉數據
             log_user_intent("word_jump") 
             
-            # 2. 執行跳轉邏輯
+           # 2. 執行跳轉邏輯
             inherited_draft = (
                 f"## 專題講義：{r_word}\n\n"
                 f"### 🧬 邏輯拆解\n{r_breakdown}\n\n"
@@ -887,9 +868,7 @@ def handout_ai_generate(image, manual_input, instruction):
             continue
     
     return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
-
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
-    """生成 A4 HTML，支援自動下載指令"""
     text_content = text_content.strip()
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
@@ -918,7 +897,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
         <div id="printable-area">
             <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}<div class="content">{html_body}</div>
-            <div class="sponsor-text-footer">💖 講義完全免費，若覺得好用歡迎贊助支持 AI 算力支出。</div>
+            <div class="sponsor-text-footer">💖 講義完全免費，您的支持是我們持續開發的動力。</div>
         </div>
         <script>
             function downloadPDF() {{
