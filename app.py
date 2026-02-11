@@ -1,3 +1,4 @@
+import ramdom
 import streamlit as st
 import pandas as pd
 import base64
@@ -282,19 +283,29 @@ def submit_report(row_data):
         st.error(f"❌ 回報寫入失敗: {e}")
         return False
 # ==========================================
-# 3. AI 解碼核心 (還原中文 Prompt)
+# 3. AI 解碼核心 (多 Key 輪詢版)
 # ==========================================
 def ai_decode_and_save(input_text, fixed_category):
     """
-    核心解碼函式：將 Prompt 直接寫入程式碼，確保執行穩定。
+    核心解碼函式 (多 Key 輪詢版)：
+    支援多組 API Key，隨機選取並具備自動故障轉移 (Failover) 功能。
     """
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key:
-        st.error("❌ 找不到 GEMINI_API_KEY，請檢查 Streamlit Secrets 設定。")
+    # 1. 讀取 Key 列表
+    api_keys = st.secrets.get("GEMINI_FREE_KEYS")
+    
+    # 相容性處理：如果使用者只設了一個字串，轉為列表
+    if isinstance(api_keys, str):
+        api_keys = [api_keys]
+        
+    if not api_keys:
+        st.error("❌ 找不到 GEMINI_FREE_KEYS，請檢查 secrets.toml 設定。")
         return None
 
-    genai.configure(api_key=api_key)
-    
+    # 2. 隨機打亂順序 (負載平衡)
+    # 這樣不會每次都從第一個 Key 開始操，避免特定帳號過勞
+    working_keys = api_keys.copy()
+    random.shuffle(working_keys)
+
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     safety_settings = {
         HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
@@ -338,18 +349,35 @@ def ai_decode_and_save(input_text, fixed_category):
     3. LaTeX 公式請使用單個反斜線格式，但在 JSON 內需雙重轉義。
     4. 換行統一使用 \\\\n。
     """
-    try:
-        model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
-        final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
-        
-        response = model.generate_content(final_prompt)
-        
-        if response and response.text:
-            return response.text
-        return None
-    except Exception as e:
-        st.error(f"Gemini API 錯誤: {e}")
-        return None
+
+    final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
+
+    # 3. 迴圈嘗試 (自動故障轉移)
+    last_error = None
+    
+    for index, key in enumerate(working_keys):
+        try:
+            # 設定當前使用的 Key
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-2.5-flash', safety_settings=safety_settings)
+            
+            # 嘗試生成
+            response = model.generate_content(final_prompt)
+            
+            if response and response.text:
+                # 成功取得資料，直接回傳
+                return response.text
+                
+        except Exception as e:
+            # 捕捉錯誤 (例如 429 Quota Exceeded)
+            last_error = e
+            # 在後台印出錯誤 (方便除錯)，但不中斷程式，繼續試下一個 Key
+            print(f"⚠️ Key ...{key[-5:]} failed. Switching to next key. Error: {e}")
+            continue
+
+    # 4. 如果所有 Key 都失敗
+    st.error(f"❌ 所有 API Key 皆無法使用。最後一次錯誤: {last_error}")
+    return None
 def show_encyclopedia_card(row):
     # 變數定義與清洗
     r_word = str(row.get('word', '未命名主題'))
