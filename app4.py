@@ -208,6 +208,20 @@ def handout_page():
     final_html = generate_printable_html("學習講義", content, st.session_state.get("trigger_pdf", False))
     st.session_state.trigger_pdf = False
     components.html(final_html, height=450, scrolling=True)
+def sponsor_page():
+    st.markdown("<h2 style='text-align:center;'>💖 支持我們</h2>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="word-card" style="text-align:center;">
+        <p style="font-size:1.1rem; line-height:1.7;">如果您覺得這個工具有幫助，您的任何支持都將是我們持續開發與維護的最大動力！</p>
+        <p style="color:var(--subtle-text); font-size:0.9rem;">您的贊助將用於支付伺服器與 API 的費用。</p>
+        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;">
+            <div style="background:#00A650; color:white; padding:15px; border-radius:12px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界 ECPay (推薦)</div>
+        </a>
+        <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
+            <div style="background:#FFDD00; color:black; padding:15px; border-radius:12px; font-weight:bold;">☕ Buy Me a Coffee</div>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
 def main():
     st.set_page_config(page_title="Etymon", page_icon="💡")
@@ -228,10 +242,12 @@ def main():
     df = load_db()
     if df.empty: return
 
-    if st.session_state.mobile_nav == "🔍 探索知識": home_page(df)
-    elif st.session_state.mobile_nav == "📄 製作講義": handout_page()
+    if st.session_state.mobile_nav == "🔍 探索知識":
+        home_page(df)
+    elif st.session_state.mobile_nav == "📄 製作講義":
+        handout_page()
     elif st.session_state.mobile_nav == "💖 支持":
-        st.markdown("<h2 style='text-align:center;'>💖 支持贊助</h2><div class='word-card'>贊助頁面內容...</div>", unsafe_allow_html=True)
+        sponsor_page()
 
 if __name__ == "__main__":
     main()
