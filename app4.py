@@ -68,20 +68,71 @@ def generate_printable_html(title, text_content, auto_download=False):
     html_body = markdown.markdown(text_content)
     auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
     return f"""
-    <html><head>
+    <html>
+    <head>
+        <meta charset="UTF-8">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    </head><body><div id="area"><h1>{title}</h1>{html_body}</div>
-        <script>function downloadPDF(){{const e=document.getElementById('area');html2pdf().from(e).save('{title}.pdf');}}{auto_js}</script>
-    </body></html>"""
+        <style>
+            /* 強制白色背景與標準 A4 比例 */
+            body {{ 
+                background-color: #525659; /* 外部模擬 PDF 閱讀器的深色背景 */
+                display: flex; justify-content: center; padding: 20px; margin: 0;
+            }}
+            #area {{ 
+                background-color: white !important; 
+                color: black !important; 
+                width: 210mm; min-height: 297mm; 
+                padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5);
+                font-family: "Noto Sans TC", sans-serif;
+                line-height: 1.6;
+            }}
+            h1 {{ border-bottom: 2px solid #333; padding-bottom: 10px; color: black; }}
+            p, li {{ font-size: 16px; color: #333; }}
+        </style>
+    </head>
+    <body>
+        <div id="area">
+            <h1>{title}</h1>
+            <div style="text-align:right; font-size:12px; color:#999; margin-bottom:20px;">AI Education Workstation</div>
+            {html_body}
+        </div>
+        <script>
+            function downloadPDF(){{
+                const e = document.getElementById('area');
+                const opt = {{
+                    margin: 10,
+                    filename: '{title}.pdf',
+                    image: {{ type: 'jpeg', quality: 0.98 }},
+                    html2canvas: {{ scale: 2 }},
+                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
+                }};
+                html2pdf().set(opt).from(e).save();
+            }}
+            {auto_js}
+        </script>
+    </body>
+    </html>"""
 
 # ==========================================
 # 2. UI 樣式 (更新為新版風格)
 # ==========================================
-
 def inject_ui():
     st.markdown("""
         <style>
-            /* --- 全局設定 --- */
+            /* --- 徹底隱藏 Streamlit 頂部裝飾 --- */
+            header, footer, .stAppDeployButton { visibility: hidden; height: 0; display: none; }
+            #MainMenu { visibility: hidden; }
+            
+            /* --- 調整頂部邊距，防止被標題卡住 --- */
+            .block-container { 
+                max-width: 480px !important; 
+                padding-top: 2rem !important;  /* 增加頂部間距 */
+                padding-bottom: 5rem !important; 
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+
+            /* --- 全局背景設定 --- */
             :root {
                 --main-bg: #f8f9fa; --card-bg: white; --text-color: #212529;
                 --subtle-text: #6c757d; --border-color: #dee2e6;
@@ -95,12 +146,11 @@ def inject_ui():
                 }
             }
             html, body, .main { background-color: var(--main-bg) !important; }
-            .block-container { max-width: 480px !important; padding: 1rem !important; }
 
-            /* --- 卡片與橫幅 --- */
             .word-card { 
                 background: var(--card-bg); border-radius: 16px; padding: 20px;
                 border: 1px solid var(--border-color); margin-bottom: 20px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             }
             .roots-tag { background: var(--accent-color); color: var(--accent-text); padding: 5px 12px; border-radius: 10px; font-size: 0.85rem; font-weight: 500; }
             .sponsor-banner { 
@@ -108,15 +158,6 @@ def inject_ui():
                 padding: 12px; border-radius: 12px; text-align: center; display: block; 
                 text-decoration: none; margin-bottom: 20px; font-weight: bold; font-size: 0.9rem;
             }
-            .coffee-banner {
-                border: 2px dashed #fdc43f; padding: 15px; border-radius: 15px; text-align:center;
-                margin-top:20px; color:inherit; font-weight:bold;
-            }
-
-            /* --- 元件微調 --- */
-            .stTextInput>div>div>input, .stSelectbox>div>div>div { border-radius: 12px !important; }
-            .stButton>button { border-radius: 12px !important; height: 45px; }
-            h1 { color: var(--h1-color); }
         </style>
     """, unsafe_allow_html=True)
 
@@ -216,19 +257,19 @@ def sponsor_page():
 # ==========================================
 
 def main():
-    st.set_page_config(page_title="Etymon", page_icon="💡")
-    inject_ui()
+    st.set_page_config(page_title="Etymon", page_icon="💡", layout="centered")
+    inject_ui() # 這裡會隱藏 Streamlit 的標題欄
     
+    # 建立導覽
     if 'mobile_nav' not in st.session_state:
         st.session_state.mobile_nav = "🔍 探索知識"
 
     nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
-    # *** 核心修復：使用 index 參數同步 st.radio 與 session_state ***
-    try:
-        current_index = nav_options.index(st.session_state.mobile_nav)
-    except ValueError:
-        current_index = 0
+    current_index = nav_options.index(st.session_state.mobile_nav) if st.session_state.mobile_nav in nav_options else 0
 
+    # 這裡加入一個 Spacer，確保導覽列不被系統狀態列擋住
+    st.write("") 
+    
     selected_nav = st.radio(
         "導覽", options=nav_options, index=current_index,
         horizontal=True, label_visibility="collapsed"
