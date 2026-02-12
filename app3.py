@@ -1,16 +1,9 @@
-# ==========================================
-# 0. 基礎套件導入 (保持不變)
-# ==========================================
 import streamlit as st
 import pandas as pd
 import base64
 import time
-import json
 import re
-import random
-import os
 from io import BytesIO
-from PIL import Image, ImageOps
 from gtts import gTTS
 import streamlit.components.v1 as components
 import markdown
@@ -22,7 +15,7 @@ from streamlit_gsheets import GSheetsConnection
 
 def fix_content(text):
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
-    return str(text).replace('\\n', '  \n').replace('\n', '  \n').strip('"').strip("'")
+    return str(text).replace('\\n', '\n').replace('\n', '  \n').strip('"').strip("'")
 
 def speak(text, key_suffix=""):
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
@@ -36,246 +29,225 @@ def speak(text, key_suffix=""):
         components.html(f"""
         <html><body>
             <style>
-                :root {{ --border-color: #B3E5FC; --accent-text-color: #0277BD; --speak-btn-bg: #F0F7FF; }}
-                @media (prefers-color-scheme: dark) {{ :root {{ --border-color: #30363d; --accent-text-color: #f0f6fc; --speak-btn-bg: #161B22; }} }}
-                .speak-btn {{ background: var(--speak-btn-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 100%; font-family: sans-serif; font-size: 14px; font-weight: 600; color: var(--accent-text-color); transition: 0.2s; }}
-                .speak-btn:active {{ transform: scale(0.96); }}
+                .speak-btn {{ background: #eef7ff; border: 1px solid #d0e8ff; border-radius: 12px; padding: 10px; cursor: pointer; width: 100%; font-weight: 600; color: #1c6aae; }}
+                @media (prefers-color-scheme: dark) {{ .speak-btn {{ background: #161B22; border-color: #30363d; color: #f0f6fc; }} }}
             </style>
             <button class="speak-btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
             <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
         </body></html>""", height=50)
     except: pass
 
-def get_spreadsheet_url():
-    try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
-    except: return st.secrets.get("gsheets", {}).get("spreadsheet")
-
-def log_user_intent(label):
+def submit_error_report(data_row):
+    """根據使用者提供的完整欄位結構回報錯誤"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        url = get_spreadsheet_url()
-        try: 
-            m_df = conn.read(spreadsheet=url, worksheet="metrics", ttl=0)
-            m_df['count'] = pd.to_numeric(m_df['count'], errors='coerce').fillna(0).astype(int)
-        except: m_df = pd.DataFrame(columns=['label', 'count'])
-        if label in m_df['label'].values: m_df.loc[m_df['label'] == label, 'count'] += 1
-        else: m_df = pd.concat([m_df, pd.DataFrame([{'label': label, 'count': 1}])], ignore_index=True)
-        conn.update(spreadsheet=url, worksheet="metrics", data=m_df)
-    except: pass
+        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
+        
+        # 定義欄位清單 (與您提供的一致)
+        columns = [
+            'category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 
+            'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 
+            'social_status', 'emotional_tone', 'street_usage', 'collocation', 'etymon_story', 
+            'usage_warning', 'memory_hook', 'audio_tag', 'term'
+        ]
+        
+        # 讀取現有資料
+        try: r_df = conn.read(spreadsheet=sheet_url, worksheet="feedback", ttl=0)
+        except: r_df = pd.DataFrame(columns=columns + ['report_time', 'report_status'])
+        
+        # 準備新資料列
+        new_row = {col: data_row.get(col, "無") for col in columns}
+        new_row['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        new_row['report_status'] = '待處理'
+        
+        updated_df = pd.concat([r_df, pd.DataFrame([new_row])], ignore_index=True)
+        conn.update(spreadsheet=sheet_url, worksheet="feedback", data=updated_df)
+        return True
+    except Exception as e:
+        print(f"Report Error: {e}")
+        return False
 
 @st.cache_data(ttl=3600) 
 def load_db():
-    COL_NAMES = ['category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 'example', 'translation', 'native_vibe']
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(spreadsheet=get_spreadsheet_url(), ttl=0)
-        for col in COL_NAMES:
-            if col not in df.columns: df[col] = "無"
-        return df.dropna(subset=['word']).fillna("無")[COL_NAMES].reset_index(drop=True)
-    except Exception as e:
-        st.error(f"❌ 資料庫載入失敗: {e}")
-        return pd.DataFrame(columns=COL_NAMES)
+        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+        df = conn.read(spreadsheet=url, ttl=0)
+        return df.fillna("無")
+    except: return pd.DataFrame()
 
-def generate_printable_html(title, text_content, **kwargs):
-    html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if kwargs.get("auto_download") else ""
+def generate_printable_html(title, text_content, auto_download=False):
+    html_body = markdown.markdown(text_content)
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
     return f"""
     <html><head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <meta charset="UTF-8">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
-            @page {{ size: A4; margin: 0; }} 
-            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; margin: 0; padding: 0; }} 
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; padding: 20mm 25mm; box-sizing: border-box; }} 
-            h1, h2, h3 {{ color: #1a237e; border-bottom: 2px solid #eee; padding-bottom: 5px; }}
-            p, li {{ font-size: 16px; color: #333; }}
+            body {{ background-color: #525659; display: flex; justify-content: center; padding: 20px; margin: 0; }}
+            #area {{ background-color: white !important; color: black !important; width: 210mm; min-height: 297mm; padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); font-family: sans-serif; line-height: 1.6; }}
+            h1 {{ border-bottom: 2px solid #333; padding-bottom: 10px; color: black; }}
         </style>
     </head><body>
-        <div id="printable-area">
-            <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#999; margin-bottom:20px;">AI Education Workstation - Etymon Decoder</div>
-            <div>{html_body}</div>
-        </div>
-        <script>function downloadPDF(){{const e=document.getElementById('printable-area');html2pdf().set({{margin:0,filename:'{title}.pdf',image:{{type:'jpeg',quality:1}},html2canvas:{{scale:3}},jsPDF:{{unit:'mm',format:'a4'}}}}).from(e).save();}}{auto_js}</script>
+        <div id="area"><h1>{title}</h1>{html_body}</div>
+        <script>function downloadPDF(){{const e=document.getElementById('area');html2pdf().from(e).save('{title}.pdf');}}{auto_js}</script>
     </body></html>"""
 
 # ==========================================
-# 2. 手機版 UI (雙色主題與布局)
+# 2. UI 樣式 (解決卡住問題)
 # ==========================================
 
-def inject_dual_theme_ui():
+def inject_ui():
     st.markdown("""
         <style>
+            /* 隱藏頂部所有 Streamlit 標籤與按鈕 */
+            header, footer, .stAppDeployButton, #MainMenu { visibility: hidden !important; height: 0 !important; display: none !important; }
+            
+            /* 調整容器以防被頂部卡住 */
+            .block-container { 
+                max-width: 480px !important; 
+                padding: 2.5rem 1rem 5rem 1rem !important; 
+            }
+
             :root {
-                --main-bg: #F8F9FA; --card-bg: white; --text-color: #212529; --subtle-text-color: #6c757d;
-                --border-color: #f0f0f0; --shadow-color: rgba(0, 0, 0, 0.07);
-                --accent-bg: #E3F2FD; --accent-text-color: #1976D2; --h1-color: #1A237E;
+                --main-bg: #f8f9fa; --card-bg: white; --text-color: #212529;
+                --subtle-text: #6c757d; --border-color: #dee2e6;
+                --h1-color: #343a40; --accent-color: #e6f0ff; --accent-text: #0059b3;
             }
             @media (prefers-color-scheme: dark) {
                 :root {
-                    --main-bg: #0E1117; --card-bg: #161B22; --text-color: #e3e3e3; --subtle-text-color: #a0a0a0;
-                    --border-color: #30363d; --shadow-color: rgba(0, 0, 0, 0.2);
-                    --accent-bg: #1f6feb; --accent-text-color: #f0f6fc; --h1-color: #90CAF9;
+                    --main-bg: #0E1117; --card-bg: #161B22; --text-color: #e3e3e3;
+                    --subtle-text: #a0a0a0; --border-color: #30363d;
+                    --h1-color: #f0f6fc; --accent-color: #1c2a3a; --accent-text: #79c0ff;
                 }
             }
-            .main { background-color: var(--main-bg) !important; }
-            .block-container { max-width: 480px !important; padding: 2.5rem 1.2rem 6rem 1.2rem !important; }
-            [data-testid="stSidebar"], header { display: none; }
-            
-            .word-card {
-                background: var(--card-bg); border-radius: 20px; padding: 25px;
-                box-shadow: 0 10px 30px var(--shadow-color); margin-bottom: 20px; border: 1px solid var(--border-color);
+            html, body, .main { background-color: var(--main-bg) !important; }
+
+            .word-card { 
+                background: var(--card-bg); border-radius: 16px; padding: 20px;
+                border: 1px solid var(--border-color); margin-bottom: 20px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             }
-            
-            .word-card h1 { font-size: 1.6rem !important; margin: 0; line-height: 1.2; color: var(--h1-color); }
-            .roots-tag {
-                background: var(--accent-bg); color: var(--accent-text-color); 
-                padding: 4px 10px; border-radius: 10px; 
-                font-size: 0.8rem; font-weight: bold; display: inline-block;
-            }
-            
-            .stButton > button, .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea textarea {
-                border-radius: 15px !important; transition: transform 0.2s ease;
-            }
-            .stButton > button { height: 55px !important; font-weight: 700 !important; font-size: 1rem !important; }
-            .stButton > button:active { transform: scale(0.95); }
-            
-            .sponsor-banner {
-                background: linear-gradient(90deg, #FFDD00, #FBB03B);
-                color: #000 !important; padding: 12px; border-radius: 15px;
-                text-align: center; font-weight: bold; font-size: 0.85rem;
-                margin-bottom: 15px; cursor: pointer; display: block; text-decoration: none;
+            .roots-tag { background: var(--accent-color); color: var(--accent-text); padding: 5px 12px; border-radius: 10px; font-size: 0.85rem; font-weight: 500; }
+            .sponsor-banner { 
+                background: linear-gradient(90deg, #ffc107, #ff9800); color: #212529 !important; 
+                padding: 12px; border-radius: 12px; text-align: center; display: block; 
+                text-decoration: none; margin-bottom: 20px; font-weight: bold;
             }
         </style>
     """, unsafe_allow_html=True)
 
-# --- 頁面 1: 探索知識 ---
-def mobile_home_page(df):
-    st.markdown("<h2 style='text-align:center; color: var(--text-color);'>🔍 探索知識</h2>", unsafe_allow_html=True)
-    st.markdown("""<a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">💖 喜歡這個工具嗎？點此贊助支持開發成本！</a>""", unsafe_allow_html=True)
+# ==========================================
+# 3. 頁面邏輯
+# ==========================================
 
-    all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
-    selected_cat = st.selectbox("選擇學習領域", all_cats, label_visibility="collapsed")
-
-    col_search, col_rand = st.columns([4, 1])
-    with col_search:
-        query = st.text_input("輸入單字查詢...", placeholder="例如: 熵", label_visibility="collapsed")
-    with col_rand:
-        if st.button("🎲"): 
-            sample_pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
-            if not sample_pool.empty:
-                st.session_state.selected_word = sample_pool.sample(1).iloc[0].to_dict()
+def home_page(df):
+    st.markdown("<h2 style='text-align:center;'>🔍 探索知識</h2>", unsafe_allow_html=True)
+    st.markdown("""<a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">💖 贊助支持開發成本</a>""", unsafe_allow_html=True)
+    
+    sel_cat = st.selectbox("領域", ["🌍 全部領域"] + sorted(df['category'].unique().tolist()), label_visibility="collapsed")
+    
+    c_s, c_r, c_report = st.columns([4, 1, 2])
+    with c_s:
+        query = st.text_input("搜尋...", placeholder="例如: genocide", label_visibility="collapsed")
+    with c_r:
+        if st.button("🎲"):
+            pool = df if sel_cat == "🌍 全部領域" else df[df['category'] == sel_cat]
+            if not pool.empty:
+                st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
                 st.rerun()
+    with c_report:
+        if st.button("⚠️ 報錯"):
+            current_data = st.session_state.get('selected_word', {})
+            if submit_error_report(current_data): st.toast(f"已回報 {current_data.get('word')}！")
 
-    target_row = None
+    # 單字顯示邏輯
+    target = None
     if query:
-        exact_match = df[df['word'].str.lower() == query.strip().lower()]
-        if not exact_match.empty: target_row = exact_match.iloc[0].to_dict()
-        else:
-            fuzzy_match = df[df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)]
-            if not fuzzy_match.empty: target_row = fuzzy_match.iloc[0].to_dict()
-            else: st.info("找不到該單字，點擊 🎲 試試隨機探索？")
-    elif "selected_word" in st.session_state: target_row = st.session_state.selected_word
-    elif not df.empty:
-        target_row = df.sample(1).iloc[0].to_dict()
-        st.session_state.selected_word = target_row
-
-    if target_row:
-        w = target_row['word']
+        match = df[df['word'].str.lower() == query.strip().lower()]
+        if not match.empty: 
+            target = match.iloc[0].to_dict()
+            st.session_state.selected_word = target
+    elif "selected_word" in st.session_state: target = st.session_state.selected_word
+    elif not df.empty: target = df.sample(1).iloc[0].to_dict()
+    
+    if target:
+        w = target['word']
+        st.session_state.selected_word = target
         st.markdown(f"""
         <div class="word-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <div><h1>{w}</h1><p style="color:var(--subtle-text-color); margin:5px 0 15px 0; font-size:0.9rem;">/{fix_content(target_row['phonetic'])}/</p></div>
-                <span style="font-size:0.75rem; background:var(--main-bg); padding:4px 8px; border-radius:8px; color:var(--subtle-text-color);">{target_row['category']}</span>
+                <span class="roots-tag">🧬 {target['roots']}</span>
+                <span style="font-size:0.75rem; color:var(--subtle-text);">{target['category']}</span>
             </div>
-            <span class="roots-tag">🧬 {fix_content(target_row['roots'])}</span>
-            <p style="margin-top:20px; font-size:1.1rem; line-height:1.7; color:var(--text-color);">{fix_content(target_row['definition'])}</p>
-            <div style="background:var(--main-bg); padding:15px; border-radius:12px; font-size:0.95rem; color:var(--text-color); margin-top:15px;">💡 <b>實例:</b> {fix_content(target_row['example'])}</div>
-        </div>""", unsafe_allow_html=True)
-        
-        c1, c2 = st.columns(2)
-        with c1: speak(w, f"m_speak_{w}")
-        with c2:
+            <h1 style="font-size:2.5rem; margin-top:10px;">{w}</h1>
+            <p style="color:var(--subtle-text); margin-top:-15px;">/{target['phonetic']}/</p>
+            <div style="font-size:1.1rem; line-height:1.7;">{fix_content(target['definition'])}</div>
+            <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:15px;">
+                <b style="color:var(--accent-text);">💡 實例:</b><br>
+                <div style="margin-top:5px;">{fix_content(target['example'])}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        b1, b2 = st.columns(2)
+        with b1: speak(w, f"spk_{w}")
+        with b2:
             if st.button("📄 生成講義", type="primary"):
-                log_user_intent(f"jump_{w}")
-                st.session_state.manual_input_content = f"## 專題講義：{w}\n\n### 🧬 核心邏輯\n{fix_content(target_row['breakdown'])}\n\n### 🎯 核心定義\n{fix_content(target_row['definition'])}\n\n### 💡 應用實例\n{fix_content(target_row['example'])}"
+                st.session_state.manual_input_content = f"## {w}\n\n{target['definition']}\n\n### 實例\n{target['example']}"
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f"""<a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;"><div style="background:var(--card-bg); border: 2px dashed #FFDD00; color:var(--text-color); padding:15px; border-radius:15px; text-align:center; font-size:0.9rem; font-weight:bold;">☕ 內容對你有幫助嗎？請作者喝杯咖啡吧！</div></a>""", unsafe_allow_html=True)
 
-# --- 頁面 2: 製作講義 (優化版) ---
-def mobile_handout_page():
-    st.markdown("<h2 style='text-align:center; color: var(--text-color);'>📄 講義預覽與下載</h2>", unsafe_allow_html=True)
+def handout_page():
+    st.markdown("<h2 style='text-align:center;'>📄 製作講義</h2>", unsafe_allow_html=True)
+    content = st.text_area("編輯內容", value=st.session_state.get("manual_input_content", ""), height=300)
+    st.session_state.manual_input_content = content
+    if st.button("📥 下載 PDF", type="primary", use_container_width=True):
+        st.session_state.trigger_pdf = True
     
-    # 頂部小提示
-    st.info("💡 內容已根據您選取的單字自動生成。您可以點擊下方展開編輯，或直接下載 PDF。")
-    
-    # 編輯區
-    with st.expander("📝 編輯講義內容 (可自訂補充)"):
-        content = st.text_area("講義 Markdown 內容", value=st.session_state.get("manual_input_content", ""), height=300, label_visibility="collapsed")
-        st.session_state.manual_input_content = content
-    
-    st.markdown("<hr style='border-color: var(--border-color);'>", unsafe_allow_html=True)
-    
-    # 下載按鈕 (大按鈕)
-    if st.button("📥 下載 A4 講義 (PDF)", type="primary", use_container_width=True):
-        log_user_intent("pdf_download_mobile")
-        st.session_state.trigger_download = True
-        st.rerun()
-    
-    # 贊助小語 (在按鈕下方製造印象)
-    st.markdown(f"""
-        <div style="text-align:center; margin-top:10px;">
-            <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="color:var(--subtle-text-color); font-size:12px; text-decoration:none;">
-                💖 講義下載完全免費，歡迎隨喜贊助支持開發
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # 預覽區 (PDF 小預覽)
-    final_html = generate_printable_html(
-        title="AI 學習講義", 
-        text_content=st.session_state.get("manual_input_content", "請先從「探索知識」頁面選擇一個單字卡。"), 
-        auto_download=st.session_state.get("trigger_download", False)
-    )
-    if st.session_state.get("trigger_download"): st.session_state.trigger_download = False
-    
-    st.caption("👇 講義預覽 (捲動查看內容)")
-    components.html(final_html, height=500, scrolling=True)
-
-# --- 頁面 3: 贊助支持 ---
-def mobile_sponsor_page():
-    st.markdown("<h2 style='text-align:center; color: var(--text-color);'>💖 支持我們</h2>", unsafe_allow_html=True)
+    final_html = generate_printable_html("學習講義", content, st.session_state.get("trigger_pdf", False))
+    st.session_state.trigger_pdf = False
+    components.html(final_html, height=450, scrolling=True)
+def sponsor_page():
+    st.markdown("<h2 style='text-align:center;'>💖 支持我們</h2>", unsafe_allow_html=True)
     st.markdown("""
     <div class="word-card" style="text-align:center;">
-        <p style="font-size:1.1rem; line-height:1.7; color:var(--text-color);">這是一個免費工具，您的贊助將支持算力支出與功能開發。</p>
-        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;"><div style="background:#00A650; color:white; padding:15px; border-radius:15px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界贊助 (ECPay)</div></a>
-        <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;"><div style="background:#FFDD00; color:black; padding:15px; border-radius:15px; font-weight:bold;">☕ Buy Me a Coffee</div></a>
-    </div>""", unsafe_allow_html=True)
+        <p style="font-size:1.1rem; line-height:1.7;">如果您覺得這個工具有幫助，您的任何支持都將是我們持續開發與維護的最大動力！</p>
+        <p style="color:var(--subtle-text); font-size:0.9rem;">您的贊助將用於支付伺服器與 API 的費用。</p>
+        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;">
+            <div style="background:#00A650; color:white; padding:15px; border-radius:12px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界 ECPay (推薦)</div>
+        </a>
+        <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
+            <div style="background:#FFDD00; color:black; padding:15px; border-radius:12px; font-weight:bold;">☕ Buy Me a Coffee</div>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- 主程式 ---
 def main():
-    st.set_page_config(page_title="Etymon Mobile", page_icon="📱", layout="centered")
-    inject_dual_theme_ui()
-
+    st.set_page_config(page_title="Etymon", page_icon="💡")
+    inject_ui()
+    
     if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索知識"
 
     nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
-    selected_nav = st.radio("導覽", options=nav_options, index=nav_options.index(st.session_state.mobile_nav), horizontal=True, label_visibility="collapsed")
+    current_index = nav_options.index(st.session_state.mobile_nav) if st.session_state.mobile_nav in nav_options else 0
+
+    st.write("") # Spacer
+    selected_nav = st.radio("導覽", options=nav_options, index=current_index, horizontal=True, label_visibility="collapsed")
+
     if selected_nav != st.session_state.mobile_nav:
         st.session_state.mobile_nav = selected_nav
         st.rerun()
 
-    st.markdown("<hr style='margin: 0.5rem 0 1.5rem 0; border-color: var(--border-color);'>", unsafe_allow_html=True)
-
     df = load_db()
     if df.empty: return
-        
-    if st.session_state.mobile_nav == "🔍 探索知識": mobile_home_page(df)
-    elif st.session_state.mobile_nav == "📄 製作講義": mobile_handout_page()
-    elif st.session_state.mobile_nav == "💖 支持": mobile_sponsor_page()
+
+    if st.session_state.mobile_nav == "🔍 探索知識":
+        home_page(df)
+    elif st.session_state.mobile_nav == "📄 製作講義":
+        handout_page()
+    elif st.session_state.mobile_nav == "💖 支持":
+        sponsor_page()
 
 if __name__ == "__main__":
     main()
