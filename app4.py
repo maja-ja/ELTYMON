@@ -15,37 +15,41 @@ from streamlit_gsheets import GSheetsConnection
 # ==========================================
 # 1. 核心工具函式
 # ==========================================
-
 def fix_content(text):
     """修復內容，確保 LaTeX 和 HTML 能被正確解析"""
-    if text is None or str(text).strip() in ["無", "nan", ""]: 
-        return ""
-    text = str(text)
-    # 修復換行符號問題，並保留 LaTeX 所需的反斜線
-    return text.replace('\\n', '\n').replace('\n', '  \n').strip('"').strip("'")
+    if text is None or str(text).strip() in ["無", "nan", ""]: return ""
+    # 處理雙反斜線與換行，確保 Markdown 語法正確
+    return str(text).replace('\\n', '\n').replace('\n', '  \n').strip('"').strip("'")
 
 def submit_error_report(word):
     """將錯誤單字回報至指定的 Google Sheets 工作表: feedback"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # 您提供的試算表 URL
-        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7
-        # 讀取現有的回報記錄
-        try: 
-            r_df = conn.read(spreadsheet=url, worksheet="reports", ttl=0)
-        except: 
+        # 完整的試算表 URL
+        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
+        
+        # 嘗試讀取 'feedback' 工作表
+        try:
+            r_df = conn.read(spreadsheet=sheet_url, worksheet="feedback", ttl=0)
+        except:
+            # 如果 feedback 工作表不存在，則建立新的欄位架構
             r_df = pd.DataFrame(columns=['word', 'timestamp', 'status'])
         
-        # 加入新記錄
-        new_data = pd.DataFrame([{
+        # 新增一筆紀錄
+        new_report = pd.DataFrame([{
             'word': word, 
             'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
-            'status': 'pending'
+            'status': '待處理'
         }])
-        r_df = pd.concat([r_df, new_data], ignore_index=True)
-        conn.update(spreadsheet=url, worksheet="reports", data=r_df)
+        
+        updated_df = pd.concat([r_df, new_report], ignore_index=True)
+        
+        # 寫回 Google Sheets (這需要權限，請確認你的 Secrets 有效)
+        conn.update(spreadsheet=sheet_url, worksheet="feedback", data=updated_df)
         return True
     except Exception as e:
+        # 如果是權限問題或分頁不存在，會在終端機顯示錯誤，前端顯示失敗
+        print(f"Update Error: {e}")
         return False
 
 def speak(text, key_suffix=""):
@@ -131,76 +135,78 @@ def inject_dual_theme_ui():
             .report-btn { color: #ff4b4b; font-size: 0.8rem; cursor: pointer; text-decoration: none; float: right; }
         </style>
     """, unsafe_allow_html=True)
-
 def mobile_home_page(df):
     st.markdown("<h2 style='text-align:center;'>🔍 探索知識</h2>", unsafe_allow_html=True)
     
-    # 搜尋與隨機
+    # 領域選擇與搜尋 (代碼簡略，請保留原本的邏輯)
     all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
-    selected_cat = st.selectbox("領域", all_cats, label_visibility="collapsed")
-    
+    selected_cat = st.selectbox("選擇學習領域", all_cats, label_visibility="collapsed")
+
     col_search, col_rand = st.columns([4, 1])
     with col_search:
-        query = st.text_input("輸入單字...", placeholder="例如: 熵", label_visibility="collapsed")
+        query = st.text_input("搜尋...", placeholder="例如: 熵", label_visibility="collapsed")
     with col_rand:
-        if st.button("🎲"):
-            pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
-            if not pool.empty:
-                st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
+        if st.button("🎲"): 
+            sample_pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
+            if not sample_pool.empty:
+                st.session_state.selected_word = sample_pool.sample(1).iloc[0].to_dict()
                 st.rerun()
 
-    # 決定顯示哪個單字
+    # 單字顯示邏輯
     target_row = None
     if query:
         match = df[df['word'].str.lower() == query.strip().lower()]
         if not match.empty: target_row = match.iloc[0].to_dict()
-        else:
-            fuzzy = df[df.astype(str).apply(lambda x: x.str.contains(query, case=False)).any(axis=1)]
-            if not fuzzy.empty: target_row = fuzzy.iloc[0].to_dict()
     elif "selected_word" in st.session_state:
         target_row = st.session_state.selected_word
-    elif not df.empty:
-        target_row = df.sample(1).iloc[0].to_dict()
-        st.session_state.selected_word = target_row
 
     if target_row:
         w = target_row['word']
         
-        # 單字卡容器 (頂部)
+        # 1. 頂部標籤與資訊區
         st.markdown(f"""
-        <div class="word-card">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="word-card" style="margin-bottom:0px; padding-bottom:5px; border-bottom:none; border-radius:20px 20px 0 0;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                 <span class="roots-tag">🧬 {fix_content(target_row['roots'])}</span>
-                <span style="font-size:0.7rem; color:var(--subtle-text-color);">{target_row['category']}</span>
+                <span style="font-size:0.75rem; color:var(--subtle-text-color);">{target_row['category']}</span>
             </div>
-            <h1 style="margin: 10px 0 5px 0; color:var(--h1-color);">{w}</h1>
-            <p style="color:var(--subtle-text-color); font-size:0.9rem; margin-bottom:15px;">/{fix_content(target_row['phonetic'])}/</p>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
+
+        # 2. 標題與回報按鈕區 (使用 Columns 模擬右上角按鈕)
+        card_col1, card_col2 = st.columns([6, 1])
+        with card_col1:
+            st.markdown(f"<h1 style='margin:0 0 0 25px; color:var(--h1-color);'>{w}</h1>", unsafe_allow_html=True)
+            st.markdown(f"<p style='margin:0 0 0 25px; color:var(--subtle-text-color);'>/{fix_content(target_row['phonetic'])}/</p>", unsafe_allow_html=True)
+        with card_col2:
+            # 這是報錯按鈕
+            if st.button("⚠️", key="report_btn", help="回報單字內容錯誤"):
+                if submit_error_report(w):
+                    st.toast(f"已回報 {w} 至 feedback 表格！", icon="✅")
+                else:
+                    st.error("回報失敗，請確認試算表中有 feedback 分頁與寫入權限。")
+
+        # 3. 核心內容區 (分開使用 st.markdown 以支援 LaTeX 和 HTML)
+        st.markdown('<div class="word-card" style="margin-top:-20px; border-top:none; border-radius:0 0 20px 20px; padding-top:0;">', unsafe_allow_html=True)
         
-        # 核心內容：使用 markdown 渲染以支援 LaTeX/HTML
+        # 定義 (支援 LaTeX)
         st.markdown(fix_content(target_row['definition']), unsafe_allow_html=True)
         
+        # 實例 (支援 LaTeX)
         st.markdown(f"""
-            <div style="background:var(--main-bg); padding:12px; border-radius:12px; margin-top:15px; font-size:0.9rem;">
-                <b>💡 實例:</b>
+            <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:15px;">
+                <b style="color:var(--accent-text-color);">💡 實例:</b>
         """, unsafe_allow_html=True)
         st.markdown(fix_content(target_row['example']), unsafe_allow_html=True)
         st.markdown("</div></div>", unsafe_allow_html=True)
-
-        # 功能按鈕區
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c1: speak(w, f"spk_{w}")
+        
+        # 按鈕區 (聽發音、生成講義)
+        c1, c2 = st.columns(2)
+        with c1: speak(w, f"m_speak_{w}")
         with c2:
-            if st.button("📄 講義"):
+            if st.button("📄 生成講義", type="primary"):
                 st.session_state.manual_input_content = f"## {w}\n\n{fix_content(target_row['definition'])}\n\n### 實例\n{fix_content(target_row['example'])}"
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
-        with c3:
-            if st.button("⚠️ 回報"):
-                if report_word_error(w):
-                    st.toast(f"已記錄 {w} 的錯誤回報！", icon="✅")
-                else:
-                    st.error("回報失敗，請檢查網路")
 
 def main():
     st.set_page_config(page_title="Etymon Mobile", page_icon="📱")
