@@ -1,450 +1,439 @@
-import random
 import streamlit as st
 import pandas as pd
-import json, re, io, time, hashlib, urllib.parse, ast
-from datetime import datetime
-import google.generativeai as genai
+import base64
+import time
+import json
+import re
+import random
+from io import BytesIO
+from gtts import gTTS
+import streamlit.components.v1 as components
+import markdown
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 1. 核心配置
+# 0. 核心配置與 CSS (手機版優化)
 # ==========================================
-st.set_page_config(page_title="Kadowsella | 116 數位戰情室", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Etymon Mobile", page_icon="📱", layout="centered")
 
-DISCORD_URL = st.secrets.get("DISCORD_LINK", "https://discord.gg/")
-SUBJECTS = ["國文", "英文", "數學A","數學B","數學甲","數學乙", "物理", "化學", "生物", "地科", "歷史", "地理", "公民"]
-
-def get_cycle_info():
-    now = datetime.now()
-    exam_date = datetime(2027, 1, 15)
-    cycle_start = datetime(2026, 3, 1)
-    days_left = (exam_date - now).days
-    return {"week_num": max(1, ((now - cycle_start).days // 7) + 1), "days_left": days_left}
-
-CYCLE = get_cycle_info()
-
-# ==========================================
-# 2. 工具函式 (Hash, DB, JSON)
-# ==========================================
-def hash_password(password): return hashlib.sha256(str.encode(password)).hexdigest()
-
-def load_db(sheet_name):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=sheet_name, ttl=0)
-        if sheet_name == "users":
-            for col in ['username', 'password', 'role', 'membership', 'ai_usage', 'is_online', 'last_seen']:
-                if col not in df.columns: df[col] = "free" if col=="membership" else "無"
-        return df.fillna("無")
-    except: return pd.DataFrame()
-
-def save_to_db(new_data, sheet_name):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet=sheet_name, ttl=0)
-        new_data['created_at'] = datetime.now().strftime("%Y-%m-%d")
-        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
-        conn.update(worksheet=sheet_name, data=updated_df)
-        return True
-    except: return False
-
-def update_user_data(username, column, value):
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet="users", ttl=0)
-        df.loc[df['username'] == username, column] = value
-        conn.update(worksheet="users", data=df)
-    except: pass
-
-def robust_json_parse(json_str):
-    if not json_str: return None
-    json_str = json_str.replace("```json", "").replace("```", "").strip()
-    try: return json.loads(json_str)
-    except:
-        fixed = re.sub(r'(?<!\\)\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
-        try: return json.loads(fixed)
-        except:
-            try: return ast.literal_eval(json_str.replace("true", "True").replace("false", "False").replace("null", "None"))
-            except: return None
-
-# ==========================================
-# 3. AI 核心 (分流與輪替)
-# ==========================================
-def get_api_keys():
-    keys = st.secrets.get("GEMINI_FREE_KEYS")
-    return keys if isinstance(keys, list) else [st.secrets.get("GEMINI_API_KEY")]
-
-def ai_call(system_instruction, user_input="", temp=0.7, tier="free"):
-    if tier == "self":
-        target_keys, model_name = [st.secrets.get("GEMINI_SELF_KEY")], "gemini-2.5-pro"
-    elif tier == "paid":
-        target_keys, model_name = st.secrets.get("GEMINI_PAID_KEYS", []), "gemini-2.5-pro"
-    else:
-        target_keys, model_name = get_api_keys(), "gemini-2.5-flash"
-
-    if not target_keys or not target_keys[0]: return "❌ API Key 未設定"
-    random.shuffle(target_keys)
-
-    for key in target_keys:
-        try:
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name)
-            res = model.generate_content(system_instruction + "\n\n" + user_input, generation_config=genai.types.GenerationConfig(temperature=temp))
-            if "JSON" in system_instruction:
-                match = re.search(r'\{.*\}', res.text, re.DOTALL)
-                return robust_json_parse(match.group(0)) if match else None
-            return res.text
-        except: continue
-    return "🚨 所有線路忙碌中"
-
-def ai_generate_question_from_db(db_row, tier="free"):
-    """
-    (支援多 Key 輪替) 你現在是台灣大考中心命題委員。
-    """
-    prompt = f"""
-    你現在是台灣大考中心命題委員。請根據以下資料出一題「108課綱素養導向」的選擇題。
-    
-    【參考資料】：
-    概念：{db_row['word']}
-    科目：{db_row['category']}
-    定義：{db_row['definition']}
-    核心邏輯：{db_row.get('roots', '無')}
-    
-    【重要規範】：
-    1. 所有的數學符號、座標、公式、根號，必須使用 LaTeX 格式並用單個錢字號包裹。例如：$(0,0)$、$x^2$。
-    2. 題目必須包含「情境描述」與「問題內容」。
-    
-    請嚴格輸出 JSON 格式：
-    {{
-        "concept": "{db_row['word']}",
-        "subject": "{db_row['category']}",
-        "q_type": "素養選擇題",
-        "listening_script": "無",
-        "content": "### 📝 情境描述\\n[情境文字]\\n\\n### ❓ 題目\\n[題目文字]\\n(A) [選項]\\n(B) [選項]\\n(C) [選項]\\n(D) [選項]",
-        "answer_key": "【正確答案】\\n[答案]\\n\\n【防呆解析】\\n[解析內容]",
-        "translation": "無"
-    }}
-    """
-    return ai_call("你必須嚴格輸出標準 JSON 格式。", prompt, tier=tier)
-
-def ai_decode_concept(input_text, subject):
-    """
-    台大醫學系學霸深度拆解邏輯
-    """
-    sys_prompt = f"""
-    【重要】請嚴格輸出標準 JSON 格式。所有的反斜線 \ 必須寫成 \\ (例如 \\frac, \\sqrt)。
-    你現在是台大醫學系學霸，請針對「{subject}」的概念「{input_text}」進行深度拆解。
-    請輸出 JSON：
-    {{ 
-        "roots": "核心公式(LaTeX)或字源邏輯", 
-        "definition": "一句話秒懂定義", 
-        "breakdown": "重點深度拆解(使用\\n換行)", 
-        "memory_hook": "諧音口訣或記憶點", 
-        "native_vibe": "學長姐血淚叮嚀/雷區警告", 
-        "star": 5 
-    }}
-    """
-    return ai_call(sys_prompt, temp=0.5, tier="paid") # 邏輯拆解用付費線路
-
-def ai_explain_from_db(db_row):
-    """
-    親切且邏輯清晰的台大學霸深度導讀
-    """
-    context = f"概念：{db_row['word']} | 定義：{db_row['definition']} | 公式：{db_row.get('roots', '無')} | 口訣：{db_row.get('memory_hook', '無')}"
-    prompt = f"""
-    你是一位台大學霸學長，請根據以下資料進行深度教學，語氣要親切、幽默且邏輯清晰。
-    
-    資料：{context}
-    
-    要求：
-    1. 所有的數學公式、符號、根號、座標，請務必使用 LaTeX 格式（單個 $ 包裹）。
-    2. 內容要包含：原理解析、生活實例、以及「為什麼考這個」。
-    3. 最後要有一個充滿能量的結語。
-    """
-    return ai_call(prompt, temp=0.7, tier="free")
-
-def ai_generate_social_post(concept_data):
-    """
-    Threads 發瘋的 116 技術宅 (脆文)
-    """
-    sys_prompt = f"""
-    你是一個在 Threads (脆) 上發瘋的 116 學測技術宅。
-    你剛用 AI 拆解了「{concept_data['word']}」，覺得 Temp 0 的邏輯美到哭。
-    請寫一篇極度厭世、多表情符號、吸引戰友留言『飛翔』的脆文。
-    多用💀、謝了、116、這邏輯絕了。
-    """
-    return ai_call(sys_prompt, str(concept_data), temp=1.5, tier="free")
-# ==========================================
-# 4. UI 與 PDF 組件
-# ==========================================
-def inject_css():
-    st.markdown("""<style>
-        .card { border-radius: 15px; padding: 20px; background: var(--secondary-background-color); border-left: 8px solid #6366f1; margin-bottom: 20px; }
-        .tag { background: #6366f1; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.8em; }
-        .quota-box { padding: 15px; border-radius: 10px; border: 1px solid #6366f1; text-align: center; }
-    </style>""", unsafe_allow_html=True)
-
-def show_concept(row):
-    contrib = row.get('contributor', '')
-    st.markdown(f"""<div class="card"><span class="tag">{row['category']}</span> <span style="float:right;color:gray;">{contrib}</span>
-    <h2>{row['word']}</h2><p><b>💡 秒懂：</b>{row['definition']}</p></div>""", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        st.info(f"🧬 **核心邏輯**\n\n{row['roots']}")
-        st.success(f"🧠 **記憶點**\n\n{row['memory_hook']}")
-    with c2:
-        st.warning(f"🚩 **雷區**\n\n{row['native_vibe']}")
-        with st.expander("🔍 詳細拆解"):
-            st.write(row['breakdown'])
-import streamlit as st
-import streamlit.components.v1 as components
-import json
-import time
-
-def show_pro_paper_with_download(title, content):
-    js_title = json.dumps(title, ensure_ascii=False)
-    js_content = json.dumps(content, ensure_ascii=False)
-    div_id = f"paper_{int(time.time())}"
-    
-    html_code = f"""
-    <div id="{div_id}_wrapper" style="background:#1e1e1e; padding:20px; border-radius:15px; border:1px solid #333; color:white; font-family:sans-serif;">
-        <!-- 預覽區：設定固定高度與捲動，防止撐破 Streamlit -->
-        <div id="{div_id}_content" style="height:400px; overflow-y:auto; margin-bottom:20px; padding:15px; background:#2d2d2d; border-radius:10px; line-height:1.6; border:1px solid #444;">
-            載入內容中...
-        </div>
-        <button id="{div_id}_btn" style="width:100%; padding:15px; background:linear-gradient(90deg, #6366f1, #a855f7); color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold; font-size:16px; transition: 0.3s;">
-            📥 下載完整講義 (PDF)
-        </button>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-
-    <script>
-        (function() {{
-            const content = {js_content}; 
-            const title = {js_title};
-            const display = document.getElementById("{div_id}_content");
+def inject_mobile_css():
+    st.markdown("""
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Inter:wght@400;600&display=swap');
             
-            // 渲染預覽
-            display.innerHTML = marked.parse(content);
-            renderMathInElement(display, {{ 
-                delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
-            }});
+            :root {
+                --main-bg: #F8F9FA; 
+                --card-bg: #FFFFFF; 
+                --text-color: #212529; 
+                --subtle-text: #6c757d;
+                --accent-color: #2196F3;
+                --accent-light: #E3F2FD;
+                --success-color: #4CAF50;
+                --warning-color: #FFC107;
+                --danger-color: #FF5252;
+                --radius-lg: 20px;
+                --radius-md: 12px;
+                --shadow: 0 4px 20px rgba(0,0,0,0.05);
+            }
 
-            document.getElementById("{div_id}_btn").onclick = async function() {{
-                const btn = this;
-                btn.innerHTML = "⏳ 正在處理長文件...";
-                btn.style.opacity = "0.7";
-                btn.disabled = true;
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --main-bg: #121212; 
+                    --card-bg: #1E1E1E; 
+                    --text-color: #E0E0E0; 
+                    --subtle-text: #A0A0A0;
+                    --accent-color: #64B5F6;
+                    --accent-light: #1A237E;
+                    --shadow: 0 4px 20px rgba(0,0,0,0.3);
+                }
+            }
 
-                // 創建一個「隱形但巨大」的容器來裝載所有內容
-                const printContainer = document.createElement('div');
-                printContainer.style.cssText = "position:absolute; left:-9999px; top:0; width:800px; background:white; color:black; padding:40px;";
-                
-                printContainer.innerHTML = `
-                    <div style="font-family: 'Microsoft JhengHei', sans-serif;">
-                        <div style="border-left:8px solid #6366f1; padding-left:20px; margin-bottom:30px;">
-                            <h1 style="margin:0; color:#1e3a8a;">⚡ 116 級數位戰情室</h1>
-                            <p style="color:#666;">主題：${{title}}</p>
-                        </div>
-                        <div style="font-size:16px; line-height:1.8;">
-                            ${{marked.parse(content)}}
-                        </div>
-                    </div>
-                `;
-                document.body.appendChild(printContainer);
+            /* 全局設定 */
+            .stApp { background-color: var(--main-bg); }
+            .block-container { max-width: 500px !important; padding: 1rem 1rem 4rem 1rem !important; }
+            [data-testid="stSidebar"], header { display: none; } /* 隱藏側邊欄與 Header */
 
-                // 渲染數學公式 (針對列印容器)
-                renderMathInElement(printContainer, {{ 
-                    delimiters: [{{left: "$$", right: "$$", display: true}}, {{left: "$", right: "$", display: false}}] 
-                }});
+            /* 卡片樣式 */
+            .word-card {
+                background: var(--card-bg);
+                border-radius: var(--radius-lg);
+                padding: 24px;
+                box-shadow: var(--shadow);
+                margin-bottom: 20px;
+                border: 1px solid rgba(128, 128, 128, 0.1);
+            }
 
-                // 等待圖片與字體
-                await document.fonts.ready;
-                await new Promise(r => setTimeout(r, 1000));
+            .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; }
+            .word-title { font-size: 2rem; font-weight: 800; color: var(--accent-color); margin: 0; line-height: 1.1; font-family: 'Inter', sans-serif; }
+            .phonetic { font-size: 0.9rem; color: var(--subtle-text); font-family: monospace; }
+            
+            .badge {
+                display: inline-block; padding: 4px 10px; border-radius: 20px;
+                font-size: 0.75rem; font-weight: 600; margin-right: 5px;
+            }
+            .badge-cat { background: var(--accent-light); color: var(--accent-color); }
+            .badge-root { background: rgba(255, 193, 7, 0.2); color: #FF9800; }
 
-                const opt = {{
-                    margin: 15,
-                    filename: title + ".pdf",
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ 
-                        scale: 2, 
-                        useCORS: true, 
-                        logging: false,
-                        scrollY: 0,
-                        windowWidth: 800 
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }},
-                    pagebreak: {{ mode: ['avoid-all', 'css', 'legacy'] }}
-                }};
+            /* 內容區塊 */
+            .section-title { font-size: 0.85rem; font-weight: 700; color: var(--subtle-text); margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
+            .content-text { font-size: 1rem; line-height: 1.6; color: var(--text-color); margin-top: 5px; }
+            
+            .vibe-box {
+                background: linear-gradient(135deg, rgba(33, 150, 243, 0.1) 0%, rgba(33, 203, 243, 0.1) 100%);
+                border-left: 4px solid var(--accent-color);
+                padding: 12px 16px;
+                border-radius: var(--radius-md);
+                margin-top: 15px;
+                font-size: 0.95rem;
+                color: var(--text-color);
+            }
 
-                // 執行下載
-                html2pdf().set(opt).from(printContainer).save().then(() => {{
-                    document.body.removeChild(printContainer);
-                    btn.innerHTML = "📥 下載成功！";
-                    btn.disabled = false;
-                    btn.style.opacity = "1";
-                }}).catch(err => {{
-                    btn.innerHTML = "❌ 下載失敗";
-                    btn.disabled = false;
-                }});
-            }};
-        }})();
-    </script>
-    """
-    # 這裡的 height 只需要固定給 600 左右，因為內文會在裡面捲動
-    components.html(html_code, height=600)
+            /* 按鈕與互動 */
+            .action-row { display: flex; gap: 10px; margin-top: 20px; }
+            .stButton > button {
+                border-radius: var(--radius-md) !important;
+                height: 48px !important;
+                font-weight: 600 !important;
+                border: none !important;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+                transition: transform 0.1s !important;
+            }
+            .stButton > button:active { transform: scale(0.97); }
+            
+            /* 贊助區塊 */
+            .sponsor-btn {
+                display: block; width: 100%; text-align: center;
+                padding: 12px; border-radius: var(--radius-md);
+                text-decoration: none; font-weight: bold; margin-bottom: 10px;
+                transition: opacity 0.2s;
+            }
+            .sponsor-btn:hover { opacity: 0.9; }
+            .btn-ecpay { background: #00A650; color: white !important; }
+            .btn-bmc { background: #FFDD00; color: black !important; }
+
+        </style>
+    """, unsafe_allow_html=True)
+
 # ==========================================
-# 5. 頁面邏輯 (登入/主程式)
+# 1. 後端邏輯工具
 # ==========================================
-def login_page():
-    st.title("⚡ Kadowsella 116 登入")
-    st.markdown("### 補習班沒教的數位複習法 | 116 級工程師邏輯戰情室")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        tab1, tab2 = st.tabs(["🔑 帳號登入", "📝 新生註冊"])
-        with tab1:
-            with st.form("login"):
-                u = st.text_input("帳號")
-                p = st.text_input("密碼", type="password")
-                if st.form_submit_button("進入戰情室", use_container_width=True):
-                    users = load_db("users")
-                    user = users[(users['username'] == u) & (users['password'] == hash_password(p))]
-                    if not user.empty:
-                        st.session_state.logged_in, st.session_state.username, st.session_state.role = True, u, user.iloc[0]['role']
-                        update_user_data(u, "is_online", "TRUE")
-                        st.rerun()
-                    else: st.error("❌ 帳號或密碼錯誤")
+
+def get_spreadsheet_url():
+    try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
+    except: return st.secrets.get("gsheets", {}).get("spreadsheet")
+
+def fix_content(text):
+    if text is None or str(text).strip() in ["無", "nan", ""]: return ""
+    return str(text).replace('\\n', '  \n').replace('\n', '  \n').strip('"').strip("'")
+
+@st.cache_data(ttl=600)
+def load_db():
+    # 完整欄位定義，確保與原資料庫兼容
+    COL_NAMES = ['category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 'example', 'translation', 'native_vibe']
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(spreadsheet=get_spreadsheet_url(), ttl=0)
+        # 補齊缺失欄位
+        for col in COL_NAMES:
+            if col not in df.columns: df[col] = "無"
+        return df.dropna(subset=['word']).fillna("無").reset_index(drop=True)
+    except Exception as e:
+        st.error(f"連線失敗: {e}")
+        return pd.DataFrame(columns=COL_NAMES)
+
+def submit_report(row_data):
+    """一鍵回報功能"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0" # 請確認此 URL 是否正確或替換
         
-        with tab2:
-            with st.form("reg"):
-                nu, np, code = st.text_input("設定帳號"), st.text_input("設定密碼", type="password"), st.text_input("管理員邀請碼 (學生免填)", type="password")
-                if st.form_submit_button("完成註冊"):
-                    is_admin = (code == st.secrets.get("ADMIN_PASSWORD"))
-                    user_data = {
-                        "username": nu, "password": hash_password(np), 
-                        "role": "admin" if is_admin else "student",
-                        "membership": "pro" if is_admin else "free", "ai_usage": 0
-                    }
-                    if save_to_db(user_data, "users"):
-                        st.success("註冊成功！請切換至登入分頁。")
+        # 準備資料
+        report_row = row_data.copy()
+        report_row['timestamp'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        report_row['type'] = 'mobile_feedback'
+        
+        try: existing = conn.read(spreadsheet=url, ttl=0)
+        except: existing = pd.DataFrame()
+        
+        updated = pd.concat([existing, pd.DataFrame([report_row])], ignore_index=True)
+        conn.update(spreadsheet=url, data=updated)
+        st.toast(f"✅ 已回報「{row_data.get('word')}」的問題，感謝貢獻！", icon="🙏")
+    except Exception as e:
+        st.toast(f"❌ 回報失敗: {e}")
 
-    with col2:
-        st.markdown("---")
-        st.write("🚀 **想先看看內容？**")
-        if st.button("🚪 以訪客身分試用", use_container_width=True):
-            st.session_state.logged_in, st.session_state.username, st.session_state.role = True, "訪客", "guest"
-            st.rerun()
-        st.link_button("💬 加入 Discord 社群", DISCORD_URL, use_container_width=True)
+def speak(text, key_suffix=""):
+    """HTML Audio 播放器"""
+    english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
+    if not english_only: return
+    try:
+        tts = gTTS(text=english_only, lang='en')
+        fp = BytesIO()
+        tts.write_to_fp(fp)
+        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
+        
+        # 隱藏式播放器，透過按鈕觸發
+        components.html(f"""
+            <script>
+                function playAudio() {{
+                    var audio = document.getElementById('{unique_id}');
+                    audio.play();
+                }}
+            </script>
+            <audio id="{unique_id}" src="data:audio/mp3;base64,{audio_base64}"></audio>
+            <button onclick="playAudio()" style="
+                background:none; border:none; cursor:pointer; 
+                width:100%; height:100%; display:block;">
+            </button>
+        """, height=0, width=0) # 實際 UI 在 Streamlit button 處理
+        return audio_base64 # 回傳以備不時之需
+    except: return None
 
-    st.markdown("---")
-    with st.expander("⚖️ 使用者條款與免責聲明"):
-        st.markdown("""
-        <div style="font-size: 0.85em; line-height: 1.6; color: gray;">
-            <b>【使用者條款與免責聲明】</b><br><br>
-            <b>1. 隱私保護</b>：本系統採用 SHA-256 加密技術保護密碼。請勿使用真實姓名作為帳號。<br>
-            <b>2. 內容聲明</b>：所有學科解析與題目均由 AI 輔助生成，僅供複習參考，不保證內容絕對正確。<br>
-            <b>3. 非營利性質</b>：本專案為個人開發之教育工具，不收取費用，亦不提供商業服務。<br>
-            <b>4. 著作權說明</b>：本站尊重著作權，若有侵權疑慮請聯繫 kadowsella@gmail.com。
+def generate_printable_html(title, text_content, auto_download=False):
+    html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1000); };" if auto_download else ""
+    return f"""
+    <html><head>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <style>
+            body {{ font-family: 'Noto Sans TC', sans-serif; background: #525659; margin: 0; padding: 20px; display: flex; justify-content: center; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
+            h1 {{ color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
+            h2 {{ color: #0277BD; margin-top: 20px; border-left: 5px solid #0277BD; padding-left: 10px; }}
+            p, li {{ line-height: 1.8; color: #333; }}
+            code {{ background: #f4f4f4; padding: 2px 5px; border-radius: 4px; color: #d32f2f; }}
+        </style>
+    </head><body>
+        <div id="printable-area">
+            <h1>{title}</h1>
+            <div style="text-align:right; font-size:12px; color:#999;">Generated by Etymon Mobile</div>
+            {html_body}
+            <div style="margin-top:50px; text-align:center; font-size:12px; color:#ccc; border-top:1px solid #eee; padding-top:10px;">
+                免費講義資源 - 僅供教育用途
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-def main_app():
-    inject_css()
-    c_df, q_df, users_df = load_db("Sheet1"), load_db("questions"), load_db("users")
-    user_row = users_df[users_df['username'] == st.session_state.username]
-    is_admin = (st.session_state.role == "admin")
-    membership = user_row.iloc[0].get('membership', 'free') if not user_row.empty else "free"
-    is_pro = (membership == "pro")
-
-    # 在線狀態 Heartbeat
-    if time.time() - st.session_state.get('last_sync', 0) > 180:
-        update_user_data(st.session_state.username, "last_seen", datetime.now().strftime("%H:%M:%S"))
-        st.session_state.last_sync = time.time()
-
-    with st.sidebar:
-        label = "（ADMIN）" if is_admin else (f"（PRO）：{st.session_state.username}" if is_pro else "（學生）")
-        st.markdown(f"### 👋 {st.session_state.username}\n{label}")
-        menu = ["📅 本週菜單", "🧪 AI 補給站", "📝 模擬演練", "🏆 排行榜"]
-        if is_admin or is_pro:
-            st.divider(); st.subheader("🛠️ PRO 工具")
-            menu += ["🔬 預埋考點", "🧪 考題開發"]
-        if is_admin: menu.append("👤 會員管理")
-        choice = st.radio("導航", menu)
-        if st.button("🚪 登出"):
-            update_user_data(st.session_state.username, "is_online", "FALSE")
-            st.session_state.logged_in = False; st.rerun()
-
-    # --- 功能區 ---
-    if choice == "📅 本週菜單":
-        st.title("🚀 本週重點")
-        for _, r in c_df.tail(10).iterrows(): show_concept(r)
-
-    elif choice == "🧪 AI 補給站":
-        st.title("🧪 AI 邏輯補給站")
-        ai_usage = int(float(user_row.iloc[0]['ai_usage'])) if not user_row.empty else 0
-        if not is_admin: st.write(f"🔋 能量：{10-ai_usage}/10")
-        if ai_usage >= 10 and not is_admin: st.error("能量耗盡")
-        else:
-            selected = st.selectbox("選概念", ["---"] + c_df['word'].unique().tolist())
-            if selected != "---":
-                db_row = c_df[c_df['word'] == selected].iloc[0]
-                if st.button("🚀 啟動教學"):
-                    exp = ai_explain_from_db(db_row)
-                    st.session_state.cur_exp, st.session_state.cur_sel = exp, selected
-                    if not is_admin: update_user_data(st.session_state.username, "ai_usage", ai_usage+1)
-            
-            if st.session_state.get("cur_sel") == selected:
-                show_pro_paper_with_download(selected, st.session_state.cur_exp)
-
-    elif choice == "🔬 預埋考點" and (is_admin or is_pro):
-        st.title("🔬 AI 考點預埋")
-        inp, sub = st.text_input("概念"), st.selectbox("科目", SUBJECTS)
-        if st.button("🚀 解碼"):
-            res = ai_call("輸出 JSON 教學內容", f"{sub} 的 {inp}", tier="paid" if is_pro else "self")
-            if res: res.update({"word":inp, "category":sub}); st.session_state.temp_c = res
-        if "temp_c" in st.session_state:
-            show_concept(st.session_state.temp_c)
-            if st.button("💾 存入大資料庫"):
-                tag = "（ADMIN）" if is_admin else f"（PRO）：{st.session_state.username}"
-                data = st.session_state.temp_c.copy(); data['contributor'] = tag
-                if save_to_db(data, "Sheet1"): st.balloons(); del st.session_state.temp_c; st.rerun()
-
-    elif choice == "🧪 考題開發" and (is_admin or is_pro):
-        st.title("🧪 AI 考題開發")
-        target = st.selectbox("選概念出題", c_df['word'].unique().tolist())
-        if st.button("🪄 生成"):
-            res = ai_generate_question_from_db(c_df[c_df['word']==target].iloc[0], tier="paid" if is_pro else "self")
-            if res: st.session_state.temp_q = res
-        if "temp_q" in st.session_state:
-            st.write(st.session_state.temp_q)
-            if st.button("💾 存入題庫"):
-                tag = "（ADMIN）" if is_admin else f"（PRO）：{st.session_state.username}"
-                qdata = st.session_state.temp_q.copy(); qdata['contributor'] = tag
-                if save_to_db(qdata, "questions"): st.success("存入"); del st.session_state.temp_q; st.rerun()
-
-    elif choice == "👤 會員管理" and is_admin:
-        st.title("👤 成員管理")
-        for i, r in load_db("users").iterrows():
-            if r['role'] == "admin": continue
-            c1, c2, c3 = st.columns([2,1,1])
-            c1.write(f"**{r['username']}** ({'🟢' if r['is_online']=='TRUE' else '🔴'})")
-            if c2.button("升/降級", key=f"mem_{i}"):
-                update_user_data(r['username'], "membership", "pro" if r['membership']=="free" else "free")
-                st.rerun()
-            if c3.button("補能", key=f"f_{i}"): update_user_data(r['username'], "ai_usage", 0); st.rerun()
+        <script>
+            function downloadPDF() {{
+                const element = document.getElementById('printable-area');
+                html2pdf().set({{ margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}).from(element).save();
+            }}
+            {auto_js}
+        </script>
+    </body></html>
+    """
 
 # ==========================================
-# 7. 執行入口
+# 2. 介面頁面組件
+# ==========================================
+
+def render_word_card(row):
+    """渲染單張精美的單字卡"""
+    w = row['word']
+    phonetic = fix_content(row['phonetic'])
+    roots = fix_content(row['roots'])
+    definition = fix_content(row['definition'])
+    breakdown = fix_content(row['breakdown'])
+    vibe = fix_content(row['native_vibe'])
+    
+    # 1. 卡片主體
+    st.markdown(f"""
+        <div class="word-card">
+            <div class="card-header">
+                <div>
+                    <h1 class="word-title">{w}</h1>
+                    <div class="phonetic">/{phonetic}/</div>
+                </div>
+                <div>
+                    <span class="badge badge-cat">{row['category']}</span>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <span class="badge badge-root">🧬 字根: {roots}</span>
+            </div>
+            
+            <div class="content-text">
+                <b>💡 定義：</b>{definition}
+            </div>
+
+            <div class="vibe-box">
+                <div style="font-weight:bold; margin-bottom:5px;">🌊 專家視角</div>
+                {vibe if vibe != "無" else "暫無專家補充"}
+            </div>
+            
+            <div style="margin-top: 15px;">
+                <div class="section-title">邏輯拆解</div>
+                <div class="content-text" style="font-family: monospace; color: var(--accent-color);">{breakdown}</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 2. 功能按鈕區 (Grid Layout)
+    c1, c2, c3 = st.columns([1, 1, 2])
+    
+    with c1:
+        # TTS 發音 (需要一個隱藏的組件來觸發)
+        if st.button("🔊 發音", key=f"btn_speak_{w}"):
+            speak(w, f"m_{w}") # 這裡其實只是觸發 audio 生成，實際播放需要上面的 html 配合，或簡化為 toast 提示
+            st.toast(f"正在播放：{w}")
+            # 注意：Streamlit 的按鈕刷新機制可能會打斷音頻，手機版建議用 st.audio 如果不介意醜一點，或用上面的 component 方案
+            
+    with c2:
+        if st.button("🚩 回報", key=f"btn_rep_{w}"):
+            submit_report(row.to_dict())
+
+    with c3:
+        if st.button("📄 轉講義", type="primary", key=f"btn_jump_{w}", use_container_width=True):
+            # 準備講義內容
+            draft = (
+                f"## 📖 專題講義：{w}\n\n"
+                f"### 🧬 核心邏輯\n{breakdown}\n\n"
+                f"### 🎯 核心定義\n{definition}\n\n"
+                f"### 💡 核心原理\n{roots}\n\n"
+                f"**專家心法**：\n> {vibe}\n\n"
+                f"### 📝 應用筆記\n(請在此處補充課堂筆記...)"
+            )
+            st.session_state.manual_input_content = draft
+            st.session_state.mobile_nav = "📄 講義預覽"
+            st.rerun()
+
+def page_explore(df):
+    """探索頁面"""
+    st.markdown("### 🔍 探索知識")
+    
+    # 搜尋與篩選
+    col_cat, col_rand = st.columns([2, 1])
+    with col_cat:
+        cats = ["全部領域"] + sorted(df['category'].unique().tolist())
+        sel_cat = st.selectbox("分類", cats, label_visibility="collapsed")
+    with col_rand:
+        if st.button("🎲 抽卡", type="primary", use_container_width=True):
+            pool = df if sel_cat == "全部領域" else df[df['category'] == sel_cat]
+            if not pool.empty:
+                st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
+            st.rerun()
+
+    search_q = st.text_input("搜尋單字...", placeholder="輸入單字 (例如: entropy)")
+
+    # 決定要顯示哪個單字
+    target_row = None
+    
+    if search_q:
+        # 搜尋邏輯
+        mask = df['word'].str.lower() == search_q.strip().lower()
+        if mask.any(): target_row = df[mask].iloc[0].to_dict()
+        else:
+            # 模糊搜尋
+            fuzzy = df[df['word'].str.contains(search_q, case=False)]
+            if not fuzzy.empty: target_row = fuzzy.iloc[0].to_dict()
+            else: st.warning("找不到該單字")
+    
+    elif "selected_word" in st.session_state:
+        target_row = st.session_state.selected_word
+    
+    elif not df.empty:
+        # 預設隨機顯示一個
+        target_row = df.sample(1).iloc[0].to_dict()
+        st.session_state.selected_word = target_row
+
+    # 渲染卡片
+    if target_row:
+        render_word_card(target_row)
+
+def page_handout():
+    """講義預覽與下載頁面"""
+    st.markdown("### 📄 講義排版")
+    
+    content = st.text_area(
+        "編輯講義內容 (支援 Markdown)", 
+        value=st.session_state.get("manual_input_content", "請先從「探索」頁面選擇單字..."), 
+        height=250
+    )
+    st.session_state.manual_input_content = content
+    
+    # 提取標題
+    title = "AI 講義"
+    if content:
+        for line in content.split('\n'):
+            if "講義" in line or "# " in line:
+                title = line.replace('#', '').strip()
+                break
+
+    # 下載按鈕
+    if st.button("📥 下載 PDF", type="primary", use_container_width=True):
+        st.session_state.trigger_download = True
+        st.rerun()
+    
+    # 預覽區域
+    st.caption("👇 A4 預覽")
+    html = generate_printable_html(
+        title=title,
+        text_content=content,
+        auto_download=st.session_state.get("trigger_download", False)
+    )
+    if st.session_state.get("trigger_download"): 
+        st.session_state.trigger_download = False
+        
+    components.html(html, height=450, scrolling=True)
+
+def page_sponsor():
+    """贊助頁面"""
+    st.markdown("### 💖 支持開發")
+    st.markdown("""
+        <div class="word-card" style="text-align:center;">
+            <div style="font-size: 3rem;">🎁</div>
+            <p style="color:var(--text-color); margin: 15px 0;">
+                這是一個免費的教育工具。<br>
+                如果它對您的學習有幫助，<br>
+                歡迎贊助一杯咖啡，支持伺服器與 AI 算力成本！
+            </p>
+            <hr style="opacity:0.2; margin: 20px 0;">
+            <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
+                💳 綠界贊助 (ECPay)
+            </a>
+            <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc">
+                ☕ Buy Me a Coffee
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# 3. 主程式入口
 # ==========================================
 def main():
-    if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-    if not st.session_state.logged_in: login_page()
-    else: main_app()
+    inject_mobile_css()
+    
+    # 初始化 Session State
+    if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索"
+    
+    # 資料庫載入
+    df = load_db()
 
-if __name__ == "__main__": main()
+    # 底部導航列 (模擬 Mobile Tab Bar)
+    # 使用 radio 配合 horizontal=True 並隱藏 label
+    tabs = ["🔍 探索", "📄 講義預覽", "💖 支持"]
+    selected = st.radio(
+        "Nav", tabs, 
+        index=tabs.index(st.session_state.mobile_nav), 
+        horizontal=True, 
+        label_visibility="collapsed"
+    )
+    
+    # 導航狀態更新
+    if selected != st.session_state.mobile_nav:
+        st.session_state.mobile_nav = selected
+        st.rerun()
+
+    st.markdown("---") # 分隔線
+
+    # 路由
+    if st.session_state.mobile_nav == "🔍 探索":
+        page_explore(df)
+    elif st.session_state.mobile_nav == "📄 講義預覽":
+        page_handout()
+    elif st.session_state.mobile_nav == "💖 支持":
+        page_sponsor()
+
+if __name__ == "__main__":
+    main()
