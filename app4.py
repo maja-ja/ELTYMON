@@ -46,7 +46,7 @@ def speak(text, key_suffix=""):
 def submit_error_report(word):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit"
         try: r_df = conn.read(spreadsheet=sheet_url, worksheet="feedback", ttl=0)
         except: r_df = pd.DataFrame(columns=['word', 'timestamp', 'status'])
         new_report = pd.DataFrame([{'word': word, 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"), 'status': '待處理'}])
