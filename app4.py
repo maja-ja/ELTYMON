@@ -10,7 +10,7 @@ import markdown
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 1. 核心工具函式 (保持不變)
+# 1. 核心工具函式
 # ==========================================
 
 def fix_content(text):
@@ -26,34 +26,46 @@ def speak(text, key_suffix=""):
         tts.write_to_fp(fp)
         audio_base64 = base64.b64encode(fp.getvalue()).decode()
         unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
-        # 更新按鈕樣式
         components.html(f"""
         <html><body>
             <style>
-                .speak-btn {{ 
-                    background: #eef7ff; border: 1px solid #d0e8ff; border-radius: 12px; 
-                    padding: 10px; cursor: pointer; width: 100%; font-weight: 600; color: #1c6aae;
-                }}
-                @media (prefers-color-scheme: dark) {{ .speak-btn {{ 
-                    background: #161B22; border-color: #30363d; color: #f0f6fc; 
-                }} }}
+                .speak-btn {{ background: #eef7ff; border: 1px solid #d0e8ff; border-radius: 12px; padding: 10px; cursor: pointer; width: 100%; font-weight: 600; color: #1c6aae; }}
+                @media (prefers-color-scheme: dark) {{ .speak-btn {{ background: #161B22; border-color: #30363d; color: #f0f6fc; }} }}
             </style>
             <button class="speak-btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
             <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
         </body></html>""", height=50)
     except: pass
 
-def submit_error_report(word):
+def submit_error_report(data_row):
+    """根據使用者提供的完整欄位結構回報錯誤"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit"
+        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
+        
+        # 定義欄位清單 (與您提供的一致)
+        columns = [
+            'category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 
+            'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 
+            'social_status', 'emotional_tone', 'street_usage', 'collocation', 'etymon_story', 
+            'usage_warning', 'memory_hook', 'audio_tag', 'term'
+        ]
+        
+        # 讀取現有資料
         try: r_df = conn.read(spreadsheet=sheet_url, worksheet="feedback", ttl=0)
-        except: r_df = pd.DataFrame(columns=['word', 'timestamp', 'status'])
-        new_report = pd.DataFrame([{'word': word, 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"), 'status': '待處理'}])
-        updated_df = pd.concat([r_df, new_report], ignore_index=True)
+        except: r_df = pd.DataFrame(columns=columns + ['report_time', 'report_status'])
+        
+        # 準備新資料列
+        new_row = {col: data_row.get(col, "無") for col in columns}
+        new_row['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        new_row['report_status'] = '待處理'
+        
+        updated_df = pd.concat([r_df, pd.DataFrame([new_row])], ignore_index=True)
         conn.update(spreadsheet=sheet_url, worksheet="feedback", data=updated_df)
         return True
-    except: return False
+    except Exception as e:
+        print(f"Report Error: {e}")
+        return False
 
 @st.cache_data(ttl=3600) 
 def load_db():
@@ -68,71 +80,35 @@ def generate_printable_html(title, text_content, auto_download=False):
     html_body = markdown.markdown(text_content)
     auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
     return f"""
-    <html>
-    <head>
+    <html><head>
         <meta charset="UTF-8">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
-            /* 強制白色背景與標準 A4 比例 */
-            body {{ 
-                background-color: #525659; /* 外部模擬 PDF 閱讀器的深色背景 */
-                display: flex; justify-content: center; padding: 20px; margin: 0;
-            }}
-            #area {{ 
-                background-color: white !important; 
-                color: black !important; 
-                width: 210mm; min-height: 297mm; 
-                padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5);
-                font-family: "Noto Sans TC", sans-serif;
-                line-height: 1.6;
-            }}
+            body {{ background-color: #525659; display: flex; justify-content: center; padding: 20px; margin: 0; }}
+            #area {{ background-color: white !important; color: black !important; width: 210mm; min-height: 297mm; padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); font-family: sans-serif; line-height: 1.6; }}
             h1 {{ border-bottom: 2px solid #333; padding-bottom: 10px; color: black; }}
-            p, li {{ font-size: 16px; color: #333; }}
         </style>
-    </head>
-    <body>
-        <div id="area">
-            <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#999; margin-bottom:20px;">AI Education Workstation</div>
-            {html_body}
-        </div>
-        <script>
-            function downloadPDF(){{
-                const e = document.getElementById('area');
-                const opt = {{
-                    margin: 10,
-                    filename: '{title}.pdf',
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ scale: 2 }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }};
-                html2pdf().set(opt).from(e).save();
-            }}
-            {auto_js}
-        </script>
-    </body>
-    </html>"""
+    </head><body>
+        <div id="area"><h1>{title}</h1>{html_body}</div>
+        <script>function downloadPDF(){{const e=document.getElementById('area');html2pdf().from(e).save('{title}.pdf');}}{auto_js}</script>
+    </body></html>"""
 
 # ==========================================
-# 2. UI 樣式 (更新為新版風格)
+# 2. UI 樣式 (解決卡住問題)
 # ==========================================
+
 def inject_ui():
     st.markdown("""
         <style>
-            /* --- 徹底隱藏 Streamlit 頂部裝飾 --- */
-            header, footer, .stAppDeployButton { visibility: hidden; height: 0; display: none; }
-            #MainMenu { visibility: hidden; }
+            /* 隱藏頂部所有 Streamlit 標籤與按鈕 */
+            header, footer, .stAppDeployButton, #MainMenu { visibility: hidden !important; height: 0 !important; display: none !important; }
             
-            /* --- 調整頂部邊距，防止被標題卡住 --- */
+            /* 調整容器以防被頂部卡住 */
             .block-container { 
                 max-width: 480px !important; 
-                padding-top: 2rem !important;  /* 增加頂部間距 */
-                padding-bottom: 5rem !important; 
-                padding-left: 1rem !important;
-                padding-right: 1rem !important;
+                padding: 2.5rem 1rem 5rem 1rem !important; 
             }
 
-            /* --- 全局背景設定 --- */
             :root {
                 --main-bg: #f8f9fa; --card-bg: white; --text-color: #212529;
                 --subtle-text: #6c757d; --border-color: #dee2e6;
@@ -156,13 +132,13 @@ def inject_ui():
             .sponsor-banner { 
                 background: linear-gradient(90deg, #ffc107, #ff9800); color: #212529 !important; 
                 padding: 12px; border-radius: 12px; text-align: center; display: block; 
-                text-decoration: none; margin-bottom: 20px; font-weight: bold; font-size: 0.9rem;
+                text-decoration: none; margin-bottom: 20px; font-weight: bold;
             }
         </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 頁面邏輯 (包含修復後的導覽)
+# 3. 頁面邏輯
 # ==========================================
 
 def home_page(df):
@@ -171,22 +147,21 @@ def home_page(df):
     
     sel_cat = st.selectbox("領域", ["🌍 全部領域"] + sorted(df['category'].unique().tolist()), label_visibility="collapsed")
     
-    # 搜尋、骰子、報錯整合
-    c_s, c_r, c_report = st.columns([4, 1, 1.8])
+    c_s, c_r, c_report = st.columns([4, 1, 2])
     with c_s:
         query = st.text_input("搜尋...", placeholder="例如: genocide", label_visibility="collapsed")
     with c_r:
-        if st.button("🎲", help="隨機單字"):
+        if st.button("🎲"):
             pool = df if sel_cat == "🌍 全部領域" else df[df['category'] == sel_cat]
             if not pool.empty:
                 st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
                 st.rerun()
     with c_report:
-        if st.button("⚠️ 報錯", help="回報當前單字錯誤"):
-            word_to_report = st.session_state.get('selected_word', {}).get('word', 'N/A')
-            if submit_error_report(word_to_report): st.toast(f"感謝回報 {word_to_report}！")
+        if st.button("⚠️ 報錯"):
+            current_data = st.session_state.get('selected_word', {})
+            if submit_error_report(current_data): st.toast(f"已回報 {current_data.get('word')}！")
 
-    # 決定顯示單字
+    # 單字顯示邏輯
     target = None
     if query:
         match = df[df['word'].str.lower() == query.strip().lower()]
@@ -198,7 +173,7 @@ def home_page(df):
     
     if target:
         w = target['word']
-        st.session_state.selected_word = target # 確保狀態被儲存
+        st.session_state.selected_word = target
         st.markdown(f"""
         <div class="word-card">
             <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -206,7 +181,7 @@ def home_page(df):
                 <span style="font-size:0.75rem; color:var(--subtle-text);">{target['category']}</span>
             </div>
             <h1 style="font-size:2.5rem; margin-top:10px;">{w}</h1>
-            <p style="color:var(--subtle-text); margin-top:-15px; font-size: 1rem;">/{target['phonetic']}/</p>
+            <p style="color:var(--subtle-text); margin-top:-15px;">/{target['phonetic']}/</p>
             <div style="font-size:1.1rem; line-height:1.7;">{fix_content(target['definition'])}</div>
             <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:15px;">
                 <b style="color:var(--accent-text);">💡 實例:</b><br>
@@ -220,77 +195,43 @@ def home_page(df):
         with b2:
             if st.button("📄 生成講義", type="primary"):
                 st.session_state.manual_input_content = f"## {w}\n\n{target['definition']}\n\n### 實例\n{target['example']}"
-                st.session_state.mobile_nav = "📄 製作講義" # 設定跳轉目標
+                st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
-
-        st.markdown(f"""<a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;"><div class="coffee-banner">☕ 內容有幫助嗎？請作者喝杯咖啡吧！</div></a>""", unsafe_allow_html=True)
 
 def handout_page():
     st.markdown("<h2 style='text-align:center;'>📄 製作講義</h2>", unsafe_allow_html=True)
-    content = st.text_area("編輯內容", value=st.session_state.get("manual_input_content", "請先從「探索知識」頁面選擇一個單字。"), height=300)
+    content = st.text_area("編輯內容", value=st.session_state.get("manual_input_content", ""), height=300)
     st.session_state.manual_input_content = content
-    
-    if st.button("📥 下載 PDF 講義", type="primary", use_container_width=True):
+    if st.button("📥 下載 PDF", type="primary", use_container_width=True):
         st.session_state.trigger_pdf = True
     
     final_html = generate_printable_html("學習講義", content, st.session_state.get("trigger_pdf", False))
     st.session_state.trigger_pdf = False
-    components.html(final_html, height=400, scrolling=True)
-
-def sponsor_page():
-    st.markdown("<h2 style='text-align:center;'>💖 支持我們</h2>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="word-card" style="text-align:center;">
-        <p style="font-size:1.1rem; line-height:1.7;">如果您覺得這個工具有幫助，您的任何支持都將是我們持續開發與維護的最大動力！</p>
-        <p style="color:var(--subtle-text); font-size:0.9rem;">您的贊助將用於支付伺服器與 API 的費用。</p>
-        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;">
-            <div style="background:#00A650; color:white; padding:15px; border-radius:12px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界 ECPay (推薦)</div>
-        </a>
-        <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
-            <div style="background:#FFDD00; color:black; padding:15px; border-radius:12px; font-weight:bold;">☕ Buy Me a Coffee</div>
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ==========================================
-# 4. 主程式 (修復後的導覽邏輯)
-# ==========================================
+    components.html(final_html, height=450, scrolling=True)
 
 def main():
-    st.set_page_config(page_title="Etymon", page_icon="💡", layout="centered")
-    inject_ui() # 這裡會隱藏 Streamlit 的標題欄
+    st.set_page_config(page_title="Etymon", page_icon="💡")
+    inject_ui()
     
-    # 建立導覽
-    if 'mobile_nav' not in st.session_state:
-        st.session_state.mobile_nav = "🔍 探索知識"
+    if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索知識"
 
     nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
     current_index = nav_options.index(st.session_state.mobile_nav) if st.session_state.mobile_nav in nav_options else 0
 
-    # 這裡加入一個 Spacer，確保導覽列不被系統狀態列擋住
-    st.write("") 
-    
-    selected_nav = st.radio(
-        "導覽", options=nav_options, index=current_index,
-        horizontal=True, label_visibility="collapsed"
-    )
+    st.write("") # Spacer
+    selected_nav = st.radio("導覽", options=nav_options, index=current_index, horizontal=True, label_visibility="collapsed")
 
     if selected_nav != st.session_state.mobile_nav:
         st.session_state.mobile_nav = selected_nav
         st.rerun()
 
     df = load_db()
-    if df.empty: 
-        st.error("資料庫載入失敗，請檢查網路連線或 Google Sheets 設定。")
-        return
+    if df.empty: return
 
-    # 根據 session_state 顯示對應頁面
-    if st.session_state.mobile_nav == "🔍 探索知識":
-        home_page(df)
-    elif st.session_state.mobile_nav == "📄 製作講義":
-        handout_page()
+    if st.session_state.mobile_nav == "🔍 探索知識": home_page(df)
+    elif st.session_state.mobile_nav == "📄 製作講義": handout_page()
     elif st.session_state.mobile_nav == "💖 支持":
-        sponsor_page()
+        st.markdown("<h2 style='text-align:center;'>💖 支持贊助</h2><div class='word-card'>贊助頁面內容...</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
