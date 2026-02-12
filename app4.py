@@ -19,7 +19,7 @@ from streamlit_gsheets import GSheetsConnection
 def fix_content(text):
     """修復內容，確保 LaTeX 和 HTML 能被正確解析"""
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
-    text = str(text)
+        text = str(text)
     # 修復換行符號問題，並保留 LaTeX 所需的反斜線
     return text.replace('\\n', '\n').replace('\n', '  \n').strip('"').strip("'")
 
