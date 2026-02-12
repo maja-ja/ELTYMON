@@ -36,16 +36,14 @@ def speak(text, key_suffix=""):
             <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
         </body></html>""", height=50)
     except: pass
-
 def submit_error_report(data_row):
-    """根據使用者提供的 URL 寫入反饋"""
+    """將錯誤單字回報至指定的 Google Sheets 工作表: feede"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # 您提供的試算表完整 URL
+        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
         
-        # 這是您提供的網址 (移除 gid 以確保連接基礎檔案)
-        TARGET_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit"
-        
-        # 定義您提供的欄位清單 (共 21 個)
+        # 定義您資料庫的所有欄位 (21個)
         columns = [
             'category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 
             'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 
@@ -53,37 +51,34 @@ def submit_error_report(data_row):
             'usage_warning', 'memory_hook', 'audio_tag', 'term'
         ]
         
-        # 1. 嘗試讀取 feedback 工作表
+        # 1. 嘗試讀取 'feede' 工作表
         try:
-            # 增加 ttl=0 確保每次都是拿最新資料
-            r_df = conn.read(spreadsheet=TARGET_URL, worksheet="feede", ttl=0)
+            # 這裡改為您指定的分頁名稱: feede
+            r_df = conn.read(spreadsheet=sheet_url, worksheet="feede", ttl=0)
         except Exception as read_e:
-            st.error(f"❌ 找不到 'feede' 分頁：{read_e}")
+            st.error(f"❌ 讀取失敗：找不到名為 'feede' 的分頁。請確認試算表標籤名稱。")
             return False
         
         # 2. 準備新的一列資料
-        # 如果當前 row 沒有該欄位，則填入 "無"
+        # 將當前單字的內容填入對應欄位
         new_row_dict = {col: data_row.get(col, "無") for col in columns}
         
-        # 強制標記為已回報 (假設 term 欄位是次數)
-        new_row_dict['term'] = 1 
-        
-        # 新增時間戳記 (建議在最後多加一列時間方便您查看)
-        # 如果您的 Sheets 裡沒有這兩列，Pandas 會自動建立，但寫入時可能會報錯
-        # 建議在試算表 feedback 分頁的手動補上 'report_time' 標題
+        # 額外紀錄回報時間與狀態
         new_row_dict['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        new_row_dict['report_status'] = '待處理'
         
         new_df = pd.DataFrame([new_row_dict])
         
-        # 3. 合併並更新
+        # 3. 合併現有資料並更新
         updated_df = pd.concat([r_df, new_df], ignore_index=True)
         
-        conn.update(spreadsheet=TARGET_URL, worksheet="feedback", data=updated_df)
+        # 指定寫入到 feede 分頁
+        conn.update(spreadsheet=sheet_url, worksheet="feede", data=updated_df)
         return True
         
     except Exception as e:
-        # 如果出現 "403 Forbidden"，就代表您沒做「第一步」的共用設定
-        st.error(f"⚠️ 寫入失敗：{e}")
+        # 如果還是失敗，顯示詳細錯誤原因 (例如權限問題)
+        st.error(f"⚠️ 寫入失敗，請確認是否已將試算表共用給 Service Account。詳細訊息：{e}")
         return False
 
 @st.cache_data(ttl=3600) 
