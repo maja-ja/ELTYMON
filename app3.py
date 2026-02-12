@@ -38,12 +38,14 @@ def speak(text, key_suffix=""):
     except: pass
 
 def submit_error_report(data_row):
-    """根據使用者提供的完整欄位結構回報錯誤"""
+    """根據使用者提供的 URL 寫入反饋"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
         
-        # 定義欄位清單 (與您提供的一致)
+        # 這是您提供的網址 (移除 gid 以確保連接基礎檔案)
+        TARGET_URL = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit"
+        
+        # 定義您提供的欄位清單 (共 21 個)
         columns = [
             'category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 
             'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 
@@ -51,20 +53,37 @@ def submit_error_report(data_row):
             'usage_warning', 'memory_hook', 'audio_tag', 'term'
         ]
         
-        # 讀取現有資料
-        try: r_df = conn.read(spreadsheet=sheet_url, worksheet="feedback", ttl=0)
-        except: r_df = pd.DataFrame(columns=columns + ['report_time', 'report_status'])
+        # 1. 嘗試讀取 feedback 工作表
+        try:
+            # 增加 ttl=0 確保每次都是拿最新資料
+            r_df = conn.read(spreadsheet=TARGET_URL, worksheet="feede", ttl=0)
+        except Exception as read_e:
+            st.error(f"❌ 找不到 'feede' 分頁：{read_e}")
+            return False
         
-        # 準備新資料列
-        new_row = {col: data_row.get(col, "無") for col in columns}
-        new_row['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        new_row['report_status'] = '待處理'
+        # 2. 準備新的一列資料
+        # 如果當前 row 沒有該欄位，則填入 "無"
+        new_row_dict = {col: data_row.get(col, "無") for col in columns}
         
-        updated_df = pd.concat([r_df, pd.DataFrame([new_row])], ignore_index=True)
-        conn.update(spreadsheet=sheet_url, worksheet="feedback", data=updated_df)
+        # 強制標記為已回報 (假設 term 欄位是次數)
+        new_row_dict['term'] = 1 
+        
+        # 新增時間戳記 (建議在最後多加一列時間方便您查看)
+        # 如果您的 Sheets 裡沒有這兩列，Pandas 會自動建立，但寫入時可能會報錯
+        # 建議在試算表 feedback 分頁的手動補上 'report_time' 標題
+        new_row_dict['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
+        
+        new_df = pd.DataFrame([new_row_dict])
+        
+        # 3. 合併並更新
+        updated_df = pd.concat([r_df, new_df], ignore_index=True)
+        
+        conn.update(spreadsheet=TARGET_URL, worksheet="feedback", data=updated_df)
         return True
+        
     except Exception as e:
-        print(f"Report Error: {e}")
+        # 如果出現 "403 Forbidden"，就代表您沒做「第一步」的共用設定
+        st.error(f"⚠️ 寫入失敗：{e}")
         return False
 
 @st.cache_data(ttl=3600) 
