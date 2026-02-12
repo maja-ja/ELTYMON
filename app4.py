@@ -106,53 +106,54 @@ def load_db():
 # ==========================================
 # 2. UI 佈局優化
 # ==========================================
-
 def inject_dual_theme_ui():
     st.markdown("""
         <style>
-            :root {
-                --main-bg: #F8F9FA; --card-bg: white; --text-color: #212529; --subtle-text-color: #6c757d;
-                --border-color: #f0f0f0; --shadow-color: rgba(0, 0, 0, 0.07);
-                --accent-bg: #E3F2FD; --accent-text-color: #1976D2; --h1-color: #1A237E;
+            /* 修復卡片陰影與邊距 */
+            .word-card {
+                background: var(--card-bg); 
+                border-radius: 20px; 
+                padding: 25px;
+                box-shadow: 0 4px 15px var(--shadow-color); 
+                border: 1px solid var(--border-color);
+                margin-bottom: 20px;
+            }
+            /* 讓報錯按鈕看起來更像卡片的一部分 */
+            .stButton > button[key="report_btn"] {
+                border-radius: 10px !important;
+                border: 1px solid #FFD54F !important;
+                background-color: #FFFDE7 !important;
+                color: #FBC02D !important;
+                height: 40px !important;
+                width: 40px !important;
+                margin-top: -10px !important;
             }
             @media (prefers-color-scheme: dark) {
-                :root {
-                    --main-bg: #0E1117; --card-bg: #161B22; --text-color: #e3e3e3; --subtle-text-color: #a0a0a0;
-                    --border-color: #30363d; --shadow-color: rgba(0, 0, 0, 0.2);
-                    --accent-bg: #1f6feb; --accent-text-color: #f0f6fc; --h1-color: #90CAF9;
+                .stButton > button[key="report_btn"] {
+                    background-color: #2D2605 !important;
+                    border: 1px solid #FBC02D !important;
                 }
             }
-            .block-container { max-width: 480px !important; padding: 2rem 1.2rem !important; }
-            .word-card {
-                background: var(--card-bg); border-radius: 20px; padding: 20px;
-                box-shadow: 0 10px 30px var(--shadow-color); border: 1px solid var(--border-color);
-                margin-bottom: 10px;
-            }
-            .roots-tag {
-                background: var(--accent-bg); color: var(--accent-text-color); 
-                padding: 4px 10px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;
-            }
-            .report-btn { color: #ff4b4b; font-size: 0.8rem; cursor: pointer; text-decoration: none; float: right; }
         </style>
     """, unsafe_allow_html=True)
 def mobile_home_page(df):
     st.markdown("<h2 style='text-align:center;'>🔍 探索知識</h2>", unsafe_allow_html=True)
     
-    # 領域選擇與搜尋 (代碼簡略，請保留原本的邏輯)
+    # --- 搜尋與隨機功能 ---
     all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
-    selected_cat = st.selectbox("選擇學習領域", all_cats, label_visibility="collapsed")
+    selected_cat = st.selectbox("領域", all_cats, label_visibility="collapsed")
 
     col_search, col_rand = st.columns([4, 1])
     with col_search:
         query = st.text_input("搜尋...", placeholder="例如: 熵", label_visibility="collapsed")
     with col_rand:
         if st.button("🎲"): 
-            sample_pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
-            if not sample_pool.empty:
-                st.session_state.selected_word = sample_pool.sample(1).iloc[0].to_dict()
+            pool = df if selected_cat == "🌍 全部領域" else df[df['category'] == selected_cat]
+            if not pool.empty:
+                st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
                 st.rerun()
 
-    # 單字顯示邏輯
+    # --- 單字邏輯 ---
     target_row = None
     if query:
         match = df[df['word'].str.lower() == query.strip().lower()]
@@ -163,47 +164,51 @@ def mobile_home_page(df):
     if target_row:
         w = target_row['word']
         
-        # 1. 頂部標籤與資訊區
+        # 1. 建立一個包含回報按鈕的頂部列（使用 HTML 模擬）
+        # 我們將 ⚠️ 按鈕放在一個單獨的 row，利用 Streamlit 的 columns 讓它靠右
         st.markdown(f"""
-        <div class="word-card" style="margin-bottom:0px; padding-bottom:5px; border-bottom:none; border-radius:20px 20px 0 0;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div class="word-card" style="margin-bottom: -15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
                 <span class="roots-tag">🧬 {fix_content(target_row['roots'])}</span>
                 <span style="font-size:0.75rem; color:var(--subtle-text-color);">{target_row['category']}</span>
             </div>
         </div>""", unsafe_allow_html=True)
 
-        # 2. 標題與回報按鈕區 (使用 Columns 模擬右上角按鈕)
-        card_col1, card_col2 = st.columns([6, 1])
-        with card_col1:
-            st.markdown(f"<h1 style='margin:0 0 0 25px; color:var(--h1-color);'>{w}</h1>", unsafe_allow_html=True)
-            st.markdown(f"<p style='margin:0 0 0 25px; color:var(--subtle-text-color);'>/{fix_content(target_row['phonetic'])}/</p>", unsafe_allow_html=True)
-        with card_col2:
-            # 這是報錯按鈕
-            if st.button("⚠️", key="report_btn", help="回報單字內容錯誤"):
+        # 這裡利用 columns 放置標題與報錯按鈕，但透過 CSS 強制對齊
+        t_col1, t_col2 = st.columns([5, 1])
+        with t_col1:
+            st.markdown(f"<h1 style='margin:-10px 0 0 15px; color:var(--h1-color);'>{w}</h1>", unsafe_allow_html=True)
+        with t_col2:
+            if st.button("⚠️", key="report_btn", help="內容報錯"):
                 if submit_error_report(w):
-                    st.toast(f"已回報 {w} 至 feedback 表格！", icon="✅")
+                    st.toast(f"已記錄 {w} 的錯誤！", icon="✅")
                 else:
-                    st.error("回報失敗，請確認試算表中有 feedback 分頁與寫入權限。")
+                    st.toast("回報失敗，請檢查網路", icon="❌")
 
-        # 3. 核心內容區 (分開使用 st.markdown 以支援 LaTeX 和 HTML)
-        st.markdown('<div class="word-card" style="margin-top:-20px; border-top:none; border-radius:0 0 20px 20px; padding-top:0;">', unsafe_allow_html=True)
+        # 2. 內容核心區（定義與實例）
+        # 這裡不使用額外的 HTML div 包裹，直接讓渲染內容接在後面，避免卡片斷裂
+        st.markdown(f"""<div class="word-card" style="margin-top:-35px; border-top:none; padding-top:10px;">
+            <p style='color:var(--subtle-text-color); margin-bottom:15px;'>/{fix_content(target_row['phonetic'])}/</p>
+        """, unsafe_allow_html=True)
         
-        # 定義 (支援 LaTeX)
-        st.markdown(fix_content(target_row['definition']), unsafe_allow_html=True)
+        # 定義文本
+        st.markdown(f"<div style='font-size:1.1rem; line-height:1.6;'>{fix_content(target_row['definition'])}</div>", unsafe_allow_html=True)
         
-        # 實例 (支援 LaTeX)
+        # 實例區塊
         st.markdown(f"""
-            <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:15px;">
-                <b style="color:var(--accent-text-color);">💡 實例:</b>
+            <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:20px;">
+                <b style="color:var(--accent-text-color);">💡 實例:</b><br>
+                <div style="margin-top:8px;">
         """, unsafe_allow_html=True)
         st.markdown(fix_content(target_row['example']), unsafe_allow_html=True)
-        st.markdown("</div></div>", unsafe_allow_html=True)
+        st.markdown("</div></div></div>", unsafe_allow_html=True)
         
-        # 按鈕區 (聽發音、生成講義)
+        # 3. 底部功能按鈕
+        st.markdown("<br>", unsafe_allow_html=True)
         c1, c2 = st.columns(2)
         with c1: speak(w, f"m_speak_{w}")
         with c2:
-            if st.button("📄 生成講義", type="primary"):
+            if st.button("📄 生成講義", type="primary", use_container_width=True):
                 st.session_state.manual_input_content = f"## {w}\n\n{fix_content(target_row['definition'])}\n\n### 實例\n{fix_content(target_row['example'])}"
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
