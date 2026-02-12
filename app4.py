@@ -95,27 +95,25 @@ def inject_ui():
 # ==========================================
 # 3. 頁面邏輯
 # ==========================================
-
 def home_page(df):
-    # 標題區
+    # 整體向下位移，避免卡住
+    st.markdown("<div style='margin-top: 40px;'></div>", unsafe_allow_html=True)
+    
     st.markdown("<h2 style='text-align:center;'>🔍 探索知識</h2>", unsafe_allow_html=True)
     st.markdown("""<a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">💖 贊助支持開發成本</a>""", unsafe_allow_html=True)
 
-    # 1. 調整整體下移 (透過空出的 margin)
-    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
-
-    # 2. 領域選擇
+    # 選擇領域
     all_cats = ["🌍 全部領域"] + sorted(df['category'].unique().tolist())
     sel_cat = st.selectbox("領域", all_cats, label_visibility="collapsed")
 
-    # 3. 搜尋、骰子與報錯區塊 (整合在同一排)
-    # 比例調整：搜尋框(5)、骰子(1.2)、報錯按鈕(2.8)
-    c_search, c_rand, c_report = st.columns([5, 1.2, 2.8])
+    # 搜尋、骰子、報錯按鈕 整合排版
+    # 比例調整：搜尋(4)、骰子(1)、報錯(2.5)
+    c_s, c_r, c_report = st.columns([4, 1, 2.5])
     
-    with c_search:
-        query = st.text_input("搜尋單字...", placeholder="例如: entropy", label_visibility="collapsed")
+    with c_s:
+        query = st.text_input("搜尋...", placeholder="例如: genocide", label_visibility="collapsed")
     
-    with c_rand:
+    with c_r: 
         if st.button("🎲", help="隨機單字"):
             pool = df if sel_cat == "🌍 全部領域" else df[df['category'] == sel_cat]
             if not pool.empty:
@@ -123,73 +121,58 @@ def home_page(df):
                 st.rerun()
                 
     with c_report:
-        # 這裡放置報錯按鈕，加上注記文字
-        if st.button("⚠️ 錯誤回報", key="top_report_btn"):
-            # 取得當前畫面上顯示的單字
-            current_w = st.session_state.get('selected_word', {}).get('word', 'Unknown')
-            if submit_error_report(current_w):
-                st.toast(f"已記錄 {current_w} 的內容錯誤", icon="✅")
+        # 報錯按鈕移到這裡
+        if st.button("⚠️ 報錯"):
+            # 獲取當前正在顯示的單字
+            word_to_report = st.session_state.get('selected_word', {}).get('word', 'Unknown')
+            if submit_error_report(word_to_report):
+                st.toast(f"已回報單字: {word_to_report}", icon="✅")
             else:
-                st.error("回報失敗，請確認網路或分頁設定")
+                st.error("回報失敗，請檢查網路")
 
-    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-
-    # --- 單字顯示邏輯 ---
+    # 決定顯示哪一個單字
     target = None
     if query:
         match = df[df['word'].str.lower() == query.strip().lower()]
         if not match.empty: 
             target = match.iloc[0].to_dict()
-            st.session_state.selected_word = target # 搜尋時也同步更新選取狀態
+            st.session_state.selected_word = target
     elif "selected_word" in st.session_state: 
         target = st.session_state.selected_word
     elif not df.empty: 
         target = df.sample(1).iloc[0].to_dict()
         st.session_state.selected_word = target
 
-    # --- 渲染卡片 ---
     if target:
         w = target['word']
+        # 卡片頂部
+        st.markdown(f"""<div class="word-card"><div style="display:flex; justify-content:space-between;">
+            <span class="roots-tag">🧬 {target['roots']}</span>
+            <span style="font-size:0.7rem; color:gray;">{target['category']}</span>
+        </div>""", unsafe_allow_html=True)
         
-        # 卡片頂部標籤
-        st.markdown(f"""
-        <div class="word-card" style="margin-bottom:-1px; border-bottom:none; border-radius:20px 20px 0 0;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span class="roots-tag">🧬 {target['roots']}</span>
-                <span style="font-size:0.75rem; color:gray;">{target['category']}</span>
-            </div>
-        </div>""", unsafe_allow_html=True)
-
-        # 單字標題區 (移除原本卡片內的 ⚠️ 按鈕，避免重複)
-        st.markdown(f"""
-        <div class="word-card" style="margin-top:-1px; border-top:none; border-bottom:none; border-radius:0; padding-top:0; padding-bottom:5px;">
-            <h1 style="margin:0; font-size:2.2rem; color:var(--h1-color);">{w}</h1>
-            <p style="color:gray; margin-top:5px;">/{target['phonetic']}/</p>
-        </div>""", unsafe_allow_html=True)
-
-        # 核心內容區 (LaTeX 渲染)
-        st.markdown('<div class="word-card" style="margin-top:-1px; border-top:none; border-radius:0 0 20px 20px; padding-top:0;">', unsafe_allow_html=True)
+        # 單字標題 (現在這邊變得很清爽)
+        st.markdown(f"<h1 style='margin:10px 0 0 0;'>{w}</h1>", unsafe_allow_html=True)
+        st.markdown(f"<p style='color:gray; margin-bottom:15px;'>/{target['phonetic']}/</p>", unsafe_allow_html=True)
+        
+        # 定義
         st.markdown(fix_content(target['definition']), unsafe_allow_html=True)
         
-        # 實例區塊
-        st.markdown(f"""
-            <div style="background:rgba(0,0,0,0.03); padding:15px; border-radius:12px; margin-top:20px;">
-                <b style="color:#1976D2;">💡 實例:</b><br>
-        """, unsafe_allow_html=True)
+        # 實例
+        st.markdown(f"""<div style="background:rgba(0,0,0,0.03); padding:15px; border-radius:12px; margin-top:15px;">
+            <b style="color:#1976D2;">💡 實例:</b><br>""", unsafe_allow_html=True)
         st.markdown(fix_content(target['example']), unsafe_allow_html=True)
         st.markdown("</div></div>", unsafe_allow_html=True)
 
-        # 底部功能按鈕
-        st.markdown("<br>", unsafe_allow_html=True)
-        c1, c2 = st.columns(2)
-        with c1: speak(w, f"m_speak_{w}")
-        with c2:
+        # 功能按鈕
+        b1, b2 = st.columns(2)
+        with b1: speak(w, f"spk_{w}")
+        with b2:
             if st.button("📄 生成講義", type="primary", use_container_width=True):
                 st.session_state.manual_input_content = f"## {w}\n\n{target['definition']}\n\n### 實例\n{target['example']}"
                 st.session_state.mobile_nav = "📄 製作講義"
                 st.rerun()
 
-        # 咖啡贊助按鈕
         st.markdown(f"""<a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
             <div style="border: 2px dashed #FFDD00; padding:15px; border-radius:15px; text-align:center; margin-top:20px; color:inherit; font-weight:bold;">☕ 內容有幫助嗎？請作者喝杯咖啡吧！</div>
         </a>""", unsafe_allow_html=True)
