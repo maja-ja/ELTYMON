@@ -12,7 +12,7 @@ import markdown
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 0. 核心配置與 CSS (手機版優化)
+# 0. 核心配置與 CSS
 # ==========================================
 st.set_page_config(page_title="Etymon Mobile", page_icon="📱", layout="centered")
 
@@ -27,18 +27,14 @@ def inject_mobile_css():
                 --text-color: #E0E0E0; 
                 --subtle-text: #A0A0A0;
                 --accent-color: #64B5F6;
-                --accent-light: rgba(33, 150, 243, 0.15);
                 --shadow: 0 8px 30px rgba(0,0,0,0.5);
                 --radius-lg: 20px;
-                --radius-md: 12px;
             }
 
-            /* 強制覆蓋 Streamlit 預設樣式 */
             .stApp { background-color: var(--main-bg); }
             .block-container { max-width: 500px !important; padding: 1rem 1rem 6rem 1rem !important; }
             [data-testid="stSidebar"], header { display: none; } 
 
-            /* 卡片樣式 */
             .word-card {
                 background-color: var(--card-bg);
                 border-radius: var(--radius-lg);
@@ -50,55 +46,28 @@ def inject_mobile_css():
             }
 
             .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-            .word-title { 
-                font-family: 'Inter', sans-serif; 
-                font-size: 2.2rem; 
-                font-weight: 800; 
-                color: #FFFFFF; 
-                margin: 0; 
-                line-height: 1.1; 
-                letter-spacing: -0.5px;
-            }
+            .word-title { font-family: 'Inter', sans-serif; font-size: 2.2rem; font-weight: 800; color: #FFFFFF; margin: 0; line-height: 1.1; }
             .phonetic { font-family: monospace; font-size: 0.95rem; color: var(--subtle-text); margin-top: 5px; }
             
-            .badge {
-                display: inline-block; padding: 4px 12px; border-radius: 20px;
-                font-size: 0.75rem; font-weight: 600; letter-spacing: 0.5px;
-            }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
             .badge-cat { background: #0D47A1; color: #BBDEFB; }
             .badge-root { background: #37474F; color: #FFD54F; margin-right: 8px; }
 
-            /* 內容區塊 */
-            .section-label { 
-                font-size: 0.8rem; font-weight: 700; color: var(--subtle-text); 
-                text-transform: uppercase; margin-top: 20px; margin-bottom: 8px;
-            }
+            .section-label { font-size: 0.8rem; font-weight: 700; color: var(--subtle-text); text-transform: uppercase; margin-top: 20px; margin-bottom: 8px; }
             .content-text { font-size: 1.05rem; line-height: 1.6; color: #EEEEEE; }
             
             .vibe-box {
-                background: var(--accent-light);
+                background: rgba(33, 150, 243, 0.15);
                 border-left: 3px solid var(--accent-color);
-                padding: 15px;
-                border-radius: 8px;
-                margin-top: 20px;
-                font-size: 0.95rem;
-                color: #E3F2FD;
+                padding: 15px; border-radius: 8px; margin-top: 20px; font-size: 0.95rem;
             }
 
-            /* 按鈕優化 */
-            .stButton > button {
-                border-radius: 12px !important;
-                height: 50px !important;
-                font-weight: 600 !important;
-                border: none !important;
-                transition: transform 0.1s !important;
-            }
-            .stButton > button:active { transform: scale(0.96); }
+            .stButton > button { border-radius: 12px !important; height: 50px !important; font-weight: 600 !important; border: none !important; }
         </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. 後端邏輯工具
+# 1. 功能工具
 # ==========================================
 
 def get_spreadsheet_url():
@@ -107,9 +76,7 @@ def get_spreadsheet_url():
 
 def fix_content(text):
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
-    # 這裡將換行符號轉為 HTML 的 <br> 確保排版正確
-    text = str(text).replace('\\n', '<br>').replace('\n', '<br>')
-    return text.strip('"').strip("'")
+    return str(text).replace('\\n', '<br>').replace('\n', '<br>').strip('"').strip("'")
 
 @st.cache_data(ttl=600)
 def load_db():
@@ -125,21 +92,26 @@ def load_db():
         return pd.DataFrame(columns=COL_NAMES)
 
 def submit_report(row_data):
+    """修正：傳入的是 dict，不再 call to_dict()"""
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit?gid=0#gid=0"
-        report_row = row_data.copy()
+        
+        # 直接使用傳入的 dict 資料
+        report_row = dict(row_data) 
         report_row['timestamp'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        report_row['type'] = 'mobile_feedback'
+        
         try: existing = conn.read(spreadsheet=url, ttl=0)
         except: existing = pd.DataFrame()
+        
         updated = pd.concat([existing, pd.DataFrame([report_row])], ignore_index=True)
         conn.update(spreadsheet=url, data=updated)
-        st.toast(f"✅ 已回報問題，感謝！", icon="🙏")
+        st.toast(f"✅ 已回報問題！", icon="🙏")
     except Exception as e:
-        st.toast(f"❌ 回報失敗: {e}")
+        st.error(f"回報失敗: {e}")
 
-def speak(text, key_suffix=""):
+def speak_v2(text):
+    """修正：發音邏輯優化"""
     english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
     if not english_only: return
     try:
@@ -147,53 +119,23 @@ def speak(text, key_suffix=""):
         fp = BytesIO()
         tts.write_to_fp(fp)
         audio_base64 = base64.b64encode(fp.getvalue()).decode()
-        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
         
-        components.html(f"""
-            <audio id="{unique_id}" autoplay src="data:audio/mp3;base64,{audio_base64}"></audio>
-        """, height=0, width=0)
-    except: pass
-
-def generate_printable_html(title, text_content, auto_download=False):
-    # 將 <br> 轉回 \n 以便 Markdown 解析，或者直接保留 HTML
-    text_content = text_content.replace('<br>', '\n')
-    html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1000); };" if auto_download else ""
-    return f"""
-    <html><head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-        <style>
-            body {{ font-family: 'Noto Sans TC', sans-serif; background: #525659; margin: 0; padding: 20px; display: flex; justify-content: center; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
-            h1 {{ color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
-            p, li {{ line-height: 1.8; color: #333; }}
-        </style>
-    </head><body>
-        <div id="printable-area">
-            <h1>{title}</h1>
-            {html_body}
-        </div>
-        <script>
-            function downloadPDF() {{
-                const element = document.getElementById('printable-area');
-                html2pdf().set({{ margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 0.98 }}, html2canvas: {{ scale: 2 }}, jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }} }}).from(element).save();
-            }}
-            {auto_js}
-        </script>
-    </body></html>
-    """
+        # 建立一個會自動播放的 HTML 元件
+        audio_html = f"""
+            <audio autoplay>
+                <source src="data:audio/mp3;base64,{audio_base64}" type="audio/mp3">
+            </audio>
+        """
+        components.html(audio_html, height=0, width=0)
+    except Exception as e:
+        st.error(f"音訊生成失敗: {e}")
 
 # ==========================================
-# 2. 介面頁面組件 (修復重點)
+# 2. 介面組件
 # ==========================================
 
 def render_word_card(row):
-    """
-    【修復說明】：
-    HTML 字串內的每一行都必須「靠左對齊」，不能有縮排。
-    縮排在 Markdown 中會被解釋為「程式碼區塊」，導致顯示出 HTML 原始碼。
-    """
+    """ row 現在預期就是一個字典 (dict) """
     w = row['word']
     phonetic = fix_content(row['phonetic'])
     roots = fix_content(row['roots'])
@@ -201,7 +143,7 @@ def render_word_card(row):
     breakdown = fix_content(row['breakdown'])
     vibe = fix_content(row['native_vibe'])
     
-    # 這裡的 HTML 字串全部靠左，解決顯示原始碼的問題
+    # HTML 卡片 (靠左對齊防縮排錯誤)
     html_content = f"""
 <div class="word-card">
     <div class="card-header">
@@ -211,51 +153,42 @@ def render_word_card(row):
         </div>
         <span class="badge badge-cat">{row['category']}</span>
     </div>
-    
     <div style="margin-bottom: 20px;">
         <span class="badge badge-root">🧬 字根: {roots}</span>
     </div>
-    
-    <div class="content-text">
-        <b>💡 定義：</b>{definition}
-    </div>
-
+    <div class="content-text"><b>💡 定義：</b>{definition}</div>
     <div class="vibe-box">
         <div style="font-weight:bold; margin-bottom:8px; opacity:0.8;">🌊 專家視角</div>
         {vibe if vibe != "無" else "暫無專家補充"}
     </div>
-    
     <div class="section-label">邏輯拆解</div>
-    <div class="content-text" style="font-family: monospace; color: #64B5F6;">
-        {breakdown}
-    </div>
+    <div class="content-text" style="font-family: monospace; color: #64B5F6;">{breakdown}</div>
 </div>
 """
     st.markdown(html_content, unsafe_allow_html=True)
 
-    # 按鈕區
-    c1, c2, c3 = st.columns([1, 1, 2], gap="small")
+    # 功能列
+    c1, c2, c3 = st.columns([1, 1, 2])
     
     with c1:
-        if st.button("🔊 發音", key=f"btn_speak_{w}", use_container_width=True):
-            speak(w, f"m_{w}")
+        if st.button("🔊 發音", key=f"v_{w}", use_container_width=True):
+            speak_v2(w) # 觸發發音
             
     with c2:
-        if st.button("🚩 回報", key=f"btn_rep_{w}", use_container_width=True):
-            submit_report(row.to_dict())
+        # 重要修正：不再呼叫 row.to_dict()，因為 row 已經是字典
+        if st.button("🚩 回報", key=f"r_{w}", use_container_width=True):
+            submit_report(row)
 
     with c3:
-        if st.button("📄 轉講義", type="primary", key=f"btn_jump_{w}", use_container_width=True):
-            draft = (
-                f"# 📖 {w}\n\n"
-                f"### 🧬 核心邏輯\n{breakdown.replace('<br>', '  \n')}\n\n"
-                f"### 🎯 核心定義\n{definition.replace('<br>', '  \n')}\n\n"
-                f"### 💡 核心原理\n{roots}\n\n"
-                f"**專家心法**：\n> {vibe}\n\n"
-            )
+        if st.button("📄 轉講義", type="primary", key=f"j_{w}", use_container_width=True):
+            draft = f"# 📖 {w}\n\n### 🧬 核心邏輯\n{breakdown.replace('<br>', '  \n')}\n\n### 🎯 核心定義\n{definition.replace('<br>', '  \n')}"
             st.session_state.manual_input_content = draft
-            st.session_state.mobile_nav = "📄 講義預覽"
+            st.session_state.mobile_nav = "📄 講義"
             st.rerun()
+
+# ==========================================
+# 3. 頁面路由
+# ==========================================
 
 def page_explore(df):
     st.markdown("### 🔍 探索知識")
@@ -268,10 +201,11 @@ def page_explore(df):
         if st.button("🎲 抽卡", type="primary", use_container_width=True):
             pool = df if sel_cat == "全部領域" else df[df['category'] == sel_cat]
             if not pool.empty:
+                # 這裡已經把 Series 轉成 dict 存入 Session 了
                 st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
             st.rerun()
 
-    search_q = st.text_input("搜尋單字...", placeholder="輸入單字 (例如: entropy)")
+    search_q = st.text_input("搜尋單字...", placeholder="例如: entropy")
 
     target_row = None
     if search_q:
@@ -280,90 +214,48 @@ def page_explore(df):
         else:
             fuzzy = df[df['word'].str.contains(search_q, case=False)]
             if not fuzzy.empty: target_row = fuzzy.iloc[0].to_dict()
-            else: st.warning("找不到該單字")
-    elif "selected_word" in st.session_state:
+    
+    if not target_row and "selected_word" in st.session_state:
         target_row = st.session_state.selected_word
-    elif not df.empty:
+    
+    if not target_row and not df.empty:
         target_row = df.sample(1).iloc[0].to_dict()
         st.session_state.selected_word = target_row
 
     if target_row:
         render_word_card(target_row)
 
+# (講義與贊助頁面保持簡潔版)
 def page_handout():
-    st.markdown("### 📄 講義排版")
-    content = st.text_area(
-        "編輯內容", 
-        value=st.session_state.get("manual_input_content", "請先選擇單字..."), 
-        height=300
-    )
+    st.markdown("### 📄 講義製作")
+    content = st.text_area("內容", value=st.session_state.get("manual_input_content", "請先選擇單字"), height=300)
     st.session_state.manual_input_content = content
-    
-    title = "AI 講義"
-    if content:
-        for line in content.split('\n'):
-            if "# " in line:
-                title = line.replace('#', '').strip()
-                break
-
-    if st.button("📥 下載 PDF", type="primary", use_container_width=True):
-        st.session_state.trigger_download = True
-        st.rerun()
-    
-    st.caption("👇 A4 預覽")
-    html = generate_printable_html(
-        title=title,
-        text_content=content,
-        auto_download=st.session_state.get("trigger_download", False)
-    )
-    if st.session_state.get("trigger_download"): 
-        st.session_state.trigger_download = False
-    components.html(html, height=450, scrolling=True)
+    st.info("💡 手機端請直接複製內容至筆記 App 使用。")
 
 def page_sponsor():
     st.markdown("### 💖 支持開發")
-    st.markdown("""
-        <div class="word-card" style="text-align:center;">
-            <div style="font-size: 3rem;">🎁</div>
-            <p style="color:#E0E0E0; margin: 15px 0;">
-                這是一個免費的教育工具。<br>歡迎贊助支持伺服器與 AI 算力成本！
-            </p>
-            <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="
-                display:block; background:#00A650; color:white; padding:12px; 
-                border-radius:12px; text-decoration:none; font-weight:bold; margin-bottom:10px;">
-                💳 綠界贊助 (ECPay)
-            </a>
-            <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="
-                display:block; background:#FFDD00; color:black; padding:12px; 
-                border-radius:12px; text-decoration:none; font-weight:bold;">
-                ☕ Buy Me a Coffee
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="word-card" style="text-align:center;">歡迎贊助支持 AI 算力支出！</div>', unsafe_allow_html=True)
 
-# ==========================================
-# 3. 主程式入口
-# ==========================================
 def main():
     inject_mobile_css()
     if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索"
     
     df = load_db()
 
-    # 底部導航
-    col1, col2, col3 = st.columns(3)
-    with col1:
+    # 導航
+    c1, c2, c3 = st.columns(3)
+    with c1: 
         if st.button("🔍 探索", use_container_width=True): st.session_state.mobile_nav = "🔍 探索"; st.rerun()
-    with col2:
-        if st.button("📄 講義", use_container_width=True): st.session_state.mobile_nav = "📄 講義預覽"; st.rerun()
-    with col3:
+    with c2: 
+        if st.button("📄 講義", use_container_width=True): st.session_state.mobile_nav = "📄 講義"; st.rerun()
+    with c3: 
         if st.button("💖 支持", use_container_width=True): st.session_state.mobile_nav = "💖 支持"; st.rerun()
 
     st.markdown("---")
 
     if st.session_state.mobile_nav == "🔍 探索":
         page_explore(df)
-    elif st.session_state.mobile_nav == "📄 講義預覽":
+    elif st.session_state.mobile_nav == "📄 講義":
         page_handout()
     elif st.session_state.mobile_nav == "💖 支持":
         page_sponsor()
