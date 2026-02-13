@@ -13,18 +13,15 @@ import random
 from PIL import Image
 
 # ==========================================
-# 0. 核心配置與全中文 CSS 優化
+# 0. 核心配置與全中文 CSS
 # ==========================================
-st.set_page_config(page_title="備考展示櫃 Pro (中文協作版)", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="備考展示櫃 Pro", page_icon="🛡️", layout="wide")
 
 def inject_ui_style():
     st.markdown("""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
-            html, body, [class*="css"] { 
-                font-family: 'Noto Sans TC', sans-serif !important; 
-                background-color: #f4f7f9; 
-            }
+            html, body, [class*="css"] { font-family: 'Noto Sans TC', sans-serif !important; background-color: #f4f7f9; }
             .glass-card {
                 background: rgba(255, 255, 255, 0.8);
                 backdrop-filter: blur(12px);
@@ -38,18 +35,12 @@ def inject_ui_style():
                 background: #ffffff; border-radius: 8px; padding: 10px; margin: 8px 0;
                 font-size: 0.9rem; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
                 border-left: 6px solid #FF4B4B;
-                color: #333;
             }
             .bio { border-left-color: #2ecc71; }
             .eng { border-left-color: #3498db; }
             .point-tag { 
                 background: #fff3cd; color: #856404; padding: 4px 8px; 
-                border-radius: 4px; font-size: 0.8rem; font-weight: bold; 
-                margin-top: 5px; display: inline-block;
-            }
-            .collab-area {
-                background: #ffffff; border: 2px dashed #FF4B4B; 
-                border-radius: 10px; padding: 20px; margin-top: 20px;
+                border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-top: 5px; display: inline-block;
             }
         </style>
     """, unsafe_allow_html=True)
@@ -131,7 +122,7 @@ def dashboard_page():
     conn = get_db()
     try:
         prog_df = conn.read(worksheet="progress", ttl=0)
-        # 修正：確保抓取數值，若無則為 0
+        # 確保抓取數值，若無則為 0
         bio_val = prog_df[prog_df['科目'] == '生物']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '生物'].empty else 0
         eng_val = prog_df[prog_df['科目'] == '英文']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '英文'].empty else 0
     except:
@@ -160,26 +151,27 @@ def dashboard_page():
     except: st.info("正在準備任務資料...")
 
 # ==========================================
-# 4. 頁面：計畫展示櫃 (解決 KeyError 與 API 錯誤)
+# 4. 頁面：計畫展示櫃 (徹底解決 API 衝突)
 # ==========================================
 def scheduler_page():
     st.title("📅 計畫展示櫃 (開放協作版)")
-    st.markdown("### 🤝 開放幫我排課表")
     st.info("任何人都可以直接在下方表格輸入中文，幫我安排本週的進度與考點！")
     
     conn = get_db()
-    required_cols = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
+    # 定義我們「絕對想要」的中文欄位名稱
+    REQUIRED_COLS = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
     
     try:
-        plan_df = conn.read(worksheet="study_plan", ttl=0)
-        # 強制校正欄位名稱，防止 st.data_editor 報錯
-        if list(plan_df.columns) != required_cols:
-            plan_df = pd.DataFrame(columns=required_cols)
+        raw_df = conn.read(worksheet="study_plan", ttl=0)
+        # 強制將讀取到的 DataFrame 欄位更名，確保與 column_config 一致
+        if len(raw_df.columns) == len(REQUIRED_COLS):
+            raw_df.columns = REQUIRED_COLS
+            plan_df = raw_df
+        else:
+            # 如果欄位數量不對，重新初始化
+            plan_df = pd.DataFrame([["週一","","","",""],["週二","","","",""],["週三","","","",""],["週四","","","",""],["週五","","","",""]], columns=REQUIRED_COLS)
     except:
-        plan_df = pd.DataFrame(columns=required_cols)
-
-    if plan_df.empty:
-        plan_df = pd.DataFrame([["週一", "", "", "", ""], ["週二", "", "", "", ""], ["週三", "", "", "", ""], ["週四", "", "", "", ""], ["週五", "", "", "", ""]], columns=required_cols)
+        plan_df = pd.DataFrame(columns=REQUIRED_COLS)
 
     # --- 1. 玻璃卡片展示 ---
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
@@ -191,17 +183,17 @@ def scheduler_page():
             day_data = plan_df[plan_df['星期'] == day]
             if not day_data.empty:
                 row = day_data.iloc[0]
-                st.markdown(f"<div class='slot-box bio'>🧬 {row['生物進度'] if row['生物進度'] else '待安排'}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='slot-box eng'>🌍 {row['英文進度'] if row['英文進度'] else '待安排'}</div>", unsafe_allow_html=True)
+                st.markdown(f"🧬 {row['生物進度'] if row['生物進度'] else '待安排'}")
+                st.markdown(f"🌍 {row['英文進度'] if row['英文進度'] else '待安排'}")
                 if row['🎯考點提醒']: st.markdown(f"<div class='point-tag'>🎯 {row['🎯考點提醒']}</div>", unsafe_allow_html=True)
-                if row['排課小幫手']: st.caption(f"✍️ {row['排課小幫手']}")
+            else:
+                st.caption("休息")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # --- 2. 編輯區 ---
-    st.markdown("<div class='collab-area'>", unsafe_allow_html=True)
     st.subheader("📝 編輯區 (支援中文)")
     
-    # 這裡的 column_config 鍵值必須與 plan_df.columns 完全一致
+    # 關鍵修正：確保 column_config 的 Key 與 plan_df.columns 完全一致
     new_plan = st.data_editor(
         plan_df, 
         use_container_width=True,
@@ -220,7 +212,6 @@ def scheduler_page():
         st.toast("課表已更新！")
         time.sleep(1)
         st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
 # 5. 頁面：共同讀書區 (修正語法錯誤)
