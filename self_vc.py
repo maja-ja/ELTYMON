@@ -16,64 +16,70 @@ import PyPDF2
 # ==========================================
 # 核心工具：多 Key 輪詢引擎
 # ==========================================
-def run_gemini_robust(prompt, image=None, model_name='gemini-1.5-flash'):
+
+# ==========================================
+# 核心工具：智慧型多 Key 輪詢引擎 (修正版)
+# ==========================================
+def run_gemini_robust(prompt, images=None, model_name='gemini-2.5-flash'):
     """
-    智慧型 AI 呼叫函式：
-    1. 自動讀取 secrets 中的 GEMINI_KEYS 列表。
-    2. 隨機打亂順序 (負載平衡)。
-    3. 遇到錯誤自動切換下一個 Key (故障轉移)。
+    支援多圖、多 Key 輪詢與自動重試的 AI 核心
     """
-    # 1. 取得 Keys
+    # 1. 取得 API Keys
     keys = st.secrets.get("GEMINI_KEYS")
-    
-    # 相容性處理：如果使用者還沒改 secrets，嘗試讀取舊的單一 Key
     if not keys:
+        # 嘗試讀取單數形式的 Key
         single_key = st.secrets.get("GEMINI_API_KEY")
-        if single_key:
-            keys = [single_key]
-        else:
-            st.error("❌ 未設定 GEMINI_KEYS 或 GEMINI_API_KEY")
-            return None
-            
-    # 確保 keys 是列表
+        keys = [single_key] if single_key else []
+    
+    if not keys:
+        st.error("❌ 找不到 API Keys，請檢查 .streamlit/secrets.toml")
+        return None
+
+    # 確保是列表格式
     if isinstance(keys, str):
         keys = [keys]
+    
+    # 2. 準備圖片列表 (標準化處理)
+    image_list = []
+    if images:
+        if isinstance(images, list):
+            image_list = images
+        else:
+            image_list = [images]
 
-    # 2. 隨機打亂 (避免每次都操勞第一支 Key)
-    # 複製一份以免影響原始順序，然後打亂
-    shuffled_keys = keys.copy()
+    # 3. 隨機打亂 Keys 以平衡負載
+    shuffled_keys = list(keys).copy()
     random.shuffle(shuffled_keys)
 
-    # 3. 輪詢嘗試 (Retry Loop)
-    last_error = None
-    
-    for i, api_key in enumerate(shuffled_keys):
+    # 4. 輪詢重試
+    last_error = "Unknown Error"
+    for api_key in shuffled_keys:
         try:
-            # 設定當前使用的 Key
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel(model_name)
             
-            # 準備內容 (文字 + 圖片)
+            # 組合內容
             content_parts = [prompt]
-            if image:
-                content_parts.append(image)
-                
+            if image_list:
+                content_parts.extend(image_list)
+            
             # 發送請求
             response = model.generate_content(content_parts)
             
-            # 成功則直接回傳
-            if response.text:
+            # 檢查是否有內容回傳
+            if response and response.text:
                 return response.text
+            else:
+                last_error = "AI 回傳了空內容"
+                continue
                 
         except Exception as e:
-            # 捕捉錯誤，記錄並嘗試下一個
-            last_error = e
-            print(f"⚠️ Key #{i+1} failed: {e}. Switching to next key...")
-            time.sleep(1) # 稍微冷卻一下，避免瞬間發送太快
-            continue # 繼續迴圈，試下一個 Key
+            last_error = str(e)
+            print(f"⚠️ Key 嘗試失敗: {last_error}")
+            time.sleep(0.5) # 短暫冷卻
+            continue
 
-    # 4. 如果 6 支 Key 全掛了
-    st.error(f"❌ 所有 AI Keys 皆無法回應。最後一次錯誤: {last_error}")
+    st.error(f"❌ 所有 API Keys 呼叫失敗。最後一個錯誤：{last_error}")
     return None
 # ==========================================
 # 1. 核心配置與 CSS
