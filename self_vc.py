@@ -233,4 +233,28 @@ def joint_study_page():
     with col_info:
         st.markdown("### 📢 玩法說明")
         st.info("- **開放排課**：去「計畫展示」頁面幫我排課。\n- **提供素材**：在這裡上傳考點。\n- **共同備考**：您的建議都會出現在戰情室！")
-        st.image("https://medi
+        st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif")
+
+# ==========================================
+# 6. 主程式進入點
+# ==========================================
+def main():
+    inject_ui_style()
+    is_admin = check_auth()
+    sidebar_mood()
+    
+    menu = ["🚩 儀表板", "📅 計畫展示", "🏭 共同讀書區", "🏆 榮譽殿堂"]
+    choice = st.sidebar.radio("導航中心", menu)
+    
+    if choice == "🚩 儀表板":
+        dashboard_page()
+    elif choice == "📅 計畫展示":
+        scheduler_page()
+    elif choice == "🏭 共同讀書區":
+        joint_study_page()
+    elif choice == "🏆 榮譽殿堂":
+        st.title("🏆 榮譽殿堂")
+        st.info("這裡展示所有已解決的難題與考點總結。")
+
+if __name__ == "__main__":
+    main()
