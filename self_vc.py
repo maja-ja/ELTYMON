@@ -21,7 +21,7 @@ def inject_ui_style():
     st.markdown("""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
-            html, body, [class*="css"] { font-family: 'Noto Sans TC', sans-serif !important; background-color: #f4f7f9; }
+            html, body, [class*="css"] { font-family: 'Noto Sans TC', sans-serif !important; }
             .glass-card {
                 background: rgba(255, 255, 255, 0.8);
                 backdrop-filter: blur(12px);
@@ -151,70 +151,68 @@ def dashboard_page():
     except: st.info("正在準備任務資料...")
 
 # ==========================================
-# 4. 頁面：計畫展示櫃 (徹底解決 API 衝突)
+# 4. 頁面：計畫展示櫃 (暴力修正版 - 絕不報錯)
 # ==========================================
 def scheduler_page():
     st.title("📅 計畫展示櫃 (開放協作版)")
-    st.info("任何人都可以直接在下方表格輸入中文，幫我安排本週的進度與考點！")
+    st.info("任何人都可以幫我排課表！請直接在下方表格輸入中文。")
     
     conn = get_db()
-    # 定義我們「絕對想要」的中文欄位名稱
-    REQUIRED_COLS = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
+    # 這是我們「絕對」要用的中文欄位
+    COLS = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
     
     try:
+        # 讀取原始資料
         raw_df = conn.read(worksheet="study_plan", ttl=0)
-        # 強制將讀取到的 DataFrame 欄位更名，確保與 column_config 一致
-        if len(raw_df.columns) == len(REQUIRED_COLS):
-            raw_df.columns = REQUIRED_COLS
-            plan_df = raw_df
+        
+        # 【暴力修正邏輯】
+        # 1. 如果 Sheet 是空的，直接建立新的
+        if raw_df.empty:
+            plan_df = pd.DataFrame([["週一","","","",""],["週二","","","",""],["週三","","","",""],["週四","","","",""],["週五","","","",""]], columns=COLS)
         else:
-            # 如果欄位數量不對，重新初始化
-            plan_df = pd.DataFrame([["週一","","","",""],["週二","","","",""],["週三","","","",""],["週四","","","",""],["週五","","","",""]], columns=REQUIRED_COLS)
-    except:
-        plan_df = pd.DataFrame(columns=REQUIRED_COLS)
+            # 2. 如果欄位名稱對不起來，強行把資料取出來，重新套上正確的欄位名
+            # 只取前 5 欄，避免 Sheet 裡有隱藏欄位導致崩潰
+            data_values = raw_df.values[:, :5] 
+            plan_df = pd.DataFrame(data_values, columns=COLS)
+            
+    except Exception as e:
+        # 3. 如果連讀取都失敗，直接給一個乾淨的預設表
+        plan_df = pd.DataFrame([["週一","","","",""],["週二","","","",""],["週三","","","",""],["週四","","","",""],["週五","","","",""]], columns=COLS)
 
-    # --- 1. 玻璃卡片展示 ---
+    # --- 1. 玻璃卡片展示區 ---
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     cols = st.columns(5)
     days = ["週一", "週二", "週三", "週四", "週五"]
     for i, day in enumerate(days):
         with cols[i]:
             st.markdown(f"<div style='text-align:center; font-weight:bold;'>{day}</div>", unsafe_allow_html=True)
+            # 確保過濾時不會出錯
             day_data = plan_df[plan_df['星期'] == day]
             if not day_data.empty:
                 row = day_data.iloc[0]
-                st.markdown(f"🧬 {row['生物進度'] if row['生物進度'] else '待安排'}")
-                st.markdown(f"🌍 {row['英文進度'] if row['英文進度'] else '待安排'}")
+                st.markdown(f"🧬 {row['生物進度'] if row['生物進度'] else '-'}")
+                st.markdown(f"🌍 {row['英文進度'] if row['英文進度'] else '-'}")
                 if row['🎯考點提醒']: st.markdown(f"<div class='point-tag'>🎯 {row['🎯考點提醒']}</div>", unsafe_allow_html=True)
-            else:
-                st.caption("休息")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- 2. 編輯區 ---
-    st.subheader("📝 編輯區 (支援中文)")
+    # --- 2. 編輯區 (不使用 column_config 以求最高穩定性) ---
+    st.subheader("📝 編輯區 (請直接修改下方表格)")
     
-    # 關鍵修正：確保 column_config 的 Key 與 plan_df.columns 完全一致
-    new_plan = st.data_editor(
-        plan_df, 
-        use_container_width=True,
-        column_config={
-            "星期": st.column_config.SelectboxColumn("星期", options=days, required=True),
-            "生物進度": st.column_config.TextColumn("生物進度"),
-            "英文進度": st.column_config.TextColumn("英文進度"),
-            "🎯考點提醒": st.column_config.TextColumn("🎯考點提醒"),
-            "排課小幫手": st.column_config.TextColumn("您的名字")
-        }
-    )
+    # 這裡我們不傳入 column_config，讓 Streamlit 自動判斷，減少報錯機會
+    new_plan = st.data_editor(plan_df, use_container_width=True, num_rows="fixed")
     
     if st.button("💾 提交建議課表", type="primary", use_container_width=True):
-        conn.update(worksheet="study_plan", data=new_plan)
-        st.balloons()
-        st.toast("課表已更新！")
-        time.sleep(1)
-        st.rerun()
+        try:
+            conn.update(worksheet="study_plan", data=new_plan)
+            st.balloons()
+            st.toast("課表已更新！")
+            time.sleep(1)
+            st.rerun()
+        except Exception as e:
+            st.error(f"儲存失敗，請檢查 Sheet 權限。錯誤：{e}")
 
 # ==========================================
-# 5. 頁面：共同讀書區 (修正語法錯誤)
+# 5. 頁面：共同讀書區
 # ==========================================
 def joint_study_page():
     st.title("🏭 共同讀書區")
@@ -235,28 +233,4 @@ def joint_study_page():
     with col_info:
         st.markdown("### 📢 玩法說明")
         st.info("- **開放排課**：去「計畫展示」頁面幫我排課。\n- **提供素材**：在這裡上傳考點。\n- **共同備考**：您的建議都會出現在戰情室！")
-        st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif")
-
-# ==========================================
-# 6. 主程式進入點
-# ==========================================
-def main():
-    inject_ui_style()
-    is_admin = check_auth()
-    sidebar_mood()
-    
-    menu = ["🚩 儀表板", "📅 計畫展示", "🏭 共同讀書區", "🏆 榮譽殿堂"]
-    choice = st.sidebar.radio("導航中心", menu)
-    
-    if choice == "🚩 儀表板":
-        dashboard_page()
-    elif choice == "📅 計畫展示":
-        scheduler_page()
-    elif choice == "🏭 共同讀書區":
-        joint_study_page()
-    elif choice == "🏆 榮譽殿堂":
-        st.title("🏆 榮譽殿堂")
-        st.info("這裡展示所有已解決的難題與考點總結。")
-
-if __name__ == "__main__":
-    main()
+        st.image("https://medi
