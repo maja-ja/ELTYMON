@@ -8,3 +8,4 @@ gTTS
 fpdf2
 Pillow
 markdown
+PyPDF2
