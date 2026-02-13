@@ -297,119 +297,115 @@ def exam_factory_page():
         ]
     }
 
-    col1, col2 = st.columns([1, 1])
+    col1, col2 = st.columns([1.2, 0.8]) # 左側參數區稍微寬一點
     
     with col1:
         st.subheader("1. 設定出題參數")
         
-        # --- 二級連動選單 ---
-        main_category = st.selectbox("考試類別", list(SUBJECT_MAP.keys()))
-        sub_category = st.selectbox("測驗細項", SUBJECT_MAP[main_category])
+        # --- 參數設定 ---
+        c_param1, c_param2 = st.columns(2)
+        with c_param1:
+            main_category = st.selectbox("考試類別", list(SUBJECT_MAP.keys()))
+            difficulty = st.select_slider("難度", options=["基礎", "進階", "地獄"], value="進階")
+        with c_param2:
+            sub_category = st.selectbox("測驗細項", SUBJECT_MAP[main_category])
+            q_count = st.slider("題數", 1, 10, 3)
         
-        # --- 難度與題數 ---
-        difficulty = st.select_slider("難度等級", options=["基礎觀念 (Basic)", "進階應用 (Advanced)", "地獄/競賽級 (Hell Mode)"], value="進階應用 (Advanced)")
-        q_count = st.slider("生成題數", 1, 10, 3)
+        st.divider()
         
-        # --- 上下文輸入 (RAG-lite) ---
-        context_text = st.text_area("📚 參考素材 (選填)", height=150, placeholder="在此貼上 Campbell 筆記、托福文章段落或錯題觀念。AI 將基於此內容出題，避免幻覺。")
+        # --- 多模態輸入區 (左右分割) ---
+        st.markdown("#### 📚 素材輸入 (RAG-lite)")
         
+        input_c1, input_c2 = st.columns([1, 1]) # 50/50 分割
+        
+        with input_c1:
+            st.markdown("**📝 文字筆記/文章**")
+            context_text = st.text_area("文字輸入", height=200, placeholder="貼上筆記、文章段落或錯題觀念...", label_visibility="collapsed")
+            
+        with input_c2:
+            st.markdown("**📸 圖片素材 (支援多張)**")
+            uploaded_files = st.file_uploader("上傳圖片", type=["jpg", "jpeg", "png"], accept_multiple_files=True, label_visibility="collapsed")
+            
+            # 處理圖片列表
+            image_payloads = []
+            if uploaded_files:
+                # 顯示縮圖預覽 (限制高度以免佔太多空間)
+                st.image(uploaded_files, width=100, caption=[f"Img {i+1}" for i in range(len(uploaded_files))])
+                # 轉換為 PIL Image 物件
+                for f in uploaded_files:
+                    image_payloads.append(Image.open(f))
+                st.caption(f"已載入 {len(image_payloads)} 張圖片")
+
         generate_btn = st.button("🚀 啟動 AI 出題引擎", type="primary", use_container_width=True)
 
     # ==========================================
-    # 2. 生成邏輯 (Prompt Engineering)
+    # 2. 生成邏輯
     # ==========================================
     if generate_btn:
-        with st.spinner(f"🤖 正在切換至【{sub_category}】出題模式..."):
+        with st.spinner(f"🤖 正在分析 {len(image_payloads)} 張圖片與文字，切換至【{sub_category}】模式..."):
             
-            # --- 動態 Prompt 策略 ---
-            # 根據不同考試設定不同的「系統人設」
+            # --- 設定 AI 人設 (System Role) ---
             system_role = ""
-            format_requirement = ""
-            
             if "生物奧林匹亞" in main_category:
-                system_role = f"""
-                你現在是 IBO 生物奧林匹亞國家隊教練。
-                請針對 Campbell Biology 的範圍出題。
-                重點：強調分子機制、實驗數據判讀、跨章節整合。
-                避免：僅考死背的知識。
-                """
+                system_role = "你現在是 IBO 生物奧林匹亞教練。請針對 Campbell Biology 範圍出題。若有圖片，請綜合分析多張圖表的關聯性或實驗數據。"
             elif "托福" in main_category:
-                system_role = f"""
-                你現在是 ETS 托福出題官。
-                請使用標準美式學術英語 (Academic English)。
-                重點：邏輯推論 (Inference)、修辭目的 (Rhetorical Purpose)、句子簡化。
-                難度：CEFR C1 等級。
-                """
+                system_role = "你現在是 ETS 托福出題官。請使用標準學術英語。若有圖片，請將其視為學術講座的投影片。"
             elif "學測" in main_category:
-                system_role = f"""
-                你現在是台灣學測 (GSAT) 命題老師。
-                請依照 108 課綱素養導向出題。
-                重點：情境化試題、跨科整合、閱讀理解。
-                """
+                system_role = "你現在是學測命題老師。請依素養導向出題。若有多張圖片，請設計圖表比較或綜合判讀題。"
 
-            # --- 題目格式定義 (JSON) ---
-            # 特別處理：如果是口說或寫作，不需要選項
+            # --- 題目格式定義 ---
+            format_requirement = """
+            請回傳 JSON Array，格式如下：
+            [
+                {
+                    "q": "題目敘述",
+                    "options": ["A. 選項1", "B. 選項2", "C. 選項3", "D. 選項4"],
+                    "answer": "A",
+                    "explanation": "詳細解析 (請引用圖片內容佐證)"
+                }
+            ]
+            """
             if "Speaking" in sub_category or "Writing" in sub_category:
                 format_requirement = """
-                請回傳 JSON Array，格式如下：
-                [
-                    {
-                        "q": "口說或寫作題目 Prompt",
-                        "options": ["N/A"],
-                        "answer": "參考回答重點 (Key Points)",
-                        "explanation": "高分表達技巧與詞彙建議"
-                    }
-                ]
-                """
-            else:
-                format_requirement = """
-                請回傳 JSON Array，格式如下：
-                [
-                    {
-                        "q": "題目敘述",
-                        "options": ["A. 選項1", "B. 選項2", "C. 選項3", "D. 選項4"],
-                        "answer": "A",
-                        "explanation": "詳細解析 (包含觀念推導)"
-                    }
-                ]
+                請回傳 JSON Array: [{"q": "題目", "options": ["N/A"], "answer": "回答重點", "explanation": "高分技巧"}]
                 """
 
-            # --- 組合最終 Prompt ---
-            context_prompt = f"參考文本內容：\n{context_text}\n" if context_text else "請自行根據該科目的核心知識點出題。"
+            # --- 組合 Prompt ---
+            context_prompt = ""
+            if context_text:
+                context_prompt += f"參考文字內容：\n{context_text}\n"
+            if image_payloads:
+                context_prompt += f"參考圖片內容：共 {len(image_payloads)} 張。請仔細分析所有圖片中的資訊。\n"
             
             full_prompt = f"""
             {system_role}
-            
-            任務：請針對「{sub_category}」出 {q_count} 題 {difficulty} 難度的題目。
+            任務：針對「{sub_category}」出 {q_count} 題 {difficulty} 難度的題目。
             {context_prompt}
             
             【格式嚴格要求】
-            1. 直接回傳 JSON Array，不要有 Markdown 標記 (如 ```json)。
-            2. 確保 JSON 格式合法。
+            1. 直接回傳 JSON Array，不要 Markdown。
+            2. 確保 JSON 合法。
             {format_requirement}
             """
             
-            # --- 呼叫 AI ---
-
-            raw_res = run_gemini_robust(full_prompt, image=image_payload)
-
+            # --- 呼叫 AI (使用新的多圖版函式) ---
+            raw_res = run_gemini_robust(full_prompt, images=image_payloads)
+            
             if raw_res:
                 try:
-                    # 清洗與解析
                     clean_json = re.sub(r"```json|```", "", raw_res).strip()
                     questions = json.loads(clean_json)
                     
-                    # 存入 Session
                     st.session_state.generated_questions = questions
-                    st.session_state.gen_subject = main_category.split(" ")[1] # 取簡稱 (如: 生物奧林匹亞)
-                    st.session_state.gen_topic = sub_category
+                    st.session_state.gen_subject = main_category.split(" ")[1]
+                    st.session_state.gen_topic = f"{sub_category} ({len(image_payloads)} imgs)" if image_payloads else sub_category
                     
                     st.success(f"✅ 成功生成 {len(questions)} 題！")
                 except Exception as e:
                     st.error("生成失敗，AI 回傳格式有誤。")
-                    with st.expander("除錯資訊"):
+                    with st.expander("錯誤詳情"):
                         st.text(raw_res)
-                        st.error(e)
+
 
     # ==========================================
     # 3. 預覽與入庫 (Preview & Save)
