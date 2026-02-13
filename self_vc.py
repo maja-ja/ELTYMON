@@ -117,9 +117,10 @@ def dashboard_page():
     
     # 1. 倒數計時器 (Hardcoded targets for demo)
     targets = [
-        {"name": "生物奧林匹亞初試", "date": "2024-11-04"},
-        {"name": "托福考試", "date": "2024-12-15"},
-        {"name": "學測", "date": "2025-01-20"},
+        {"name": "生物奧林匹亞初試", "date": "2026-11-01"},
+        {"name": "托福考試", "date": "2025-12-15"},
+        {"name": "學測", "date": "2027-01-20"},
+        {"name": "同等學力", "date": "2026-10-01"}
     ]
     
     cols = st.columns(len(targets))
