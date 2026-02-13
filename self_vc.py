@@ -20,7 +20,6 @@ st.set_page_config(page_title="備考展示櫃 Pro (中文協作版)", page_icon
 def inject_ui_style():
     st.markdown("""
         <style>
-            /* 載入中文字體 */
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
             
             html, body, [class*="css"] { 
@@ -28,7 +27,6 @@ def inject_ui_style():
                 background-color: #f4f7f9; 
             }
             
-            /* 玻璃展示櫃效果 */
             .glass-card {
                 background: rgba(255, 255, 255, 0.8);
                 backdrop-filter: blur(12px);
@@ -39,7 +37,6 @@ def inject_ui_style():
                 margin-bottom: 15px;
             }
             
-            /* 課表格子樣式 */
             .slot-box {
                 background: #ffffff; border-radius: 8px; padding: 10px; margin: 8px 0;
                 font-size: 0.9rem; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
@@ -49,20 +46,17 @@ def inject_ui_style():
             .bio { border-left-color: #2ecc71; }
             .eng { border-left-color: #3498db; }
             
-            /* 考點標籤 */
             .point-tag { 
                 background: #fff3cd; color: #856404; padding: 4px 8px; 
                 border-radius: 4px; font-size: 0.8rem; font-weight: bold; 
                 margin-top: 5px; display: inline-block;
             }
             
-            /* 協作區塊 */
             .collab-area {
                 background: #ffffff; border: 2px dashed #FF4B4B; 
                 border-radius: 10px; padding: 20px; margin-top: 20px;
             }
 
-            /* 手機版適應 */
             @media (max-width: 600px) {
                 .stMetric { font-size: 0.8rem !important; }
                 .slot-box { font-size: 0.85rem !important; }
@@ -79,7 +73,7 @@ def check_auth():
     with st.sidebar:
         st.markdown("### 🔐 管理員登入")
         if not st.session_state.is_admin:
-            pwd = st.text_input("輸入密碼 (僅限管理功能)", type="password", help="輸入密碼以解鎖刪除與進度修改權限")
+            pwd = st.text_input("輸入密碼 (僅限管理功能)", type="password")
             if st.button("解鎖高級權限"):
                 if pwd == st.secrets.get("ADMIN_PASSWORD", "1234"):
                     st.session_state.is_admin = True
@@ -102,15 +96,16 @@ def sidebar_mood():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 💡 今日備考心情")
     mood_gifs = [
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l0HlBO7eyXzSZkJri/giphy.gif", # 專注
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKMGpxvF1V3An96/giphy.gif", # 累
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/drXGoW1iudhzq/giphy.gif", # 成功
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/13HgwGsXF0aiGY/giphy.gif", # 狂寫
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/26ufnwz3wDUli7GU0/giphy.gif", # 咖啡
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l41lI4bYmcsPJX9Go/giphy.gif", # 熬夜
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif", # 翻書
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l2JhpjQFpL3JJ2AA8/giphy.gif", # 思考
-        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/5GoVLqeAOo6PK/giphy.gif"   # 興奮
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l0HlBO7eyXzSZkJri/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKMGpxvF1V3An96/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/drXGoW1iudhzq/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/13HgwGsXF0aiGY/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/26ufnwz3wDUli7GU0/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l41lI4bYmcsPJX9Go/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l2JhpjQFpL3JJ2AA8/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/5GoVLqeAOo6PK/giphy.gif",
+        "https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/XIqCQ6ra121S8/giphy.gif"
     ]
     st.sidebar.image(random.choice(mood_gifs), use_column_width=True)
     
@@ -124,7 +119,6 @@ def sidebar_mood():
 def dashboard_page():
     st.title("🛡️ 備考戰情儀表板")
     
-    # --- 大記事 (Milestones) ---
     st.markdown("### 🚩 重大目標倒數")
     targets = [
         {"n": "生物奧林匹亞", "d": "2026-11-01", "i": "🧬"},
@@ -143,27 +137,25 @@ def dashboard_page():
             </div>
             """, unsafe_allow_html=True)
 
-    # --- 進度觀測 (Progress Tracking) ---
     st.markdown("### 📊 學習進度觀測")
     conn = get_db()
     try:
         prog_df = conn.read(worksheet="progress", ttl=0)
-        bio_val = prog_df[prog_df['subject'] == 'Bio']['value'].iloc[0] if not prog_df[prog_df['subject'] == 'Bio'].empty else 0
-        eng_val = prog_df[prog_df['subject'] == 'Eng']['value'].iloc[0] if not prog_df[prog_df['subject'] == 'Eng'].empty else 0
+        bio_val = prog_df[prog_df['科目'] == '生物']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '生物'].empty else 0
+        eng_val = prog_df[prog_df['科目'] == '英文']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '英文'].empty else 0
     except:
         bio_val, eng_val = 0, 0 # 進度如果沒有就打零
 
     c1, c2 = st.columns(2)
     with c1:
         st.write(f"🧬 生物科進度: {bio_val}%")
-        st.progress(bio_val / 100)
+        st.progress(float(bio_val) / 100)
     with c2:
         st.write(f"🌍 英文科進度: {eng_val}%")
-        st.progress(eng_val / 100)
+        st.progress(float(eng_val) / 100)
 
     st.divider()
     
-    # --- 今日任務 ---
     st.subheader("📅 本日任務 (共同檢視)")
     try:
         tasks_df = conn.read(worksheet="tasks", ttl=0)
@@ -174,11 +166,10 @@ def dashboard_page():
                 st.success("更新成功！")
         else:
             st.dataframe(tasks_df, use_container_width=True, hide_index=True)
-            st.caption("💡 提示：任務編輯權限目前僅限管理員。")
     except: st.info("正在準備任務資料...")
 
 # ==========================================
-# 4. 頁面：計畫展示櫃 (開放幫我排課表 - 支援中文)
+# 4. 頁面：計畫展示櫃 (開放幫我排課表)
 # ==========================================
 def scheduler_page():
     st.title("📅 計畫展示櫃 (開放協作版)")
@@ -191,7 +182,6 @@ def scheduler_page():
     except:
         plan_df = pd.DataFrame(columns=['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手'])
 
-    # 確保欄位正確 (中文欄位名)
     required_cols = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
     if not all(col in plan_df.columns for col in required_cols):
         plan_df = pd.DataFrame([
@@ -203,7 +193,6 @@ def scheduler_page():
         ], columns=required_cols)
         conn.update(worksheet="study_plan", data=plan_df)
 
-    # --- 1. 當前課表預覽 (玻璃卡片) ---
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
     days = ["週一", "週二", "週三", "週四", "週五"]
     cols = st.columns(len(days))
@@ -223,26 +212,23 @@ def scheduler_page():
                 st.caption("休息")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- 2. 開放編輯區 ---
     st.markdown("""<div class='collab-area'>""", unsafe_allow_html=True)
     st.subheader("📝 編輯區 (支援中文輸入)")
-    st.write("請直接修改下方表格內容，完成後點擊「💾 提交建議課表」：")
     
-    # 所有人都可以編輯這個表格
     new_plan = st.data_editor(
         plan_df, 
         use_container_width=True,
         column_config={
             "星期": st.column_config.SelectboxColumn("星期", options=["週一", "週二", "週三", "週四", "週五"], required=True),
-            "生物進度": st.column_config.TextColumn("生物進度", placeholder="例如：細胞分裂"),
-            "英文進度": st.column_config.TextColumn("英文進度", placeholder="例如：單字 1-100"),
-            "🎯考點提醒": st.column_config.TextColumn("🎯考點提醒", placeholder="例如：注意減數分裂圖表"),
-            "排課小幫手": st.column_config.TextColumn("您的名字", placeholder="留下您的暱稱")
+            "生物進度": st.column_config.TextColumn("生物進度"),
+            "英文進度": st.column_config.TextColumn("英文進度"),
+            "🎯考點提醒": st.column_config.TextColumn("🎯考點提醒"),
+            "排課小幫手": st.column_config.TextColumn("您的名字")
         }
     )
     
     if st.button("💾 提交建議課表", type="primary", use_container_width=True):
-        with st.spinner("正在同步至雲端玻璃櫃..."):
+        with st.spinner("正在同步至雲端..."):
             conn.update(worksheet="study_plan", data=new_plan)
             st.balloons()
             st.toast("感謝你的排課建議！課表已更新。")
@@ -258,7 +244,7 @@ def joint_study_page():
     st.caption("除了排課表，你也可以在這裡上傳具體的題目或筆記素材。")
     
     col_up, col_info = st.columns([1.2, 0.8])
-    with col_l := col_up:
+    with col_up:
         name = st.text_input("貢獻者姓名", placeholder="您的名字")
         subj = st.selectbox("科目", ["生奧", "英文", "學測理化"])
         type_up = st.radio("上傳類型", ["題目/筆記素材", "🎯 考點建議"])
@@ -268,7 +254,7 @@ def joint_study_page():
         if st.button("🚀 確認送出", use_container_width=True):
             st.balloons()
             st.toast(f"感謝 {name}！您的貢獻已送達。")
-    with col_r := col_info:
+    with col_info:
         st.markdown("### 📢 玩法說明")
         st.info("- **開放排課**：去「計畫展示」頁面幫我排課。\n- **提供素材**：在這裡上傳你覺得重要的考點。\n- **共同備考**：您的每一份建議都會出現在我的戰情室！")
         st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif")
