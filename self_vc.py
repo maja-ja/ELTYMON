@@ -115,13 +115,11 @@ def generate_pdf_html(title, content_md):
 def dashboard_page():
     st.title("🛡️ 備考戰情室 (Mission Control)")
     
-    # 1. 倒數計時器 (Hardcoded targets for demo)
+    # 1. 倒數計時器
     targets = [
-        {"name": "生物奧林匹亞初試", "date": "2026-11-01"},
-        {"name": "托福考試", "date": "2026-12-15"},
-        {"name": "多益考試", "date": "2026-12-15"},
-        {"name": "學測", "date": "2027-01-20"},
-        {"name": "同等學力", "date": "2026-10-01"}
+        {"name": "生物奧林匹亞初試", "date": "2024-11-04"},
+        {"name": "托福考試", "date": "2024-12-15"},
+        {"name": "學測", "date": "2025-01-20"},
     ]
     
     cols = st.columns(len(targets))
@@ -146,25 +144,43 @@ def dashboard_page():
     conn = get_db_connection()
     try:
         tasks_df = conn.read(worksheet="tasks", ttl=0)
-        # 簡單過濾 (實際應用可加日期過濾)
+        
+        # 🔥 修正關鍵：強制將 status 欄位轉換為布林值 (Boolean)
+        # 1. fillna(False): 把空值填補為 False
+        # 2. astype(bool): 強制轉型為 True/False
+        if 'status' in tasks_df.columns:
+            tasks_df['status'] = tasks_df['status'].fillna(False).astype(bool)
+        else:
+            # 如果欄位不存在（新表），手動建立
+            tasks_df['status'] = False
+
         edited_df = st.data_editor(
             tasks_df, 
             num_rows="dynamic", 
             use_container_width=True,
             column_config={
-                "status": st.column_config.CheckboxColumn("完成", help="勾選代表完成"),
-                "priority": st.column_config.SelectboxColumn("優先級", options=["High", "Medium", "Low"])
+                "status": st.column_config.CheckboxColumn(
+                    "完成", 
+                    help="勾選代表完成",
+                    default=False  # 設定預設值
+                ),
+                "priority": st.column_config.SelectboxColumn(
+                    "優先級", 
+                    options=["High", "Medium", "Low"],
+                    required=True
+                )
             }
         )
         
         if st.button("💾 更新任務狀態"):
             conn.update(worksheet="tasks", data=edited_df)
             st.success("任務已更新！")
+            time.sleep(1) # 稍微停頓讓使用者看到成功訊息
             st.rerun()
             
     except Exception as e:
         st.warning("⚠️ 無法讀取任務表，請確認 Google Sheets 設定。")
-        st.error(e)
+        st.error(f"錯誤詳情: {e}")
 
 # ==========================================
 # 4. 模組：AI 命題工廠 (Exam Factory)
