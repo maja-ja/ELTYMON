@@ -3,6 +3,7 @@ import pandas as pd
 import datetime
 import time
 import json
+import base64
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
@@ -13,9 +14,9 @@ import random
 from PIL import Image
 
 # ==========================================
-# 1. 初始化與 CSS 注入
+# 0. 基礎配置與 CSS
 # ==========================================
-st.set_page_config(page_title="備考戰情室 Pro", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="備考戰情展示櫃", page_icon="🛡️", layout="wide")
 
 def inject_custom_css():
     st.markdown("""
@@ -23,258 +24,269 @@ def inject_custom_css():
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
             html, body, [class*="css"] { font-family: 'Noto Sans TC', sans-serif; }
             
-            /* 玻璃櫃特效 */
-            .glass-card {
+            /* 玻璃展示櫃樣式 */
+            .glass-panel {
                 background: rgba(255, 255, 255, 0.7);
                 backdrop-filter: blur(10px);
                 border-radius: 15px;
-                border: 1px solid rgba(255, 255, 255, 0.5);
+                border: 1px solid rgba(255, 255, 255, 0.3);
                 padding: 20px;
-                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
-                margin-bottom: 20px;
+                box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
             }
-            
-            /* 課表格子 */
-            .grid-item {
-                padding: 10px; border-radius: 8px; margin: 5px;
-                border-left: 5px solid #FF4B4B; background: #fff;
-                min-height: 80px; font-size: 0.9em;
+            .grid-slot {
+                background: white; border-left: 5px solid #FF4B4B;
+                padding: 10px; margin-bottom: 10px; border-radius: 5px;
+                box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
             }
-            
-            .admin-badge {
-                background: #FF4B4B; color: white; padding: 2px 8px;
-                border-radius: 10px; font-size: 0.7em; vertical-align: middle;
-            }
+            .admin-only { border: 2px dashed #FF4B4B; padding: 15px; border-radius: 10px; background: #fff5f5; }
         </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 核心：權限驗證系統
+# 1. 核心工具：權限與互動
 # ==========================================
 def check_auth():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+    """檢查是否為本人（輸入密碼）"""
+    if "is_admin" not in st.session_state:
+        st.session_state.is_admin = False
     
     with st.sidebar:
-        st.markdown("### 🔒 權限控制")
-        if not st.session_state.authenticated:
-            pwd = st.text_input("輸入管理員密碼以編輯", type="password")
-            if st.button("解鎖權限"):
-                if pwd == st.secrets.get("ADMIN_PASSWORD", "1234"):
-                    st.session_state.authenticated = True
-                    st.success("🔓 模式：管理員 (可排課/編輯)")
+        st.markdown("### 🔐 權限控制")
+        if not st.session_state.is_admin:
+            pwd = st.text_input("輸入管理員密碼", type="password")
+            if st.button("解鎖編輯權限"):
+                if pwd == st.secrets.get("ADMIN_PASSWORD", "1234"): # 預設1234
+                    st.session_state.is_admin = True
+                    st.success("🔓 已解鎖")
                     st.rerun()
                 else:
                     st.error("密碼錯誤")
         else:
-            st.success("🔓 模式：管理員")
-            if st.button("登出/鎖定"):
-                st.session_state.authenticated = False
+            if st.button("🔒 鎖定並退出"):
+                st.session_state.is_admin = False
                 st.rerun()
-    return st.session_state.authenticated
+    return st.session_state.is_admin
 
-# ==========================================
-# 3. 資料庫與 AI 工具
-# ==========================================
-def get_db():
-    return st.connection("gsheets", type=GSheetsConnection)
-
-def run_gemini(prompt, images=None):
-    # 此處沿用你原本的多 Key 輪詢邏輯 (簡化示意)
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    try:
-        res = model.generate_content([prompt] + (images if images else []))
-        return res.text
-    except: return None
-
-# ==========================================
-# 4. 頁面：戰情儀表板 (含加油按鈕)
-# ==========================================
-def dashboard_page():
-    st.title("🛡️ 備考戰情中心")
-    is_admin = st.session_state.authenticated
+def sidebar_interaction():
+    """側邊欄加油與督促功能"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 💬 社群互動")
     
-    # --- 加油數據區 ---
-    conn = get_db()
+    conn = st.connection("gsheets", type=GSheetsConnection)
     try:
-        meta_df = conn.read(worksheet="meta", ttl=0)
+        # 讀取互動計數
+        meta_df = conn.read(worksheet="meta_data", ttl=0)
     except:
-        meta_df = pd.DataFrame([{"key":"cheers", "value":0}, {"key":"pokes", "value":0}])
+        meta_df = pd.DataFrame([{"key": "cheers", "value": 0}, {"key": "pokes", "value": 0}])
 
-    c1, c2, c3 = st.columns([2,1,1])
-    with c1: 
-        st.subheader("👋 歡迎參觀我的讀書玻璃櫃")
-        st.caption("這是我的備考實況，請隨意翻閱題庫，或是幫我加油！")
-    with c2: st.metric("🎈 收到加油", f"{int(meta_df.iloc[0]['value'])} 次")
-    with c3: st.metric("👉 收到督促", f"{int(meta_df.iloc[1]['value'])} 次")
-
-    st.divider()
-
-    # --- 今日任務 (上鎖檢查) ---
-    st.markdown(f"### 📅 今日任務 {'<span class="admin-badge">ADMIN</span>' if is_admin else ''}", unsafe_allow_html=True)
-    try:
-        tasks_df = conn.read(worksheet="tasks", ttl=0)
-        if is_admin:
-            edited_df = st.data_editor(tasks_df, num_rows="dynamic", use_container_width=True)
-            if st.button("💾 儲存更改"):
-                conn.update(worksheet="tasks", data=edited_df)
-                st.toast("已同步至雲端！")
-        else:
-            # 訪客看到的是美化過的表格
-            st.table(tasks_df)
-    except: st.info("尚無任務數據")
+    c1, c2 = st.sidebar.columns(2)
+    
+    if c1.button("🎈 送加油"):
+        st.balloons()
+        meta_df.loc[meta_df['key'] == 'cheers', 'value'] += 1
+        conn.update(worksheet="meta_data", data=meta_df)
+        st.sidebar.toast("收到你的加油了！感謝！")
+        
+    if c2.button("👉 督促讀書"):
+        st.snow()
+        meta_df.loc[meta_df['key'] == 'pokes', 'value'] += 1
+        conn.update(worksheet="meta_data", data=meta_df)
+        st.sidebar.toast("我會認真讀書的！別推了！")
+    
+    st.sidebar.info(f"✨ 累計加油：{int(meta_df[meta_df['key']=='cheers']['value'].iloc[0])} 次")
 
 # ==========================================
-# 5. 頁面：智能排程 (玻璃櫃化)
+# 2. AI 核心引擎 (多 Key 輪詢)
+# ==========================================
+def run_gemini_robust(prompt, images=None, model_name='gemini-2.5-flash'):
+    keys = st.secrets.get("GEMINI_KEYS")
+    if not keys:
+        single_key = st.secrets.get("GEMINI_API_KEY")
+        keys = [single_key] if single_key else []
+    if not keys: return None
+    if isinstance(keys, str): keys = [keys]
+    
+    shuffled_keys = list(keys).copy()
+    random.shuffle(shuffled_keys)
+    
+    for api_key in shuffled_keys:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name)
+            content_parts = [prompt] + (images if images else [])
+            response = model.generate_content(content_parts)
+            if response and response.text: return response.text
+        except: continue
+    return None
+
+# ==========================================
+# 3. 模組：計畫展示櫃 (Scheduler Page)
 # ==========================================
 def scheduler_page():
     st.title("📅 讀書計畫展示櫃")
-    is_admin = st.session_state.authenticated
-    conn = get_db()
+    is_admin = st.session_state.is_admin
+    conn = st.connection("gsheets", type=GSheetsConnection)
     
-    try: plan_df = conn.read(worksheet="study_plan", ttl=0)
-    except: plan_df = pd.DataFrame(columns=['day', 's1', 's2'])
+    try:
+        plan_df = conn.read(worksheet="study_plan", ttl=0)
+    except:
+        plan_df = pd.DataFrame(columns=['day', 's1', 's2', 'status'])
 
-    # --- 展示展示區 (所有人可見) ---
-    st.markdown("""<div class="glass-card">""", unsafe_allow_html=True)
+    # --- 1. 展示展示區 (玻璃展示) ---
+    st.markdown("### 🔍 本週公開進度")
+    st.markdown("""<div class="glass-panel">""", unsafe_allow_html=True)
     cols = st.columns(5)
     days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    
     for i, day in enumerate(days):
         with cols[i]:
-            st.markdown(f"**{day}**")
-            # 假設 DB 裡有存當週課表
+            st.markdown(f"#### {day}")
             day_data = plan_df[plan_df['day'] == day]
             if not day_data.empty:
-                st.markdown(f"<div class='grid-item'>🧬 {day_data.iloc[0]['s1']}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='grid-item'>🌍 {day_data.iloc[0]['s2']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='grid-slot'>🧬 <b>{day_data.iloc[0]['s1']}</b></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='grid-slot' style='border-left-color:#007bff'>🌍 <b>{day_data.iloc[0]['s2']}</b></div>", unsafe_allow_html=True)
             else:
-                st.markdown("<div style='color:#ccc'>休息</div>", unsafe_allow_html=True)
+                st.markdown("<div style='color:#ccc'>暫無安排</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # --- 管理區 (上鎖檢查) ---
+    # --- 2. 管理區域 (上鎖) ---
     if is_admin:
         st.divider()
         st.subheader("⚙️ 課程編排 (管理員模式)")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            st.markdown("#### 1. AI 自動排課")
-            if st.button("⚡ 根據學校進度生成新課表"):
-                with st.spinner("AI 規劃中..."):
-                    # 這裡串接你之前的 run_gemini_robust 邏輯
-                    time.sleep(2)
-                    st.success("新課表已生成，請確認後存檔。")
-        with col_b:
-            st.markdown("#### 2. 手動微調")
-            manual_edit = st.data_editor(plan_df, num_rows="dynamic")
-            if st.button("💾 鎖定本週課表"):
-                conn.update(worksheet="study_plan", data=manual_edit)
+        with st.form("admin_schedule"):
+            edited_df = st.data_editor(plan_df, num_rows="dynamic", use_container_width=True)
+            if st.form_submit_button("💾 鎖定並發佈新課表"):
+                conn.update(worksheet="study_plan", data=edited_df)
+                st.success("課表已同步至展示櫃！")
                 st.rerun()
     else:
-        st.info("🔒 若要重新排課或修改進度，請先在側邊欄解鎖。")
+        st.info("🔒 計畫表目前為「唯讀狀態」。若要重新編排，請於側邊欄輸入密碼。")
 
 # ==========================================
-# 6. 頁面：開放讀書區 (所有人可上傳)
+# 4. 模組：開放命題工廠 (Exam Factory)
 # ==========================================
 def factory_page():
-    st.title("🏭 讀書區：題目貢獻站")
-    st.caption("開放給所有人：你可以幫我出題，我會在競技場挑戰它！")
+    st.title("🏭 開放命題工廠")
+    st.caption("任何人都可以幫助我備考！上傳你的資料，AI 會幫我出一題。")
     
-    col_l, col_r = st.columns(2)
-    with col_l:
-        subject = st.selectbox("科目", ["生奧", "托福", "學測"])
-        context = st.text_area("參考內容/筆記")
-        imgs = st.file_uploader("上傳圖檔 (可多張)", accept_multiple_files=True)
-        name = st.text_input("貢獻者姓名", "熱心同學")
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("### 1. 提交資料")
+        contributor = st.text_input("你的名字/暱稱", placeholder="匿名好友")
+        subj = st.selectbox("科目", ["生奧", "托福/多益", "學測/自然", "其他"])
+        context = st.text_area("參考文字或概念", placeholder="可以貼上一段文章或筆記...")
+        uploaded_files = st.file_uploader("上傳參考圖片", type=["jpg", "png"], accept_multiple_files=True)
         
-        if st.button("🚀 生成題目並送出"):
-            with st.spinner("AI 命題中..."):
-                # 呼叫 Gemini 邏輯
-                q_json = run_gemini(f"請針對{context}出一題JSON格式題目")
-                if q_json:
-                    # 寫入資料庫
-                    st.session_state.last_gen = q_json
-                    st.success(f"感謝 {name}！題目已進入審核區。")
-                    st.balloons()
-    
-    with col_r:
-        st.subheader("📝 預覽生成結果")
-        if "last_gen" in st.session_state:
-            st.json(st.session_state.last_gen)
+        if st.button("🚀 生成題目並送出", type="primary"):
+            with st.spinner("AI 正在解析並命題中..."):
+                prompt = f"你是專業命題官，請針對「{subj}」出的題目。格式: JSON {{'q':'','options':['A.','B.','C.','D.'],'answer':'A','explanation':''}}"
+                imgs = [Image.open(f) for f in uploaded_files] if uploaded_files else []
+                raw_res = run_gemini_robust(prompt + f"\n參考文字: {context}", images=imgs)
+                
+                if raw_res:
+                    try:
+                        clean_json = re.sub(r"```json|```", "", raw_res).strip()
+                        q_data = json.loads(clean_json)
+                        # 直接入庫
+                        conn = st.connection("gsheets", type=GSheetsConnection)
+                        bank_df = conn.read(worksheet="quiz_bank", ttl=0)
+                        new_row = {
+                            "id": str(uuid.uuid4())[:8],
+                            "date": datetime.date.today().strftime("%Y-%m-%d"),
+                            "subject": subj,
+                            "topic": f"來自 {contributor}",
+                            "question_json": json.dumps(q_data, ensure_ascii=False),
+                            "user_answer": "", "is_correct": "Pending"
+                        }
+                        updated_df = pd.concat([bank_df, pd.DataFrame([new_row])], ignore_index=True)
+                        conn.update(worksheet="quiz_bank", data=updated_df)
+                        st.balloons()
+                        st.success(f"感謝 {contributor}！這題已經進入我的挑戰區。")
+                    except: st.error("AI 生成出錯，請再試一次。")
+
+    with col2:
+        st.markdown("### ✨ 如何參與？")
+        st.info("""
+        1. **提供素材**：你可以貼上你覺得很難的觀念或圖片。
+        2. **AI 轉化**：系統會自動根據素材出一題單選題。
+        3. **遠端挑戰**：題目會被存入我的「挑戰區」，我有空就會去刷題！
+        """)
+        st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l0HlBO7eyXzSZkJri/giphy.gif", use_column_width=True)
 
 # ==========================================
-# 7. 頁面：競技場 (含已寫題觀賞)
+# 5. 模組：競技場與已寫題區 (Arena)
 # ==========================================
 def arena_page():
-    st.title("⚔️ 題目競技場")
-    tab1, tab2 = st.tabs(["🔥 挑戰進行中", "🏆 已攻克題庫 (Archive)"])
+    st.title("⚔️ 挑戰競技場")
+    is_admin = st.session_state.is_admin
     
-    conn = get_db()
-    bank_df = conn.read(worksheet="quiz_bank", ttl=0)
+    tab1, tab2 = st.tabs(["🔥 挑戰進行中", "🏆 榮譽殿堂 (已完成)"])
     
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    try:
+        bank_df = conn.read(worksheet="quiz_bank", ttl=0)
+    except:
+        st.warning("資料庫讀取中...")
+        return
+
     with tab1:
-        # 只顯示 Pending 題目，只有本人可以刷題 (視需求可上鎖)
-        st.write("目前有 X 題等待挑戰...")
-        if st.session_state.authenticated:
-            st.info("管理員模式：開始刷題")
-            # 這裡放刷題邏輯...
+        pending_df = bank_df[bank_df['is_correct'] == "Pending"]
+        if pending_df.empty:
+            st.success("🎉 目前題庫空空如也！去命題工廠加料吧。")
         else:
-            st.warning("🔒 刷題功能僅限本人使用。")
+            if not is_admin:
+                st.warning("🔒 刷題區僅限本人登入操作，訪客請點選「榮譽殿堂」觀看。")
+                st.write(f"目前還有 {len(pending_df)} 題等待被解決。")
+            else:
+                st.subheader(f"還剩下 {len(pending_df)} 題，加油！")
+                # (此處保留原有的刷題邏輯...)
+                row = pending_df.iloc[0]
+                q_data = json.loads(row['question_json'])
+                st.markdown(f"<div class='quiz-card'>{q_data['q']}</div>", unsafe_allow_html=True)
+                ans = st.radio("你的選擇：", q_data['options'], index=None)
+                if st.button("提交答案"):
+                    # 更新邏輯...
+                    st.rerun()
 
     with tab2:
-        st.subheader("🏛️ 榮譽殿堂")
-        st.caption("以下是我已經寫完的題目與詳解，歡迎參觀。")
-        done_df = bank_df[bank_df['is_correct'] != "Pending"]
-        for _, row in done_df.iterrows():
+        st.subheader("📜 已寫題目觀賞區")
+        st.caption("這是我的讀書足跡，歡迎隨意翻閱。")
+        done_df = bank_df[bank_df['is_correct'] != "Pending"].sort_values(by="date", ascending=False)
+        
+        for i, row in done_df.iterrows():
             q = json.loads(row['question_json'])
-            with st.expander(f"{row['date']} - {row['subject']} - {'✅' if row['is_correct']=='TRUE' else '❌'}"):
+            status = "✅ 正確" if row['is_correct'] == "TRUE" else "❌ 錯誤"
+            with st.expander(f"{row['date']} | {row['subject']} | {status}"):
                 st.markdown(f"**題目：** {q['q']}")
-                st.markdown(f"**詳解：** {q['explanation']}")
+                st.markdown(f"**你的答案：** `{row['user_answer']}` | **正解：** `{q['answer']}`")
+                st.markdown(f"**💡 解析：** {q['explanation']}")
 
 # ==========================================
-# 8. 側邊欄互動按鈕
-# ==========================================
-def sidebar_interaction():
-    conn = get_db()
-    try: meta_df = conn.read(worksheet="meta", ttl=0)
-    except: return
-
-    st.sidebar.divider()
-    st.sidebar.markdown("### 📣 支持一下")
-    
-    c1, c2 = st.sidebar.columns(2)
-    if c1.button("🎈 加油"):
-        st.balloons()
-        meta_df.loc[meta_df['key'] == 'cheers', 'value'] += 1
-        conn.update(worksheet="meta", data=meta_df)
-        st.toast("收到你的加油了！感謝！")
-    
-    if c2.button("👉 督促"):
-        st.snow()
-        meta_df.loc[meta_df['key'] == 'pokes', 'value'] += 1
-        conn.update(worksheet="meta", data=meta_df)
-        st.toast("我會認真讀書的！")
-
-# ==========================================
-# 主程式路由
+# 6. 主程式導航
 # ==========================================
 def main():
     inject_custom_css()
     is_admin = check_auth()
     sidebar_interaction()
     
-    # 頁面選擇
-    menu = ["戰情儀表板", "計畫展示櫃", "題目貢獻站", "歷史題庫觀賞"]
-    choice = st.sidebar.radio("導航", menu)
+    page = st.sidebar.selectbox("切換區域", ["首頁儀表板", "計畫展示櫃", "命題工廠 (開放)", "競技場 (展示/刷題)"])
     
-    if choice == "戰情儀表板":
-        dashboard_page()
-    elif choice == "計畫展示櫃":
+    if page == "首頁儀表板":
+        st.title("🛡️ 備考戰情室展示中心")
+        st.markdown("這裡是我備考的實況台，你可以透過上方選項查看我的課表或幫我出題。")
+        # 顯示倒數計時與數據
+        targets = [{"name": "生物奧林匹亞", "date": "2026-11-01"}, {"name": "學測", "date": "2027-01-20"}]
+        cols = st.columns(len(targets))
+        for i, t in enumerate(targets):
+            days = (datetime.datetime.strptime(t['date'], "%Y-%m-%d").date() - datetime.date.today()).days
+            cols[i].metric(t['name'], f"{days} 天", t['date'])
+            
+    elif page == "計畫展示櫃":
         scheduler_page()
-    elif choice == "題目貢獻站":
+    elif page == "命題工廠 (開放)":
         factory_page()
-    elif choice == "歷史題庫觀賞":
+    elif page == "競技場 (展示/刷題)":
         arena_page()
 
 if __name__ == "__main__":
