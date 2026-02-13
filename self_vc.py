@@ -12,7 +12,7 @@ import uuid
 import re
 import random
 import time
-
+import PyPDF2
 # ==========================================
 # 核心工具：多 Key 輪詢引擎
 # ==========================================
@@ -257,9 +257,6 @@ def exam_factory_page():
     st.title("🏭 AI 命題工廠 (Exam Factory)")
     st.caption("全方位備考引擎：支援生奧、托福、學測與同等學歷全科生成。")
     
-    # ==========================================
-    # 1. 定義科目地圖 (Subject Mapping)
-    # ==========================================
     SUBJECT_MAP = {
         "🧬 生物奧林匹亞 (IBO/Campbell)": [
             "Unit 1: 生命化學 (Chemistry of Life)",
@@ -279,6 +276,16 @@ def exam_factory_page():
             "Speaking: 獨立口說 (Task 1)",
             "Writing: 學術討論寫作 (Academic Discussion)",
             "Vocabulary: 學術高頻單字 (C1 Level)"
+        ],
+        "💼 多益 (TOEIC L&R)": [
+            "Listening Part 1: 照片描述 (Photographs)",
+            "Listening Part 2: 應答問題 (Question-Response)",
+            "Listening Part 3: 簡短對話 (Conversations)",
+            "Listening Part 4: 簡短獨白 (Talks)",
+            "Reading Part 5: 單句填空 (Incomplete Sentences)",
+            "Reading Part 6: 短文填空 (Text Completion)",
+            "Reading Part 7: 閱讀測驗 (Reading Comprehension)",
+            "Vocabulary: 商務高頻單字 (Business & Office)"
         ],
         "🎓 學測/同等學歷 (GSAT/Equivalency)": [
             "國文: 綜合閱讀理解 (Reading Comprehension)",
@@ -347,12 +354,21 @@ def exam_factory_page():
             # --- 設定 AI 人設 (System Role) ---
             system_role = ""
             if "生物奧林匹亞" in main_category:
-                system_role = "你現在是 IBO 生物奧林匹亞教練。請針對 Campbell Biology 範圍出題。若有圖片，請綜合分析多張圖表的關聯性或實驗數據。"
+                system_role = "你現在是 IBO 生物奧林匹亞國家隊教練。請針對 Campbell Biology 範圍出題。若有圖片，請重點分析圖表數據或生理機制。"
+            
             elif "托福" in main_category:
-                system_role = "你現在是 ETS 托福出題官。請使用標準學術英語。若有圖片，請將其視為學術講座的投影片。"
+                system_role = "你現在是 ETS 托福出題官。請使用標準學術英語 (Academic English)。若有圖片，請將其視為學術講座的投影片或閱讀測驗插圖。"
+            
+            elif "多益" in main_category:
+                system_role = """
+                你現在是多益 (TOEIC) 出題官。
+                請使用國際商務英語 (Business English)。
+                情境設定：辦公室會議、商務郵件、旅遊行程、採購發票、人事公告。
+                重點考點：文法 (詞性、時態)、商務搭配詞 (Collocations)、聽力關鍵字抓取。
+                """
+            
             elif "學測" in main_category:
-                system_role = "你現在是學測命題老師。請依素養導向出題。若有多張圖片，請設計圖表比較或綜合判讀題。"
-
+                system_role = "你現在是學測命題老師。請依素養導向出題。若有圖片，請設計圖表判讀題。"
             # --- 題目格式定義 ---
             format_requirement = """
             請回傳 JSON Array，格式如下：
@@ -710,22 +726,241 @@ def report_page():
             """
             components.html(full_html, height=100)
 
+
+def scheduler_page():
+    st.title("📅 智能排程中心 (Smart Scheduler)")
+    st.caption("目標：每週 10 單元，一個月 40 單元，精準聯動學校進度與生奧/檢定目標。")
+
+    conn = get_db_connection()
+    
+    # ==========================================
+    # 1. 總表資料庫管理 (Master Plan Data Hub)
+    # ==========================================
+    with st.expander("🗂️ 年度總表與資料庫狀態", expanded=False):
+        try:
+            plan_df = conn.read(worksheet="study_plan", ttl=0)
+        except:
+            plan_df = pd.DataFrame(columns=['id', 'subject', 'category', 'topic', 'status', 'week_assigned'])
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.dataframe(plan_df, use_container_width=True, height=250)
+        with c2:
+            st.markdown("##### 數據初始化")
+            if st.button("📥 匯入預設課表 (生奧/托福/多益/自然)"):
+                default_data = []
+                
+                # --- 1. 🧬 生物奧林匹亞 (Campbell 12th 完整章節精選) ---
+                campbell_master = [
+                    # Unit 1 & 2: 細胞基礎
+                    "Bio: Ch 2-5 生命化學 (巨分子與水勢)", "Bio: Ch 6 細胞構造 (胞器與內膜系統)", 
+                    "Bio: Ch 7 膜結構與運輸 (主動/被動)", "Bio: Ch 8 代謝作用 (酵素機制)", 
+                    "Bio: Ch 9 細胞呼吸 (糖解/電子傳遞鏈)", "Bio: Ch 10 光合作用 (光反應/卡爾文循環)",
+                    "Bio: Ch 11 細胞訊號傳導 (GPCR/RTK)", "Bio: Ch 12 細胞週期 (有絲分裂)",
+                    # Unit 3: 遺傳學 (複試重中之重)
+                    "Bio: Ch 13 減數分裂與有性生殖", "Bio: Ch 14 孟德爾遺傳 (機率計算)", 
+                    "Bio: Ch 15 染色體遺傳基礎 (連鎖/互換率)", "Bio: Ch 16 分子遺傳 (DNA複製)", 
+                    "Bio: Ch 17 基因到蛋白質 (轉錄/轉譯)", "Bio: Ch 18 基因表現調控 (操縱組)",
+                    "Bio: Ch 20 生物技術 (PCR/電泳/CRISPR)", "Bio: Ch 21 基因體學演化",
+                    # Unit 4 & 5: 演化與多樣性
+                    "Bio: Ch 22-24 演化機制與物種起源", "Bio: Ch 25 地球生命史", 
+                    "Bio: Ch 26 系統發生學 (演化樹判讀)", "Bio: Ch 27 原核生物", 
+                    "Bio: Ch 29-30 植物登陸與演化",
+                    # Unit 6: 植物生理 (你的弱點，需加強)
+                    "Bio: Ch 35 植物型態與生長", "Bio: Ch 36 植物輸導作用 (水勢/壓力流)", 
+                    "Bio: Ch 37 土壤與植物營養", "Bio: Ch 38 被子植物生殖", 
+                    "Bio: Ch 39 植物對內外刺激的響應 (激素)",
+                    # Unit 7: 動物生理 (複試分勝負關鍵)
+                    "Bio: Ch 40 動物型態與恆定", "Bio: Ch 41 動物營養 (消化與吸收)", 
+                    "Bio: Ch 42 循環與呼吸系統", "Bio: Ch 43 免疫系統", 
+                    "Bio: Ch 44 滲透壓調節與排泄", "Bio: Ch 45 內分泌與激素", 
+                    "Bio: Ch 46 動物生殖", "Bio: Ch 48 神經元、突觸與訊息傳遞", 
+                    "Bio: Ch 49 神經系統 (腦構造與感官)", "Bio: Ch 50 運動與肌肉機制",
+                    # Unit 8: 生態學
+                    "Bio: Ch 52-54 族群與群聚生態學", "Bio: Ch 55 生態系能量流動",
+                    # 競賽專項
+                    "Bio: 生奧歷屆考古題 (初賽 1-5回)", "Bio: 生奧歷屆考古題 (初賽 6-10回)",
+                    "Bio: 複試 B 卷數據分析專題 (1)", "Bio: 植物切片與解剖圖判讀"
+                ]
+
+                # --- 2. 🌍 托福 iBT (100+ 衝刺任務) ---
+                toefl_master = [
+                    "Eng: R-TPO 生物學術文章精讀", "Eng: R-TPO 天文地質類文章精讀", 
+                    "Eng: R-學術長難句語法拆解 (10句/天)", "Eng: L-TPO Lecture 筆記法 (Life Science)", 
+                    "Eng: L-TPO Lecture 筆記法 (Art/History)", "Eng: L-TPO Conversation 語氣推論題",
+                    "Eng: S-Task 1 獨立口說模版建立", "Eng: S-Task 2/3 整合口說摘要練習", 
+                    "Eng: W-學術討論寫作 (Academic Discussion)", "Eng: W-整合寫作 (Reading & Listening)",
+                    "Eng: Vocabulary-TOEFL 核心 3000 單 (進度1-500)"
+                ]
+
+                # --- 3. 💼 多益 (900+ 職場英語) ---
+                toeic_master = [
+                    "Eng: TOEIC L-Part 2/3 聽力關鍵字陷阱", "Eng: TOEIC R-Part 5 文法秒殺 (詞性時態)", 
+                    "Eng: TOEIC R-Part 6/7 商務信件閱讀", "Eng: TOEIC 模擬試題 (一回完整練習)"
+                ]
+
+                # --- 4. 🧪 自然科學 (學測/補習班進度對照) ---
+                # 這裡放需要 AI 輔助的理化重點
+                science_master = [
+                    "Sci: 物理-運動學與牛頓定律", "Sci: 物理-電磁學觀念整合", 
+                    "Sci: 化學-原子構造與週期律", "Sci: 化學-酸鹼反應與氧化還原",
+                    "Sci: 地科-板塊構造與天文觀測"
+                ]
+
+                # 組合資料
+                for i, topic in enumerate(campbell_master):
+                    default_data.append({"id": f"bio_{i:02d}", "subject": "Bio", "category": "Campbell", "topic": topic, "status": "Pending", "week_assigned": ""})
+                for i, topic in enumerate(toefl_master):
+                    default_data.append({"id": f"toefl_{i:02d}", "subject": "Eng", "category": "TOEFL", "topic": topic, "status": "Pending", "week_assigned": ""})
+                for i, topic in enumerate(toeic_master):
+                    default_data.append({"id": f"toeic_{i:02d}", "subject": "Eng", "category": "TOEIC", "topic": topic, "status": "Pending", "week_assigned": ""})
+                for i, topic in enumerate(science_master):
+                    default_data.append({"id": f"sci_{i:02d}", "subject": "Bio", "category": "Science", "topic": topic, "status": "Pending", "week_assigned": ""})
+                
+                new_df = pd.DataFrame(default_data)
+                conn.update(worksheet="study_plan", data=new_df)
+                st.success(f"已匯入 {len(new_df)} 個年度任務！目標：每週 10 格，一年內全數達成。")
+                st.rerun()
+
+    st.divider()
+
+    # ==========================================
+    # 2. 本週排程引擎 (PDF + AI 邏輯)
+    # ==========================================
+    col_in, col_out = st.columns([1, 1.5])
+    
+    with col_in:
+        st.subheader("🚀 生成本週 10 格課表")
+        school_pdf = st.file_uploader("📋 上傳學校進度 PDF (自動優先排程)", type="pdf")
+        user_focus = st.text_input("本週個人重點 (如：段考複習、補強遺傳)", "")
+        
+        if st.button("⚡ AI 智能排版 (10 Slots)", type="primary", use_container_width=True):
+            # 取得未完成單元
+            pending_bio = plan_df[plan_df['status'] == "Pending"][plan_df['subject'].isin(['Bio', 'Sci'])]['topic'].tolist()
+            pending_eng = plan_df[plan_df['status'] == "Pending"][plan_df['subject'] == 'Eng']['topic'].tolist()
+            
+            # 讀取 PDF 內容
+            pdf_text = ""
+            if school_pdf:
+                try:
+                    reader = PyPDF2.PdfReader(school_pdf)
+                    for page in reader.pages[:2]: pdf_text += page.extract_text()
+                except: pdf_text = "無法讀取 PDF"
+
+            # AI 任務
+            prompt = f"""
+            你是一位高效備考規劃師。請幫我從下方的「待辦清單」中挑選 5 個生物/自然單元與 5 個英文單元，排入一週 10 格課表。
+            
+            【優先原則】
+            1. 參考學校進度：{pdf_text[:800]}。若有提到的單元，優先挑選。
+            2. 參考用戶重點：{user_focus}。
+            
+            【待辦清單】
+            - 生物庫: {pending_bio}
+            - 英文庫: {pending_eng}
+            
+            【格式要求】
+            請嚴格回傳 JSON：
+            {{
+                "Mon": {{"S1": "生物單元", "S2": "英文單元"}},
+                "Tue": {{"S1": "...", "S2": "..."}},
+                "Wed": {{"S1": "...", "S2": "..."}},
+                "Thu": {{"S1": "...", "S2": "..."}},
+                "Fri": {{"S1": "...", "S2": "..."}}
+            }}
+            """
+            
+            with st.spinner("AI 正在優化課程順序..."):
+                res = run_gemini_robust(prompt)
+                try:
+                    clean_json = re.sub(r"```json|```", "", res).strip()
+                    st.session_state.this_week_grid = json.loads(clean_json)
+                    st.success("本週課表生成成功！")
+                except:
+                    st.error("AI 回傳格式不正確")
+                    st.text(res)
+
+    # ==========================================
+    # 3. 課表顯示與 PDF 生成 (10-Slot View)
+    # ==========================================
+    with col_out:
+        st.subheader("📍 本週黃金路徑 (10 Slots)")
+        if "this_week_grid" in st.session_state:
+            grid = st.session_state.this_week_grid
+            
+            # CSS 樣式
+            st.markdown("""
+            <style>
+                .grid-header { text-align:center; background:#444; color:white; padding:5px; border-radius:5px; font-weight:bold; }
+                .grid-slot { border: 1px solid #ddd; padding: 10px; border-radius: 8px; margin: 5px 0; height: 100px; overflow: hidden; font-size: 0.85em; }
+                .bio-slot { border-left: 5px solid #28a745; background: #f8fff8; }
+                .eng-slot { border-left: 5px solid #007bff; background: #f8fbff; }
+            </style>
+            """, unsafe_allow_html=True)
+
+            cols = st.columns(5)
+            days = ["Mon", "Tue", "Wed", "Thu", "Fri"]
+            
+            for i, day in enumerate(days):
+                with cols[i]:
+                    st.markdown(f"<div class='grid-header'>{day}</div>", unsafe_allow_html=True)
+                    # Slot 1: Bio
+                    st.markdown(f"<div class='grid-slot bio-slot'><b>🧬 Slot 1</b><br>{grid[day]['S1']}</div>", unsafe_allow_html=True)
+                    # Slot 2: Eng
+                    st.markdown(f"<div class='grid-slot eng-slot'><b>🌍 Slot 2</b><br>{grid[day]['S2']}</div>", unsafe_allow_html=True)
+
+            st.divider()
+            
+            # 下載按鈕
+            if st.button("📥 下載本週 PDF 課表"):
+                md_report = f"""
+## 📅 本週 10 格黃金課表
+| Day | Slot 1 (Bio/Sci) | Slot 2 (English) |
+| :--- | :--- | :--- |
+| **Mon** | {grid['Mon']['S1']} | {grid['Mon']['S2']} |
+| **Tue** | {grid['Tue']['S1']} | {grid['Tue']['S2']} |
+| **Wed** | {grid['Wed']['S1']} | {grid['Wed']['S2']} |
+| **Thu** | {grid['Thu']['S1']} | {grid['Thu']['S2']} |
+| **Fri** | {grid['Fri']['S1']} | {grid['Fri']['S2']} |
+
+---
+**💡 戰術執行說明：**
+1. **上午 Slot 1**: 攻克 Campbell 單元，建議搭配 AI 命題工廠生成 5 題測驗。
+2. **下午 Slot 2**: 進行托福/多益專項訓練，口說題請務必翻牌檢討。
+                """
+                pdf_html = generate_pdf_html(f"Weekly_Plan_{datetime.date.today()}", md_report)
+                components.html(pdf_html, height=100)
+                
+            if st.button("✅ 確認執行 (本週進度鎖定)"):
+                st.toast("課表已同步至大腦！開始戰鬥！", icon="🔥")
+        else:
+            st.info("尚未生成課表。請在左側選擇參數並生成。")
 # ==========================================
 # 7. 主程式導航
 # ==========================================
 def main():
+    # 注入 CSS
     inject_custom_css()
     
     with st.sidebar:
         st.title("🛡️ 備考戰情室")
         st.markdown("---")
-        page = st.radio("導航", ["戰情儀表板", "AI 命題工廠", "競技場 (刷題)", "每日戰報 PDF"])
-        
+        # 在這裡增加「智能排程」選項
+        page = st.radio("導航中心", [
+            "戰情儀表板", 
+            "智能排程",    # <--- 增加導航按鈕
+            "AI 命題工廠", 
+            "競技場 (刷題)", 
+            "每日戰報 PDF"
+        ])
         st.markdown("---")
         st.caption("v5.0 War Room Edition")
 
+    # --- 3. 頁面路由 (Routing) ---
     if page == "戰情儀表板":
         dashboard_page()
+    elif page == "智能排程":
+        scheduler_page()
     elif page == "AI 命題工廠":
         exam_factory_page()
     elif page == "競技場 (刷題)":
@@ -733,5 +968,6 @@ def main():
     elif page == "每日戰報 PDF":
         report_page()
 
+# --- 4. 啟動點 ---
 if __name__ == "__main__":
     main()
