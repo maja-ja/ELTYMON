@@ -21,12 +21,10 @@ def inject_ui_style():
     st.markdown("""
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
-            
             html, body, [class*="css"] { 
                 font-family: 'Noto Sans TC', sans-serif !important; 
                 background-color: #f4f7f9; 
             }
-            
             .glass-card {
                 background: rgba(255, 255, 255, 0.8);
                 backdrop-filter: blur(12px);
@@ -36,7 +34,6 @@ def inject_ui_style():
                 box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
                 margin-bottom: 15px;
             }
-            
             .slot-box {
                 background: #ffffff; border-radius: 8px; padding: 10px; margin: 8px 0;
                 font-size: 0.9rem; box-shadow: 2px 2px 8px rgba(0,0,0,0.05);
@@ -45,21 +42,14 @@ def inject_ui_style():
             }
             .bio { border-left-color: #2ecc71; }
             .eng { border-left-color: #3498db; }
-            
             .point-tag { 
                 background: #fff3cd; color: #856404; padding: 4px 8px; 
                 border-radius: 4px; font-size: 0.8rem; font-weight: bold; 
                 margin-top: 5px; display: inline-block;
             }
-            
             .collab-area {
                 background: #ffffff; border: 2px dashed #FF4B4B; 
                 border-radius: 10px; padding: 20px; margin-top: 20px;
-            }
-
-            @media (max-width: 600px) {
-                .stMetric { font-size: 0.8rem !important; }
-                .slot-box { font-size: 0.85rem !important; }
             }
         </style>
     """, unsafe_allow_html=True)
@@ -73,7 +63,7 @@ def check_auth():
     with st.sidebar:
         st.markdown("### 🔐 管理員登入")
         if not st.session_state.is_admin:
-            pwd = st.text_input("輸入密碼 (僅限管理功能)", type="password")
+            pwd = st.text_input("輸入密碼", type="password")
             if st.button("解鎖高級權限"):
                 if pwd == st.secrets.get("ADMIN_PASSWORD", "1234"):
                     st.session_state.is_admin = True
@@ -141,10 +131,11 @@ def dashboard_page():
     conn = get_db()
     try:
         prog_df = conn.read(worksheet="progress", ttl=0)
+        # 修正：確保抓取數值，若無則為 0
         bio_val = prog_df[prog_df['科目'] == '生物']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '生物'].empty else 0
         eng_val = prog_df[prog_df['科目'] == '英文']['進度'].iloc[0] if not prog_df[prog_df['科目'] == '英文'].empty else 0
     except:
-        bio_val, eng_val = 0, 0 # 進度如果沒有就打零
+        bio_val, eng_val = 0, 0
 
     c1, c2 = st.columns(2)
     with c1:
@@ -169,57 +160,53 @@ def dashboard_page():
     except: st.info("正在準備任務資料...")
 
 # ==========================================
-# 4. 頁面：計畫展示櫃 (開放幫我排課表)
+# 4. 頁面：計畫展示櫃 (解決 KeyError 與 API 錯誤)
 # ==========================================
 def scheduler_page():
     st.title("📅 計畫展示櫃 (開放協作版)")
     st.markdown("### 🤝 開放幫我排課表")
-    st.info("這是一個公開的玻璃櫃，任何人都可以直接在下方表格輸入中文，幫我安排本週的進度與考點！")
+    st.info("任何人都可以直接在下方表格輸入中文，幫我安排本週的進度與考點！")
     
     conn = get_db()
+    required_cols = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
+    
     try:
         plan_df = conn.read(worksheet="study_plan", ttl=0)
+        # 強制校正欄位名稱，防止 st.data_editor 報錯
+        if list(plan_df.columns) != required_cols:
+            plan_df = pd.DataFrame(columns=required_cols)
     except:
-        plan_df = pd.DataFrame(columns=['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手'])
+        plan_df = pd.DataFrame(columns=required_cols)
 
-    required_cols = ['星期', '生物進度', '英文進度', '🎯考點提醒', '排課小幫手']
-    if not all(col in plan_df.columns for col in required_cols):
-        plan_df = pd.DataFrame([
-            ["週一", "", "", "", ""],
-            ["週二", "", "", "", ""],
-            ["週三", "", "", "", ""],
-            ["週四", "", "", "", ""],
-            ["週五", "", "", "", ""]
-        ], columns=required_cols)
-        conn.update(worksheet="study_plan", data=plan_df)
+    if plan_df.empty:
+        plan_df = pd.DataFrame([["週一", "", "", "", ""], ["週二", "", "", "", ""], ["週三", "", "", "", ""], ["週四", "", "", "", ""], ["週五", "", "", "", ""]], columns=required_cols)
 
+    # --- 1. 玻璃卡片展示 ---
     st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
+    cols = st.columns(5)
     days = ["週一", "週二", "週三", "週四", "週五"]
-    cols = st.columns(len(days))
     for i, day in enumerate(days):
         with cols[i]:
-            st.markdown(f"<div style='text-align:center; font-weight:bold; color:#555;'>{day}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='text-align:center; font-weight:bold;'>{day}</div>", unsafe_allow_html=True)
             day_data = plan_df[plan_df['星期'] == day]
             if not day_data.empty:
                 row = day_data.iloc[0]
                 st.markdown(f"<div class='slot-box bio'>🧬 {row['生物進度'] if row['生物進度'] else '待安排'}</div>", unsafe_allow_html=True)
                 st.markdown(f"<div class='slot-box eng'>🌍 {row['英文進度'] if row['英文進度'] else '待安排'}</div>", unsafe_allow_html=True)
-                if row['🎯考點提醒']:
-                    st.markdown(f"<div class='point-tag'>🎯 {row['🎯考點提醒']}</div>", unsafe_allow_html=True)
-                if row['排課小幫手']:
-                    st.caption(f"✍️ 感謝 {row['排課小幫手']}")
-            else:
-                st.caption("休息")
+                if row['🎯考點提醒']: st.markdown(f"<div class='point-tag'>🎯 {row['🎯考點提醒']}</div>", unsafe_allow_html=True)
+                if row['排課小幫手']: st.caption(f"✍️ {row['排課小幫手']}")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("""<div class='collab-area'>""", unsafe_allow_html=True)
-    st.subheader("📝 編輯區 (支援中文輸入)")
+    # --- 2. 編輯區 ---
+    st.markdown("<div class='collab-area'>", unsafe_allow_html=True)
+    st.subheader("📝 編輯區 (支援中文)")
     
+    # 這裡的 column_config 鍵值必須與 plan_df.columns 完全一致
     new_plan = st.data_editor(
         plan_df, 
         use_container_width=True,
         column_config={
-            "星期": st.column_config.SelectboxColumn("星期", options=["週一", "週二", "週三", "週四", "週五"], required=True),
+            "星期": st.column_config.SelectboxColumn("星期", options=days, required=True),
             "生物進度": st.column_config.TextColumn("生物進度"),
             "英文進度": st.column_config.TextColumn("英文進度"),
             "🎯考點提醒": st.column_config.TextColumn("🎯考點提醒"),
@@ -228,16 +215,15 @@ def scheduler_page():
     )
     
     if st.button("💾 提交建議課表", type="primary", use_container_width=True):
-        with st.spinner("正在同步至雲端..."):
-            conn.update(worksheet="study_plan", data=new_plan)
-            st.balloons()
-            st.toast("感謝你的排課建議！課表已更新。")
-            time.sleep(1)
-            st.rerun()
+        conn.update(worksheet="study_plan", data=new_plan)
+        st.balloons()
+        st.toast("課表已更新！")
+        time.sleep(1)
+        st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# 5. 頁面：共同讀書區
+# 5. 頁面：共同讀書區 (修正語法錯誤)
 # ==========================================
 def joint_study_page():
     st.title("🏭 共同讀書區")
@@ -248,15 +234,16 @@ def joint_study_page():
         name = st.text_input("貢獻者姓名", placeholder="您的名字")
         subj = st.selectbox("科目", ["生奧", "英文", "學測理化"])
         type_up = st.radio("上傳類型", ["題目/筆記素材", "🎯 考點建議"])
-        note = st.text_area("內容描述 (支援中文輸入)")
+        note = st.text_area("內容描述 (支援中文)")
         files = st.file_uploader("上傳圖片素材", accept_multiple_files=True)
         
         if st.button("🚀 確認送出", use_container_width=True):
             st.balloons()
             st.toast(f"感謝 {name}！您的貢獻已送達。")
+            
     with col_info:
         st.markdown("### 📢 玩法說明")
-        st.info("- **開放排課**：去「計畫展示」頁面幫我排課。\n- **提供素材**：在這裡上傳你覺得重要的考點。\n- **共同備考**：您的每一份建議都會出現在我的戰情室！")
+        st.info("- **開放排課**：去「計畫展示」頁面幫我排課。\n- **提供素材**：在這裡上傳考點。\n- **共同備考**：您的建議都會出現在戰情室！")
         st.image("https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJndmthZzR3eHBybmZ4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKSjPAnuC28cAnS/giphy.gif")
 
 # ==========================================
