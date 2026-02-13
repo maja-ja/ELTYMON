@@ -54,7 +54,7 @@ def inject_custom_css():
 def get_db_connection():
     return st.connection("gsheets", type=GSheetsConnection)
 
-def run_gemini(prompt, model_name='gemini-1.5-flash'):
+def run_gemini(prompt, model_name='gemini-2.5-flash'):
     """呼叫 Gemini API"""
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key:
@@ -118,7 +118,8 @@ def dashboard_page():
     # 1. 倒數計時器 (Hardcoded targets for demo)
     targets = [
         {"name": "生物奧林匹亞初試", "date": "2026-11-01"},
-        {"name": "托福考試", "date": "2025-12-15"},
+        {"name": "托福考試", "date": "2026-12-15"},
+        {"name": "多益考試", "date": "2026-12-15"},
         {"name": "學測", "date": "2027-01-20"},
         {"name": "同等學力", "date": "2026-10-01"}
     ]
