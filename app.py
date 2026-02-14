@@ -6,7 +6,7 @@ from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 
 # ==========================================
-# 0. 基礎設定與強制反底色 CSS
+# 0. 基礎設定與 CSS 美化 (含 Toast 純白化)
 # ==========================================
 st.set_page_config(page_title="單字大亂鬥", page_icon="🤪", layout="wide")
 
@@ -15,49 +15,29 @@ def inject_game_css():
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Noto+Sans+TC:wght@500;900&display=swap');
             
-            /* =========================================
-               🎨 1. 全域背景與文字 (白底黑字)
-               ========================================= */
+            /* 1. 全域背景與文字 (白底黑字) */
             [data-testid="stAppViewContainer"], [data-testid="stHeader"] { 
                 background-color: #ffffff !important; 
             }
             [data-testid="stSidebar"] { 
                 background-color: #f8f9fa !important; 
-                border-right: 2px solid #000 !important; /* 加粗邊框更像漫畫 */
+                border-right: 2px solid #000 !important; 
             }
-            
-            /* 強制所有一般文字為純黑，確保白底上的最高對比 */
             .stMarkdown, p, h1, h2, h3, div, span, label { 
                 color: #000000 !important; 
                 font-family: 'Fredoka', 'Noto Sans TC', sans-serif !important; 
             }
+            header, footer, .stDeployButton { display: none; }
 
-            /* 隱藏多餘元素 */
-            header, footer, .stDeployButton { visibility: hidden; display: none; }
-
-            /* =========================================
-               💭 2. 標題與對話框 (高對比風格)
-               ========================================= */
+            /* 2. 標題與對話框 */
             .game-title {
-                text-align: center; 
-                font-size: 3.5rem; 
-                font-weight: 900; 
-                color: #FF4757 !important; /* 鮮豔紅 */
-                text-shadow: 4px 4px 0px #2F3542; /* 深色陰影，強調立體感 */
-                margin-bottom: 5px; 
-                animation: float 3s ease-in-out infinite;
+                text-align: center; font-size: 3.5rem; font-weight: 900; 
+                color: #FF4757 !important; text-shadow: 4px 4px 0px #2F3542; 
+                margin-bottom: 5px; animation: float 3s ease-in-out infinite;
             }
-            
             .taunt-bubble {
-                background: #fff; 
-                border: 3px solid #000; 
-                border-radius: 20px; 
-                padding: 15px; 
-                margin: 15px 0;
-                position: relative; 
-                box-shadow: 5px 5px 0px #000; /* 純黑陰影 */
-                font-weight: 900; 
-                color: #000 !important;
+                background: #fff; border: 3px solid #000; border-radius: 20px; padding: 15px; margin: 15px 0;
+                position: relative; box-shadow: 5px 5px 0px #000; font-weight: 900; color: #000 !important;
             }
             .taunt-bubble:after {
                 content: ''; position: absolute; bottom: -23px; left: 20px;
@@ -68,71 +48,52 @@ def inject_game_css():
                 border-width: 17px 17px 0; border-style: solid; border-color: #fff transparent; display: block; width: 0; z-index: 1;
             }
 
-            /* =========================================
-               🎈 3. 單字泡泡 (彩底白字 - 反底色)
-               ========================================= */
+            /* 3. 單字泡泡 (反底色：彩底白字) */
             .bubble-wrapper { display: flex; justify-content: center; align-items: center; padding: 10px; }
-            
             .word-bubble {
                 width: 200px; height: 200px;
-                /* 漸層背景 */
                 background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%);
-                border-radius: 50%; 
-                display: flex; flex-direction: column; justify-content: center; align-items: center;
-                text-align: center; 
-                border: 4px solid #fff; 
-                box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-                position: relative; 
-                animation: float 4s ease-in-out infinite;
-                
-                /* 🔥 關鍵：強制泡泡內文字為白色，並加上黑陰影，確保反底色效果 🔥 */
-                color: #ffffff !important;
-                text-shadow: 2px 2px 0px rgba(0,0,0,0.4);
+                border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center;
+                text-align: center; border: 4px solid #fff; box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+                position: relative; animation: float 4s ease-in-out infinite;
+                color: #ffffff !important; text-shadow: 2px 2px 0px rgba(0,0,0,0.8); /* 強力黑陰影 */
             }
-            
-            /* 泡泡內的文字繼承白色設定 */
-            .word-bubble div {
-                color: #ffffff !important;
-            }
-
-            /* 不同顏色的泡泡 */
-            .delay-1 { animation-delay: 0s; background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%); } /* 橘紅 */
-            .delay-2 { animation-delay: 1s; background: linear-gradient(135deg, #4834d4 0%, #686de0 100%); } /* 深藍紫 */
-            .delay-3 { animation-delay: 2s; background: linear-gradient(135deg, #6ab04c 0%, #badc58 100%); } /* 鮮綠 */
-
+            .word-bubble div { color: #ffffff !important; }
+            .delay-1 { animation-delay: 0s; background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 100%); }
+            .delay-2 { animation-delay: 1s; background: linear-gradient(135deg, #4834d4 0%, #686de0 100%); }
+            .delay-3 { animation-delay: 2s; background: linear-gradient(135deg, #6ab04c 0%, #badc58 100%); }
             .bubble-word { font-size: 1.8rem; font-weight: 900; }
             .bubble-hint { font-size: 0.9rem; font-weight: 600; opacity: 0.9; margin-top: 5px; }
 
-            /* =========================================
-               📝 4. 評分區與按鈕
-               ========================================= */
+            /* 4. 評分區與按鈕 */
             .rating-container {
-                background-color: #f1f2f6; 
-                border-radius: 20px; 
-                padding: 20px; 
-                margin-top: 20px;
-                border: 3px dashed #333; 
-                text-align: center;
+                background-color: #f1f2f6; border-radius: 20px; padding: 20px; margin-top: 20px;
+                border: 3px dashed #333; text-align: center;
             }
-
-            /* 按鈕樣式：白底黑字，加上黑色陰影 */
             div.stButton > button {
-                background-color: #ffffff;
-                color: #000000 !important;
-                border-radius: 15px; 
-                font-weight: 900; 
-                border: 2px solid #000;
-                box-shadow: 4px 4px 0 #000; /* 漫畫風格硬陰影 */
-                transition: 0.1s;
+                background-color: #ffffff; color: #000000 !important; border-radius: 15px; font-weight: 900; 
+                border: 2px solid #000; box-shadow: 4px 4px 0 #000; transition: 0.1s;
             }
-            div.stButton > button:hover {
-                background-color: #fffa65; /* 懸停變黃色 */
-                color: #000 !important;
-                border-color: #000;
+            div.stButton > button:hover { background-color: #fffa65; border-color: #000; }
+            div.stButton > button:active { box-shadow: 0 0 0 #000; transform: translate(4px, 4px); }
+
+            /* =========================================
+               🚀 5. Toast 純白化 (黑底白字高對比)
+               ========================================= */
+            div[data-baseweb="toast"] {
+                background-color: #000000 !important; /* 黑底 */
+                border: 2px solid #ffffff !important; /* 白框 */
+                box-shadow: 4px 4px 0px rgba(0,0,0,0.5) !important;
+                border-radius: 10px !important;
+                padding: 15px !important;
             }
-            div.stButton > button:active { 
-                box-shadow: 0 0 0 #000; 
-                transform: translate(4px, 4px); 
+            div[data-baseweb="toast"] div, 
+            div[data-baseweb="toast"] p, 
+            div[data-baseweb="toast"] span,
+            div[data-baseweb="toast"] svg {
+                color: #ffffff !important; /* 純白文字 */
+                font-weight: 900 !important;
+                font-size: 1.1rem !important;
             }
 
             @keyframes float {
@@ -142,23 +103,19 @@ def inject_game_css():
             }
 
             /* =========================================
-               📱 5. 手機版專屬優化 (Mobile Responsive)
+               📱 6. 手機版優化
                ========================================= */
             @media (max-width: 768px) {
                 .game-title { font-size: 2.5rem; }
-
+                
                 /* 隱藏第2、3顆泡泡 */
                 [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(2),
                 [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(3) {
                     display: none !important;
                 }
-
                 /* 讓第1顆泡泡滿版置中 */
                 [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(1) {
-                    width: 100% !important;
-                    flex: 1 1 100% !important;
-                    display: flex;
-                    justify-content: center;
+                    width: 100% !important; flex: 1 1 100% !important; display: flex; justify-content: center;
                 }
                 .rating-container { padding: 10px; }
             }
@@ -191,13 +148,27 @@ def load_bubbles():
         ])
 
 def submit_rating(word, rating, icon):
-    st.toast(f"{icon} 已將「{word}」歸類為：{rating}", icon="🚀")
+    """
+    提交評分並強制刷新單字
+    """
+    # 顯示高對比的 Toast
+    st.toast(f"{icon} {word} ➔ {rating}", icon="✅")
+    
+    # 稍微停頓讓用戶看到動畫
     time.sleep(0.5)
+    
+    # 🔥 關鍵：刪除目前的泡泡快取，強制換一批
+    if 'current_bubbles' in st.session_state:
+        del st.session_state.current_bubbles
+    
+    # 重置選中狀態
     st.session_state.selected_bubble_idx = None
+    
+    # 強制重整頁面
     st.rerun()
 
 # ==========================================
-# 2. 嘲諷贊助 (Sidebar)
+# 2. 嘲諷贊助 (Sidebar - 置底)
 # ==========================================
 def render_sarcastic_sponsor():
     if 'taunt_level' not in st.session_state: st.session_state.taunt_level = 0
@@ -230,19 +201,25 @@ def render_sarcastic_sponsor():
 # 3. 核心功能：泡泡與評分
 # ==========================================
 def render_game_area(df):
+    # 1. 如果 Session 中沒有單字，則隨機抽取
     if 'current_bubbles' not in st.session_state:
         st.session_state.current_bubbles = df.sample(min(3, len(df))).to_dict('records')
+    
     if 'selected_bubble_idx' not in st.session_state:
         st.session_state.selected_bubble_idx = None
 
-    # --- 頂部換一批 ---
-    col_head_1, col_head_2, col_head_3 = st.columns([1, 2, 1])
-    with col_head_2:
-        if st.button("🔄 這些太醜了，換一批！", use_container_width=True):
-            st.session_state.current_bubbles = df.sample(min(3, len(df))).to_dict('records')
-            st.session_state.selected_bubble_idx = None
-            st.rerun()
-
+    # --- 頂部換一批按鈕 (手機版最優先顯示) ---
+    # 使用 Container 確保在 DOM 順序靠前
+    with st.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            # 這個按鈕在手機上會自動變為全寬，並位於泡泡上方
+            if st.button("🔄 這些太醜了，換一批！", use_container_width=True):
+                if 'current_bubbles' in st.session_state:
+                    del st.session_state.current_bubbles
+                st.session_state.selected_bubble_idx = None
+                st.rerun()
+    
     st.write("---")
 
     # --- 泡泡顯示區 ---
@@ -268,29 +245,31 @@ def render_game_area(df):
     # --- 評分互動區 ---
     if st.session_state.selected_bubble_idx is not None:
         idx = st.session_state.selected_bubble_idx
-        target = bubbles[idx]
-        with st.container():
-            st.markdown(f"""
-            <div class="rating-container">
-                <h2 style="margin:0; color:#000;">{target['word']}</h2>
-                <p style="color:#000; font-size:1.2rem; font-weight:bold;">{target['definition']}</p>
-                <p style="color:#333; font-size:0.9rem;">拆解：{target['breakdown']}</p>
-                <hr style="border-top: 2px dashed #000;">
-                <h3 style="color:#000;">👇 評價一下？</h3>
-            </div>
-            """, unsafe_allow_html=True)
+        # 防止索引錯誤 (極端情況)
+        if idx < len(bubbles):
+            target = bubbles[idx]
+            with st.container():
+                st.markdown(f"""
+                <div class="rating-container">
+                    <h2 style="margin:0; color:#000;">{target['word']}</h2>
+                    <p style="color:#000; font-size:1.2rem; font-weight:bold;">{target['definition']}</p>
+                    <p style="color:#333; font-size:0.9rem;">拆解：{target['breakdown']}</p>
+                    <hr style="border-top: 2px dashed #000;">
+                    <h3 style="color:#000;">👇 評價一下？ (點完會直接換下一批)</h3>
+                </div>
+                """, unsafe_allow_html=True)
 
-            c1, c2, c3, c4, c5 = st.columns(5)
-            with c1: 
-                if st.button("😍 夯", use_container_width=True): submit_rating(target['word'], "夯", "🧺")
-            with c2: 
-                if st.button("🙂 還行", use_container_width=True): submit_rating(target['word'], "還行", "🧺")
-            with c3: 
-                if st.button("😐 普通", use_container_width=True): submit_rating(target['word'], "普通", "❓")
-            with c4: 
-                if st.button("😒 醜", use_container_width=True): submit_rating(target['word'], "醜", "🗑️")
-            with c5: 
-                if st.button("🤮 爛", use_container_width=True): submit_rating(target['word'], "爛", "🗑️")
+                c1, c2, c3, c4, c5 = st.columns(5)
+                with c1: 
+                    if st.button("😍 夯", use_container_width=True): submit_rating(target['word'], "夯", "🧺")
+                with c2: 
+                    if st.button("🙂 還行", use_container_width=True): submit_rating(target['word'], "還行", "🧺")
+                with c3: 
+                    if st.button("😐 普通", use_container_width=True): submit_rating(target['word'], "普通", "❓")
+                with c4: 
+                    if st.button("😒 醜", use_container_width=True): submit_rating(target['word'], "醜", "🗑️")
+                with c5: 
+                    if st.button("🤮 爛", use_container_width=True): submit_rating(target['word'], "爛", "🗑️")
 
 # ==========================================
 # 4. 底部視覺區域 (HTML/JS 動畫版)
@@ -305,7 +284,7 @@ def render_bottom_zone():
             body { background: transparent; margin: 0; padding: 0; font-family: 'Fredoka', 'Noto Sans TC', sans-serif; overflow: hidden; }
             .bottom-container {
                 display: flex; justify-content: space-around; align-items: flex-end;
-                padding-top: 50px; height: 180px; border-top: 4px solid #000; /* 加粗黑線 */
+                padding-top: 50px; height: 180px; border-top: 4px solid #000;
             }
             .zone-item {
                 text-align: center; cursor: pointer; position: relative; width: 30%;
@@ -313,8 +292,6 @@ def render_bottom_zone():
             }
             .zone-item:active { transform: scale(0.95); }
             .zone-icon { font-size: 4rem; margin-bottom: 5px; display: block; }
-            
-            /* 底部文字強制純黑 */
             .zone-label { font-size: 1.2rem; font-weight: 900; color: #000 !important; margin: 0; }
             .zone-hint { font-size: 0.8rem; color: #555 !important; margin: 0; font-weight: bold; }
             
@@ -342,10 +319,10 @@ def render_bottom_zone():
             <div class="zone-item" onclick="createFloat(this, '這裡沒有吃的 🍔')">
                 <div class="zone-icon">🧺</div><p class="zone-label">真香籃</p><p class="zone-hint">(夯貨)</p>
             </div>
-            <div class="zone-item" onclick="createFloat(this, '？？？？？')">
+            <div class="zone-item" onclick="createFloat(this, '？？？？')">
                 <div class="zone-icon">❓</div><p class="zone-label">黑人問號</p><p class="zone-hint">(拖不動)</p>
             </div>
-            <div class="zone-item" onclick="createFloat(this, '莎莎莎莎莎')">
+            <div class="zone-item" onclick="createFloat(this, '你不會想進來吧？？ 😱')">
                 <div class="zone-icon">🗑️</div><p class="zone-label">垃圾桶</p><p class="zone-hint">(爛貨)</p>
             </div>
         </div>
@@ -371,10 +348,17 @@ def main():
     st.markdown("<div style='text-align:center; color:#000 !important; margin-bottom:30px; font-weight:900;'>別再背單字了，來決定單字的生死吧！</div>", unsafe_allow_html=True)
     
     with st.sidebar:
+        # 1. 頂部 GIF
         st.image("https://media.giphy.com/media/l2JHVUriDGEtWOx0c/giphy.gif", caption="...你在看我嗎？")
-        render_sarcastic_sponsor()
+        
+        # 2. 強制間距 (Spacer)，將贊助區推到最底
+        st.markdown("<div style='height: 45vh;'></div>", unsafe_allow_html=True)
+        
+        # 3. 贊助區
         st.sidebar.markdown("---")
-        st.sidebar.caption("v5.2 High Contrast Mode")
+        render_sarcastic_sponsor()
+        
+        st.sidebar.caption("v5.4 Infinite Flow")
 
     df = load_bubbles()
     if not df.empty:
