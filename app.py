@@ -219,9 +219,9 @@ def render_bottom_section():
     .float-text { position: absolute; top: 0; left: 50%; transform: translateX(-50%); color: #FF4757; font-weight: 900; font-size: 1.2rem; white-space: nowrap; pointer-events: none; animation: floatUp 1.5s ease-out forwards; text-shadow: 2px 2px 0px #fff; z-index: 999; }
     @keyframes floatUp { 0% { top: -10px; opacity: 1; transform: translateX(-50%) scale(1); } 100% { top: -80px; opacity: 0; transform: translateX(-50%) scale(1.2); } }
     </style></head><body><div class="bottom-container">
-    <div class="zone-item" onclick="createFloat(this, '這裡沒有吃的 🍔')"><div class="zone-icon">🧺</div><p class="zone-label">真香籃</p><p class="zone-hint">(夯貨)</p></div>
-    <div class="zone-item" onclick="createFloat(this, '？？？？')"><div class="zone-icon">❓</div><p class="zone-label">黑人問號</p><p class="zone-hint">(拖不動)</p></div>
-    <div class="zone-item" onclick="createFloat(this, '你不會想進來吧？？ 😱')"><div class="zone-icon">🗑️</div><p class="zone-label">垃圾桶</p><p class="zone-hint">(爛貨)</p></div>
+    <div class="zone-item" onclick="createFloat(this, '這裡沒有吃的')"><div class="zone-icon">🧺</div><p class="zone-label">真香籃</p><p class="zone-hint">(夯貨)</p></div>
+    <div class="zone-item" onclick="createFloat(this, '？？？？？')"><div class="zone-icon">❓</div><p class="zone-label">黑人問號</p><p class="zone-hint">(拖不動)</p></div>
+    <div class="zone-item" onclick="createFloat(this, '莎莎莎莎莎')"><div class="zone-icon">🗑️</div><p class="zone-label">垃圾桶</p><p class="zone-hint">(爛貨)</p></div>
     </div><script>function createFloat(el, text) { const f = document.createElement('span'); f.innerText = text; f.className = 'float-text'; el.appendChild(f); setTimeout(() => f.remove(), 1500); }</script></body></html>
     """
     components.html(html_code, height=250, scrolling=False)
