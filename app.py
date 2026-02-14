@@ -338,7 +338,7 @@ def render_game_area(df):
             
             # 左邊對應籃子 (好)
             with c1:
-                if st.button("😍 夯\n(超讚)", use_container_width=True): 
+                if st.button("😍 好棒棒\n(超讚)", use_container_width=True): 
                     submit_rating(target['word'], "夯", "🧺")
             with c2:
                 if st.button("🙂 還行\n(太好了)", use_container_width=True): 
