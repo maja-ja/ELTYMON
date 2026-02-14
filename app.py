@@ -395,4 +395,18 @@ def main():
     # 側邊欄嘲諷
     with st.sidebar:
         # 一個看著你的 GIF
-        st.image("https://media.giphy.com/media/l2JHVUriDGEtWO
+        st.image("https://media.giphy.com/media/l2JHVUriDGEtWOx0c/giphy.gif", caption="...你在看我嗎？")
+        render_sarcastic_sponsor()
+        st.sidebar.markdown("---")
+        st.sidebar.caption("v5.0 Chaos Mode | 這裡沒有硬知識")
+
+    # 讀取資料並執行遊戲
+    df = load_bubbles()
+    if df.empty:
+        st.error("資料庫讀取失敗，請稍後再試。")
+    else:
+        render_game_area(df)
+        render_bottom_zone()
+
+if __name__ == "__main__":
+    main()
