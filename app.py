@@ -251,7 +251,7 @@ def render_game_area(df):
                     <p style="color:#000; font-size:1.2rem; font-weight:bold;">{target['definition']}</p>
                     <p style="color:#333; font-size:0.9rem;">拆解：{target['breakdown']}</p>
                     <hr style="border-top: 2px dashed #000;">
-                    <h3 style="color:#000;">👇 評價一下？ (點完自動下一題)</h3>
+                    <h3 style="color:#000;">👇 評價一下？/h3>
                 </div>
                 """, unsafe_allow_html=True)
 
