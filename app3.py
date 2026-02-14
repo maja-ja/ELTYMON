@@ -1,267 +1,326 @@
 import streamlit as st
 import pandas as pd
-import base64
+import random
 import time
-import re
-from io import BytesIO
-from gtts import gTTS
-import streamlit.components.v1 as components
-import markdown
 from streamlit_gsheets import GSheetsConnection
+import streamlit.components.v1 as components
 
 # ==========================================
-# 1. 核心工具函式
+# 0. 基礎設定與強制白底 CSS (含手機版優化)
 # ==========================================
+st.set_page_config(page_title="單字大亂鬥", page_icon="🤪", layout="wide")
 
-def fix_content(text):
-    if text is None or str(text).strip() in ["無", "nan", ""]: return ""
-    return str(text).replace('\\n', '\n').replace('\n', '  \n').strip('"').strip("'")
-
-def speak(text, key_suffix=""):
-    english_only = re.sub(r"[^a-zA-Z0-9\s\-\']", " ", str(text)).strip()
-    if not english_only: return
-    try:
-        tts = gTTS(text=english_only, lang='en')
-        fp = BytesIO()
-        tts.write_to_fp(fp)
-        audio_base64 = base64.b64encode(fp.getvalue()).decode()
-        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
-        components.html(f"""
-        <html><body>
-            <style>
-                .speak-btn {{ background: #eef7ff; border: 1px solid #d0e8ff; border-radius: 12px; padding: 10px; cursor: pointer; width: 100%; font-weight: 600; color: #1c6aae; }}
-                @media (prefers-color-scheme: dark) {{ .speak-btn {{ background: #161B22; border-color: #30363d; color: #f0f6fc; }} }}
-            </style>
-            <button class="speak-btn" onclick="document.getElementById('{unique_id}').play()">🔊 聽發音</button>
-            <audio id="{unique_id}" style="display:none" src="data:audio/mp3;base64,{audio_base64}"></audio>
-        </body></html>""", height=50)
-    except: pass
-def submit_error_report(data_row):
-    """將錯誤單字回報至指定的 Google Sheets 工作表: feede"""
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        # 您提供的試算表完整 URL
-        sheet_url = "https://docs.google.com/spreadsheets/d/1NNfKPadacJ6SDDLw9c23fmjq-26wGEeinTbWcg7-gFg/edit#gid=0"
-        
-        # 定義您資料庫的所有欄位 (21個)
-        columns = [
-            'category', 'roots', 'meaning', 'word', 'breakdown', 'definition', 'phonetic', 
-            'example', 'translation', 'native_vibe', 'synonym_nuance', 'visual_prompt', 
-            'social_status', 'emotional_tone', 'street_usage', 'collocation', 'etymon_story', 
-            'usage_warning', 'memory_hook', 'audio_tag', 'term'
-        ]
-        
-        # 1. 嘗試讀取 'feede' 工作表
-        try:
-            # 這裡改為您指定的分頁名稱: feede
-            r_df = conn.read(spreadsheet=sheet_url, worksheet="feede", ttl=0)
-        except Exception as read_e:
-            st.error(f"❌ 讀取失敗：找不到名為 'feede' 的分頁。請確認試算表標籤名稱。")
-            return False
-        
-        # 2. 準備新的一列資料
-        # 將當前單字的內容填入對應欄位
-        new_row_dict = {col: data_row.get(col, "無") for col in columns}
-        
-        # 額外紀錄回報時間與狀態
-        new_row_dict['report_time'] = time.strftime("%Y-%m-%d %H:%M:%S")
-        new_row_dict['report_status'] = '待處理'
-        
-        new_df = pd.DataFrame([new_row_dict])
-        
-        # 3. 合併現有資料並更新
-        updated_df = pd.concat([r_df, new_df], ignore_index=True)
-        
-        # 指定寫入到 feede 分頁
-        conn.update(spreadsheet=sheet_url, worksheet="feede", data=updated_df)
-        return True
-        
-    except Exception as e:
-        # 如果還是失敗，顯示詳細錯誤原因 (例如權限問題)
-        st.error(f"⚠️ 寫入失敗，請確認是否已將試算表共用給 Service Account。詳細訊息：{e}")
-        return False
-
-@st.cache_data(ttl=3600) 
-def load_db():
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        df = conn.read(spreadsheet=url, ttl=0)
-        return df.fillna("無")
-    except: return pd.DataFrame()
-
-def generate_printable_html(title, text_content, auto_download=False):
-    html_body = markdown.markdown(text_content)
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
-    return f"""
-    <html><head>
-        <meta charset="UTF-8">
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-        <style>
-            body {{ background-color: #525659; display: flex; justify-content: center; padding: 20px; margin: 0; }}
-            #area {{ background-color: white !important; color: black !important; width: 210mm; min-height: 297mm; padding: 20mm; box-shadow: 0 0 10px rgba(0,0,0,0.5); font-family: sans-serif; line-height: 1.6; }}
-            h1 {{ border-bottom: 2px solid #333; padding-bottom: 10px; color: black; }}
-        </style>
-    </head><body>
-        <div id="area"><h1>{title}</h1>{html_body}</div>
-        <script>function downloadPDF(){{const e=document.getElementById('area');html2pdf().from(e).save('{title}.pdf');}}{auto_js}</script>
-    </body></html>"""
-
-# ==========================================
-# 2. UI 樣式 (解決卡住問題)
-# ==========================================
-
-def inject_ui():
+def inject_game_css():
     st.markdown("""
         <style>
-            /* 隱藏頂部所有 Streamlit 標籤與按鈕 */
-            header, footer, .stAppDeployButton, #MainMenu { visibility: hidden !important; height: 0 !important; display: none !important; }
+            @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Noto+Sans+TC:wght@400;900&display=swap');
             
-            /* 調整容器以防被頂部卡住 */
-            .block-container { 
-                max-width: 480px !important; 
-                padding: 2.5rem 1rem 5rem 1rem !important; 
+            /* --- 全域設定 --- */
+            [data-testid="stAppViewContainer"], [data-testid="stHeader"] { background-color: #ffffff !important; }
+            [data-testid="stSidebar"] { background-color: #f8f9fa !important; border-right: 1px dashed #ccc; }
+            .stMarkdown, p, h1, h2, h3, div { color: #333 !important; font-family: 'Fredoka', 'Noto Sans TC', sans-serif !important; }
+            header, footer, .stDeployButton { visibility: hidden; display: none; }
+
+            /* --- 標題與對話框 --- */
+            .game-title {
+                text-align: center; font-size: 3.5rem; font-weight: 900; color: #FF6B6B !important;
+                text-shadow: 3px 3px 0px #Feca57; margin-bottom: 5px; animation: float 3s ease-in-out infinite;
+            }
+            .taunt-bubble {
+                background: #fff; border: 3px solid #000; border-radius: 20px; padding: 15px; margin: 15px 0;
+                position: relative; box-shadow: 5px 5px 0px rgba(0,0,0,0.8); font-weight: bold; color: #000 !important;
+            }
+            .taunt-bubble:after {
+                content: ''; position: absolute; bottom: -23px; left: 20px;
+                border-width: 20px 20px 0; border-style: solid; border-color: #000 transparent; display: block; width: 0;
+            }
+            .taunt-bubble:before {
+                content: ''; position: absolute; bottom: -16px; left: 23px;
+                border-width: 17px 17px 0; border-style: solid; border-color: #fff transparent; display: block; width: 0; z-index: 1;
             }
 
-            :root {
-                --main-bg: #f8f9fa; --card-bg: white; --text-color: #212529;
-                --subtle-text: #6c757d; --border-color: #dee2e6;
-                --h1-color: #343a40; --accent-color: #e6f0ff; --accent-text: #0059b3;
+            /* --- 單字泡泡 --- */
+            .bubble-wrapper { display: flex; justify-content: center; align-items: center; padding: 10px; }
+            .word-bubble {
+                width: 200px; height: 200px;
+                background: linear-gradient(135deg, #FF9A9E 0%, #FECFEF 99%, #FECFEF 100%);
+                border-radius: 50%; display: flex; flex-direction: column; justify-content: center; align-items: center;
+                text-align: center; box-shadow: inset -10px -10px 20px rgba(0,0,0,0.1), 5px 10px 15px rgba(0,0,0,0.1);
+                border: 4px solid #fff; color: #444 !important; position: relative; animation: float 4s ease-in-out infinite;
             }
-            @media (prefers-color-scheme: dark) {
-                :root {
-                    --main-bg: #0E1117; --card-bg: #161B22; --text-color: #e3e3e3;
-                    --subtle-text: #a0a0a0; --border-color: #30363d;
-                    --h1-color: #f0f6fc; --accent-color: #1c2a3a; --accent-text: #79c0ff;
+            .delay-1 { animation-delay: 0s; background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); }
+            .delay-2 { animation-delay: 1s; background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%); }
+            .delay-3 { animation-delay: 2s; background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); }
+            .bubble-word { font-size: 1.8rem; font-weight: 900; text-shadow: 2px 2px 0px rgba(255,255,255,0.5); }
+            .bubble-hint { font-size: 0.9rem; font-weight: 600; opacity: 0.7; margin-top: 5px; }
+
+            /* --- 評分區 --- */
+            .rating-container {
+                background-color: #f0f0f0; border-radius: 20px; padding: 20px; margin-top: 20px;
+                border: 3px dashed #ccc; text-align: center;
+            }
+
+            /* --- 按鈕樣式 --- */
+            div.stButton > button {
+                border-radius: 15px; font-weight: bold; border: 2px solid #ddd;
+                box-shadow: 0 4px 0 #ddd; transition: 0.1s;
+            }
+            div.stButton > button:active { box-shadow: 0 0 0 #ddd; transform: translateY(4px); }
+
+            @keyframes float {
+                0% { transform: translateY(0px); }
+                50% { transform: translateY(-15px); }
+                100% { transform: translateY(0px); }
+            }
+
+            /* =========================================
+               📱 手機版專屬優化 (Mobile Responsive)
+               ========================================= */
+            @media (max-width: 768px) {
+                /* 縮小標題 */
+                .game-title { font-size: 2.5rem; }
+
+                /* 
+                   關鍵邏輯：隱藏泡泡區的第 2 和第 3 欄 
+                   我們鎖定頁面上的第 2 個 stHorizontalBlock (通常是泡泡區)，
+                   隱藏它的第 2 和第 3 個 column。
+                */
+                [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(2),
+                [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(3) {
+                    display: none !important;
                 }
-            }
-            html, body, .main { background-color: var(--main-bg) !important; }
 
-            .word-card { 
-                background: var(--card-bg); border-radius: 16px; padding: 20px;
-                border: 1px solid var(--border-color); margin-bottom: 20px;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            }
-            .roots-tag { background: var(--accent-color); color: var(--accent-text); padding: 5px 12px; border-radius: 10px; font-size: 0.85rem; font-weight: 500; }
-            .sponsor-banner { 
-                background: linear-gradient(90deg, #ffc107, #ff9800); color: #212529 !important; 
-                padding: 12px; border-radius: 12px; text-align: center; display: block; 
-                text-decoration: none; margin-bottom: 20px; font-weight: bold;
+                /* 讓剩下的那一個泡泡欄位寬度填滿並置中 */
+                [data-testid="stHorizontalBlock"]:nth-of-type(2) [data-testid="column"]:nth-of-type(1) {
+                    width: 100% !important;
+                    flex: 1 1 100% !important;
+                    display: flex;
+                    justify-content: center;
+                }
+                
+                /* 評分按鈕在手機上改成兩排顯示 (Flex wrap) */
+                .rating-container { padding: 10px; }
             }
         </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 頁面邏輯
+# 1. 資料庫讀取
 # ==========================================
+def get_spreadsheet_url():
+    try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
+    except: return st.secrets.get("gsheets", {}).get("spreadsheet", "")
 
-def home_page(df):
-    st.markdown("<h2 style='text-align:center;'>🔍 探索知識</h2>", unsafe_allow_html=True)
-    st.markdown("""<a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-banner">💖 贊助支持開發成本</a>""", unsafe_allow_html=True)
-    
-    sel_cat = st.selectbox("領域", ["🌍 全部領域"] + sorted(df['category'].unique().tolist()), label_visibility="collapsed")
-    
-    c_s, c_r, c_report = st.columns([4, 1, 2])
-    with c_s:
-        query = st.text_input("搜尋...", placeholder="例如: genocide", label_visibility="collapsed")
-    with c_r:
-        if st.button("🎲"):
-            pool = df if sel_cat == "🌍 全部領域" else df[df['category'] == sel_cat]
-            if not pool.empty:
-                st.session_state.selected_word = pool.sample(1).iloc[0].to_dict()
-                st.rerun()
-    with c_report:
-        if st.button("⚠️ 報錯"):
-            current_data = st.session_state.get('selected_word', {})
-            if submit_error_report(current_data): st.toast(f"已回報 {current_data.get('word')}！")
+@st.cache_data(ttl=60) 
+def load_bubbles():
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        df = conn.read(spreadsheet=url, ttl=0)
+        cols = ['word', 'definition', 'roots', 'breakdown']
+        for col in cols:
+            if col not in df.columns: df[col] = "???"
+        return df.fillna("???")
+    except:
+        return pd.DataFrame([
+            {"word": "Serendipity", "definition": "意外發現的美好", "roots": "serendip-", "breakdown": "童話故事來的"},
+            {"word": "Petrichor", "definition": "雨後泥土的味道", "roots": "petro-", "breakdown": "石頭的血"},
+            {"word": "Lagom", "definition": "不多不少剛剛好", "roots": "Swedish", "breakdown": "瑞典哲學"},
+            {"word": "Schadenfreude", "definition": "幸災樂禍", "roots": "German", "breakdown": "別人的痛苦是我的快樂"}
+        ])
 
-    # 單字顯示邏輯
-    target = None
-    if query:
-        match = df[df['word'].str.lower() == query.strip().lower()]
-        if not match.empty: 
-            target = match.iloc[0].to_dict()
-            st.session_state.selected_word = target
-    elif "selected_word" in st.session_state: target = st.session_state.selected_word
-    elif not df.empty: target = df.sample(1).iloc[0].to_dict()
+def submit_rating(word, rating, icon):
+    st.toast(f"{icon} 已將「{word}」歸類為：{rating}", icon="🚀")
+    time.sleep(0.5)
+    st.session_state.selected_bubble_idx = None
+    st.rerun()
+
+# ==========================================
+# 2. 嘲諷贊助 (Sidebar)
+# ==========================================
+def render_sarcastic_sponsor():
+    if 'taunt_level' not in st.session_state: st.session_state.taunt_level = 0
+    st.sidebar.markdown("### 💸 錢包破洞區")
+    ph = st.sidebar.container()
+
+    if st.session_state.taunt_level == 0:
+        if ph.button("💰 我想贊助", type="primary", use_container_width=True):
+            st.session_state.taunt_level = 1
+            st.rerun()
+    elif st.session_state.taunt_level == 1:
+        ph.markdown("<div class='taunt-bubble'>🤨 蛤？你認真？<br>我是個免費仔寫的程式欸。<br>你確定按的不是「檢舉」？</div>", unsafe_allow_html=True)
+        c1, c2 = ph.columns(2)
+        if c1.button("對啦！", use_container_width=True): st.session_state.taunt_level = 2; st.rerun()
+        if c2.button("按錯了", use_container_width=True): st.session_state.taunt_level = 0; st.rerun()
+    elif st.session_state.taunt_level == 2:
+        ph.markdown("<div class='taunt-bubble'>🥤 不是...<br>這錢拿去買杯珍奶不好嗎？<br>加個椰果它不香嗎？</div>", unsafe_allow_html=True)
+        c1, c2 = ph.columns(2)
+        if c1.button("閉嘴收錢", use_container_width=True): st.session_state.taunt_level = 3; st.rerun()
+        if c2.button("去買珍奶", use_container_width=True): st.session_state.taunt_level = 0; st.rerun()
+    elif st.session_state.taunt_level == 3:
+        ph.markdown("<div class='taunt-bubble'>🙄 好啦好啦...<br>既然你那麼堅持...<br>連結丟這裡，隨便你啦。</div>", unsafe_allow_html=True)
+        ph.markdown("""
+            <a href="https://p.ecpay.com.tw/" target="_blank" style="display:block; text-align:center; background:#00A650; color:white; padding:10px; border-radius:10px; margin-bottom:10px; font-weight:bold; text-decoration:none;">💳 綠界 (勉強收下)</a>
+            <a href="https://www.buymeacoffee.com/" target="_blank" style="display:block; text-align:center; background:#FFDD00; color:black; padding:10px; border-radius:10px; font-weight:bold; text-decoration:none;">☕ Buy Me a Coffee</a>
+        """, unsafe_allow_html=True)
+        if ph.button("重置嘲諷", use_container_width=True): st.session_state.taunt_level = 0; st.rerun()
+
+# ==========================================
+# 3. 核心功能：泡泡與評分
+# ==========================================
+def render_game_area(df):
+    if 'current_bubbles' not in st.session_state:
+        st.session_state.current_bubbles = df.sample(min(3, len(df))).to_dict('records')
+    if 'selected_bubble_idx' not in st.session_state:
+        st.session_state.selected_bubble_idx = None
+
+    # --- 頂部換一批 ---
+    col_head_1, col_head_2, col_head_3 = st.columns([1, 2, 1])
+    with col_head_2:
+        if st.button("🔄 這些太醜了，換一批！", use_container_width=True):
+            st.session_state.current_bubbles = df.sample(min(3, len(df))).to_dict('records')
+            st.session_state.selected_bubble_idx = None
+            st.rerun()
+
+    st.write("---")
+
+    # --- 泡泡顯示區 (重點：CSS會在這裡作用，手機隱藏後兩個) ---
+    cols = st.columns(3)
+    bubbles = st.session_state.current_bubbles
     
-    if target:
-        w = target['word']
-        st.session_state.selected_word = target
-        st.markdown(f"""
-        <div class="word-card">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                <span class="roots-tag">🧬 {target['roots']}</span>
-                <span style="font-size:0.75rem; color:var(--subtle-text);">{target['category']}</span>
+    for i, bubble in enumerate(bubbles):
+        # 即使 Python 渲染了 3 個，手機 CSS 會把 i=1, i=2 隱藏
+        with cols[i]:
+            delay_class = f"delay-{i+1}"
+            st.markdown(f"""
+                <div class="bubble-wrapper">
+                    <div class="word-bubble {delay_class}">
+                        <div class="bubble-word">{bubble['word']}</div>
+                        <div class="bubble-hint">{str(bubble['roots'])[:8]}...</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button(f"👆 戳 {bubble['word']}", key=f"btn_poke_{i}", use_container_width=True):
+                st.session_state.selected_bubble_idx = i
+
+    st.write("") 
+
+    # --- 評分互動區 ---
+    if st.session_state.selected_bubble_idx is not None:
+        idx = st.session_state.selected_bubble_idx
+        target = bubbles[idx]
+        with st.container():
+            st.markdown(f"""
+            <div class="rating-container">
+                <h2 style="margin:0; color:#333;">{target['word']}</h2>
+                <p style="color:#555; font-size:1.2rem;">{target['definition']}</p>
+                <p style="color:#888; font-size:0.9rem;">拆解：{target['breakdown']}</p>
+                <hr style="border-top: 2px dashed #ccc;">
+                <h3 style="color:#333;">👇 評價一下？</h3>
             </div>
-            <h1 style="font-size:2.5rem; margin-top:10px;">{w}</h1>
-            <p style="color:var(--subtle-text); margin-top:-15px;">/{target['phonetic']}/</p>
-            <div style="font-size:1.1rem; line-height:1.7;">{fix_content(target['definition'])}</div>
-            <div style="background:var(--main-bg); padding:15px; border-radius:12px; margin-top:15px;">
-                <b style="color:var(--accent-text);">💡 實例:</b><br>
-                <div style="margin-top:5px;">{fix_content(target['example'])}</div>
+            """, unsafe_allow_html=True)
+
+            c1, c2, c3, c4, c5 = st.columns(5)
+            with c1: 
+                if st.button("😍 夯", use_container_width=True): submit_rating(target['word'], "夯", "🧺")
+            with c2: 
+                if st.button("🙂 還行", use_container_width=True): submit_rating(target['word'], "還行", "🧺")
+            with c3: 
+                if st.button("😐 普通", use_container_width=True): submit_rating(target['word'], "普通", "❓")
+            with c4: 
+                if st.button("😒 醜", use_container_width=True): submit_rating(target['word'], "醜", "🗑️")
+            with c5: 
+                if st.button("🤮 爛", use_container_width=True): submit_rating(target['word'], "爛", "🗑️")
+
+# ==========================================
+# 4. 底部視覺區域 (HTML/JS 動畫版)
+# ==========================================
+def render_bottom_zone():
+    html_code = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Noto+Sans+TC:wght@400;900&display=swap" rel="stylesheet">
+        <style>
+            body { background: transparent; margin: 0; padding: 0; font-family: 'Fredoka', 'Noto Sans TC', sans-serif; overflow: hidden; }
+            .bottom-container {
+                display: flex; justify-content: space-around; align-items: flex-end;
+                padding-top: 50px; height: 180px; border-top: 4px solid #eee;
+            }
+            .zone-item {
+                text-align: center; cursor: pointer; position: relative; width: 30%;
+                transition: transform 0.1s; user-select: none;
+            }
+            .zone-item:active { transform: scale(0.95); }
+            .zone-icon { font-size: 4rem; margin-bottom: 5px; display: block; }
+            .zone-label { font-size: 1.2rem; font-weight: 900; color: #888; margin: 0; }
+            .zone-hint { font-size: 0.8rem; color: #aaa; margin: 0; }
+            
+            /* 手機版適配 CSS */
+            @media (max-width: 600px) {
+                .zone-icon { font-size: 2.5rem; }
+                .zone-label { font-size: 0.9rem; }
+                .zone-hint { font-size: 0.6rem; }
+                .bottom-container { padding-top: 20px; height: 140px; }
+            }
+
+            .float-text {
+                position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+                color: #FF6B6B; font-weight: 900; font-size: 1.2rem; white-space: nowrap;
+                pointer-events: none; animation: floatUp 1.5s ease-out forwards;
+                text-shadow: 2px 2px 0px #fff; z-index: 999;
+            }
+            @keyframes floatUp {
+                0% { top: -10px; opacity: 1; transform: translateX(-50%) scale(1); }
+                100% { top: -80px; opacity: 0; transform: translateX(-50%) scale(1.2); }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="bottom-container">
+            <div class="zone-item" onclick="createFloat(this, '這裡沒有吃的 🍔')">
+                <div class="zone-icon">🧺</div><p class="zone-label">真香籃</p><p class="zone-hint">(夯貨)</p>
+            </div>
+            <div class="zone-item" onclick="createFloat(this, '？？？？')">
+                <div class="zone-icon">❓</div><p class="zone-label">黑人問號</p><p class="zone-hint">(拖不動)</p>
+            </div>
+            <div class="zone-item" onclick="createFloat(this, '你不會想進來吧？？ 😱')">
+                <div class="zone-icon">🗑️</div><p class="zone-label">垃圾桶</p><p class="zone-hint">(爛貨)</p>
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        <script>
+            function createFloat(el, text) {
+                const f = document.createElement('span');
+                f.innerText = text; f.className = 'float-text';
+                el.appendChild(f);
+                setTimeout(() => f.remove(), 1500);
+            }
+        </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=250, scrolling=False)
 
-        b1, b2 = st.columns(2)
-        with b1: speak(w, f"spk_{w}")
-        with b2:
-            if st.button("📄 生成講義", type="primary"):
-                st.session_state.manual_input_content = f"## {w}\n\n{target['definition']}\n\n### 實例\n{target['example']}"
-                st.session_state.mobile_nav = "📄 製作講義"
-                st.rerun()
-
-def handout_page():
-    st.markdown("<h2 style='text-align:center;'>📄 製作講義</h2>", unsafe_allow_html=True)
-    content = st.text_area("編輯內容", value=st.session_state.get("manual_input_content", ""), height=300)
-    st.session_state.manual_input_content = content
-    if st.button("📥 下載 PDF", type="primary", use_container_width=True):
-        st.session_state.trigger_pdf = True
-    
-    final_html = generate_printable_html("學習講義", content, st.session_state.get("trigger_pdf", False))
-    st.session_state.trigger_pdf = False
-    components.html(final_html, height=450, scrolling=True)
-def sponsor_page():
-    st.markdown("<h2 style='text-align:center;'>💖 支持我們</h2>", unsafe_allow_html=True)
-    st.markdown("""
-    <div class="word-card" style="text-align:center;">
-        <p style="font-size:1.1rem; line-height:1.7;">如果您覺得這個工具有幫助，您的任何支持都將是我們持續開發與維護的最大動力！</p>
-        <p style="color:var(--subtle-text); font-size:0.9rem;">您的贊助將用於支付伺服器與 API 的費用。</p>
-        <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" style="text-decoration:none;">
-            <div style="background:#00A650; color:white; padding:15px; border-radius:12px; font-weight:bold; margin: 20px 0 10px 0;">💳 綠界 ECPay (推薦)</div>
-        </a>
-        <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" style="text-decoration:none;">
-            <div style="background:#FFDD00; color:black; padding:15px; border-radius:12px; font-weight:bold;">☕ Buy Me a Coffee</div>
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
-
+# ==========================================
+# 5. 主程式
+# ==========================================
 def main():
-    st.set_page_config(page_title="Etymon", page_icon="💡")
-    inject_ui()
+    inject_game_css()
+    st.markdown("<div class='game-title'>🤪 單字大亂鬥</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align:center; color:#666; margin-bottom:30px; font-weight:bold;'>別再背單字了，來決定單字的生死吧！</div>", unsafe_allow_html=True)
     
-    if 'mobile_nav' not in st.session_state: st.session_state.mobile_nav = "🔍 探索知識"
+    with st.sidebar:
+        st.image("https://media.giphy.com/media/l2JHVUriDGEtWOx0c/giphy.gif", caption="...你在看我嗎？")
+        render_sarcastic_sponsor()
+        st.sidebar.markdown("---")
+        st.sidebar.caption("v5.1 Mobile Optimized")
 
-    nav_options = ["🔍 探索知識", "📄 製作講義", "💖 支持"]
-    current_index = nav_options.index(st.session_state.mobile_nav) if st.session_state.mobile_nav in nav_options else 0
-
-    st.write("") # Spacer
-    selected_nav = st.radio("導覽", options=nav_options, index=current_index, horizontal=True, label_visibility="collapsed")
-
-    if selected_nav != st.session_state.mobile_nav:
-        st.session_state.mobile_nav = selected_nav
-        st.rerun()
-
-    df = load_db()
-    if df.empty: return
-
-    if st.session_state.mobile_nav == "🔍 探索知識":
-        home_page(df)
-    elif st.session_state.mobile_nav == "📄 製作講義":
-        handout_page()
-    elif st.session_state.mobile_nav == "💖 支持":
-        sponsor_page()
+    df = load_bubbles()
+    if not df.empty:
+        render_game_area(df)
+        render_bottom_zone()
+    else:
+        st.error("資料庫連線失敗")
 
 if __name__ == "__main__":
     main()
