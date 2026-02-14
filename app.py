@@ -3,7 +3,7 @@ import pandas as pd
 import random
 import time
 from streamlit_gsheets import GSheetsConnection
-
+import streamlit.components.v1 as components
 # ==========================================
 # 0. 基礎設定與強制白底 CSS
 # ==========================================
@@ -361,26 +361,137 @@ def render_game_area(df):
 # 4. 底部視覺區域 (裝飾用)
 # ==========================================
 def render_bottom_zone():
-    # 使用 container 包裹，確保排版
-    st.markdown("""
-        <div class="bottom-zone">
-            <div class="zone-item">
+    # 使用 HTML/JS 製作獨立的互動區塊
+    # 這樣點擊時不會觸發 Streamlit 重新整理，動畫才會順暢
+    
+    html_code = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&family=Noto+Sans+TC:wght@400;900&display=swap" rel="stylesheet">
+        <style>
+            body {
+                background-color: transparent;
+                margin: 0;
+                padding: 0;
+                font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+                overflow: hidden; /* 防止捲軸出現 */
+            }
+            .bottom-container {
+                display: flex;
+                justify-content: space-around;
+                align-items: flex-end;
+                padding-top: 50px; /* 預留上方空間給飄浮文字 */
+                height: 180px;
+                border-top: 4px solid #eee;
+                background-color: transparent;
+            }
+            .zone-item {
+                text-align: center;
+                cursor: pointer; /* 讓滑鼠變手手 */
+                position: relative; /* 讓飄浮文字以此為基準 */
+                width: 30%;
+                transition: transform 0.1s;
+                user-select: none; /* 防止選取文字 */
+            }
+            .zone-item:active {
+                transform: scale(0.95);
+            }
+            .zone-icon {
+                font-size: 4rem;
+                margin-bottom: 5px;
+                display: block;
+            }
+            .zone-label {
+                font-size: 1.2rem;
+                font-weight: 900;
+                color: #888;
+                margin: 0;
+            }
+            .zone-hint {
+                font-size: 0.8rem;
+                color: #aaa;
+                margin: 0;
+            }
+
+            /* --- 飄浮文字動畫 --- */
+            .float-text {
+                position: absolute;
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                color: #FF6B6B;
+                font-weight: 900;
+                font-size: 1.2rem;
+                white-space: nowrap;
+                pointer-events: none; /* 讓點擊穿透 */
+                animation: floatUp 1.5s ease-out forwards;
+                text-shadow: 2px 2px 0px #fff;
+                z-index: 999;
+            }
+
+            @keyframes floatUp {
+                0% {
+                    top: -10px;
+                    opacity: 1;
+                    transform: translateX(-50%) scale(1);
+                }
+                50% {
+                    opacity: 1;
+                }
+                100% {
+                    top: -80px; /* 往上飄的距離 */
+                    opacity: 0;
+                    transform: translateX(-50%) scale(1.2);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="bottom-container">
+            <!-- 籃子 -->
+            <div class="zone-item" onclick="createFloat(this, '這裡沒有吃的 🍔')">
                 <div class="zone-icon">🧺</div>
-                <div class="zone-label">真香籃</div>
-                <div style="font-size:0.8rem; color:#aaa;">(覺得夯的都在這)</div>
+                <p class="zone-label">真香籃</p>
+                <p class="zone-hint">(覺得夯的都在這)</p>
             </div>
-            <div class="zone-item">
+
+            <!-- 問號 -->
+            <div class="zone-item" onclick="createFloat(this, '？？？？')">
                 <div class="zone-icon">❓</div>
-                <div class="zone-label">黑人問號</div>
-                <div style="font-size:0.8rem; color:#aaa;">(拖不動，點按鈕啦)</div>
+                <p class="zone-label">黑人問號</p>
+                <p class="zone-hint">(拖不動，點按鈕啦)</p>
             </div>
-            <div class="zone-item">
+
+            <!-- 垃圾桶 -->
+            <div class="zone-item" onclick="createFloat(this, '你不會想進來吧？？ 😱')">
                 <div class="zone-icon">🗑️</div>
-                <div class="zone-label">垃圾桶</div>
-                <div style="font-size:0.8rem; color:#aaa;">(爛單字下去)</div>
+                <p class="zone-label">垃圾桶</p>
+                <p class="zone-hint">(爛單字下去)</p>
             </div>
         </div>
-    """, unsafe_allow_html=True)
+
+        <script>
+            function createFloat(element, text) {
+                // 1. 建立新的 span 元素
+                const floatEl = document.createElement('span');
+                floatEl.innerText = text;
+                floatEl.className = 'float-text';
+                
+                // 2. 加到點擊的元素裡面
+                element.appendChild(floatEl);
+
+                // 3. 動畫結束後 (1.5秒) 自動移除該元素，防止記憶體堆積
+                setTimeout(() => {
+                    floatEl.remove();
+                }, 1500);
+            }
+        </script>
+    </body>
+    </html>
+    """
+    # 渲染 HTML 組件，設定足夠的高度以免動畫被切掉
+    components.html(html_code, height=250, scrolling=False)
 
 # ==========================================
 # 5. 主程式入口
