@@ -165,7 +165,7 @@ def render_sarcastic_sponsor_module():
                 """, unsafe_allow_html=True)
             else:
                 # 情況 B：後台沒有設定連結 (哈哈銀行)
-                st.markdown("<div class='taunt-bubble'>🙄 蛤？你想給錢？<br><br>可惜「哈哈銀行」今天沒開門欸。<br>錢自己留著買椰果吧。</div>", unsafe_allow_html=True)
+                st.markdown("<div class='taunt-bubble'>🙄 蛤？你想給錢？<br><br>可惜銀行今天沒開門欸。<br>錢自己留著買椰果吧。</div>", unsafe_allow_html=True)
             
             if st.button("重置嘲諷流程", use_container_width=True):
                 st.session_state.taunt_level = 0
