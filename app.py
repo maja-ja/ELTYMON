@@ -345,7 +345,7 @@ def render_bottom_zone():
             <div class="zone-item" onclick="createFloat(this, '？？？？？')">
                 <div class="zone-icon">❓</div><p class="zone-label">黑人問號</p><p class="zone-hint">(拖不動)</p>
             </div>
-            <div class="zone-item" onclick="createFloat(this, '莎莎莎莎莎（垃圾翻動）')">
+            <div class="zone-item" onclick="createFloat(this, '莎莎莎莎莎')">
                 <div class="zone-icon">🗑️</div><p class="zone-label">垃圾桶</p><p class="zone-hint">(爛貨)</p>
             </div>
         </div>
