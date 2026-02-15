@@ -944,6 +944,106 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
     </body>
     </html>
     """
+
+
+def sync_editor():
+    """當編輯框內容改變時，立刻同步到保險箱"""
+    st.session_state.final_content = st.session_state.editor_widget
+
+def sync_title():
+    """當標題改變時，同步到保險箱"""
+    st.session_state.final_title = st.session_state.title_widget
+def run_handout_app():
+    st.header("🎓 AI 講義排版大師 Pro")
+    
+    # 1. 確保保險箱存在 (只在第一次啟動時執行)
+    if "final_content" not in st.session_state:
+        st.session_state.final_content = ""
+    if "final_title" not in st.session_state:
+        st.session_state.final_title = "AI 專題講義"
+    if "trigger_download" not in st.session_state:
+        st.session_state.trigger_download = False
+
+    is_admin = st.session_state.get("is_admin", False)
+    
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+    
+    with col_ctrl:
+        st.subheader("1. 素材與生成控制")
+        
+        uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
+        image = None
+        if uploaded_file:
+            image = fix_image_orientation(Image.open(uploaded_file))
+            st.image(image, use_container_width=True)
+
+        st.divider()
+        st.text_area("講義素材內容 (左側)", key="manual_input_content", height=200)
+        
+        # 點擊此按鈕，強制把左側內容推入右側編輯器
+        if st.button("⬅️ 將素材推送到右側編輯器", use_container_width=True):
+            st.session_state.final_content = st.session_state.manual_input_content
+            st.rerun()
+
+        if is_admin:
+            if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
+                with st.spinner("🤖 AI 正在排版中..."):
+                    generated_res = handout_ai_generate(
+                        Image.open(uploaded_file) if uploaded_file else None, 
+                        st.session_state.manual_input_content, 
+                        "使用Markdown標題與LaTeX公式，確保排版美觀。"
+                    )
+                    st.session_state.final_content = generated_res
+                    # 自動提取第一行當標題
+                    for line in generated_res.split('\n'):
+                        clean_t = line.replace('#', '').strip()
+                        if clean_t: st.session_state.final_title = clean_t; break
+                    st.rerun()
+
+    with col_prev:
+        st.subheader("2. A4 預覽與修訂")
+        
+        if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
+            st.session_state.trigger_download = True
+            st.rerun()
+
+        # --- 📝 核心編輯器 (使用 Callback 鎖定狀態) ---
+        # 這裡是唯一真相：使用 value=st.session_state.final_content 顯示
+        # 使用 on_change=sync_editor 確保打字即儲存，點下載絕對不丟失
+        st.text_area(
+            "📝 內容修訂 (Safari/Chrome 穩定版)", 
+            value=st.session_state.final_content,
+            key="editor_widget", 
+            height=600,
+            on_change=sync_editor 
+        )
+        
+        st.text_input(
+            "講義標題", 
+            value=st.session_state.final_title,
+            key="title_widget",
+            on_change=sync_title
+        )
+        
+        # 準備渲染數據
+        img_b64 = get_image_base64(image) if image else ""
+        
+        # 只有在有內容時才呼叫組件，防止白紙
+        if st.session_state.final_content.strip():
+            final_html = generate_printable_html(
+                title=st.session_state.final_title,
+                text_content=st.session_state.final_content, 
+                img_b64=img_b64, 
+                img_width_percent=80,
+                auto_download=st.session_state.trigger_download
+            )
+            components.html(final_html, height=1000, scrolling=True)
+        else:
+            st.warning("👉 請先輸入內容或點擊 AI 生成。")
+
+        # 結束下載觸發
+        if st.session_state.trigger_download:
+            st.session_state.trigger_download = False
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
