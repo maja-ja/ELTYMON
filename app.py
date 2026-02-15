@@ -856,7 +856,7 @@ def handout_ai_generate(image, manual_input, instruction):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(parts)
             return response.text
         except Exception as e:
@@ -865,46 +865,119 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
-    text_content = text_content.strip() if text_content else ""
+    """
+    排版修復版：
+    1. 改用 tex-chtml (CommonHTML) 引擎，解決 SVG 導致的文字錯位與換行問題。
+    2. 增加 CSS 強制修正行內公式的垂直對齊。
+    """
+    text_content = text_content.strip()
+    # 處理換頁符號
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
-    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
-    date_str = time.strftime("%Y-%m-%d")
     
-    img_section = f'<div style="text-align:center;margin:20px 0;"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-
-    # 自動下載的 JS 腳本 (保持簡單，不使用複雜的 Promise)
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1500); };" if auto_download else ""
+    # 將 Markdown 轉為 HTML
+    html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
+    
+    date_str = time.strftime("%Y-%m-%d")
+    img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
 
     return f"""
     <html>
     <head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
+        
+        <!-- 1. MathJax 配置：改用 CHTML (CommonHTML) -->
+        <script>
+            window.MathJax = {{
+                tex: {{ 
+                    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+                    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+                    processEscapes: true
+                }},
+                chtml: {{ 
+                    scale: 1.1,  /* 稍微放大公式 */
+                    matchFontHeight: true 
+                }},
+                options: {{
+                    ignoreHtmlClass: 'tex2jax_ignore',
+                    processHtmlClass: 'tex2jax_process'
+                }}
+            }};
+        </script>
+        <!-- 2. 載入 CHTML 版本的 MathJax -->
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+        
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        
         <style>
-            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.6; padding: 0; margin: 0; background: #f4f4f4; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 20mm 25mm; box-sizing: border-box; }}
-            .content {{ font-size: 16px; text-align: justify; }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }}
-            .manual-page-break {{ page-break-before: always; }}
+            @page {{ size: A4; margin: 0; }}
+            body {{ 
+                font-family: 'Noto Sans TC', sans-serif; 
+                line-height: 1.8; 
+                padding: 0; margin: 0; 
+                background: #555; 
+                display: flex; flex-direction: column; align-items: center; 
+            }}
+            #printable-area {{ 
+                background: white; 
+                width: 210mm; min-height: 297mm; 
+                margin: 20px 0; padding: 20mm 25mm; 
+                box-sizing: border-box; position: relative; 
+                box-shadow: 0 0 10px rgba(0,0,0,0.5); 
+            }}
+            
+            /* --- 關鍵 CSS 修復 --- */
+            .content {{ font-size: 16px; text-align: justify; color: #333; }}
+            
+            /* 修正行內公式的垂直對齊，避免文字忽高忽低 */
+            mjx-container[jax="CHTML"][display="false"] {{
+                margin: 0 2px !important;
+                vertical-align: middle !important;
+                display: inline-block !important;
+            }}
+            
+            /* 確保區塊公式有適當間距 */
+            mjx-container[jax="CHTML"][display="true"] {{
+                margin: 1em 0 !important;
+                display: block !important;
+                text-align: center !important;
+            }}
+
+            /* 標題樣式優化 */
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
+            h2 {{ color: #0d47a1; border-left: 5px solid #2196f3; padding-left: 10px; margin-top: 30px; margin-bottom: 15px; }}
+            h3 {{ color: #1565c0; font-weight: bold; margin-top: 25px; margin-bottom: 10px; }}
+            
+            p {{ margin-bottom: 15px; }}
+            ul, ol {{ margin-bottom: 15px; padding-left: 20px; }}
+            li {{ margin-bottom: 5px; }}
+            
+            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
+            .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
         </style>
     </head>
     <body>
         <div id="printable-area">
             <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
+            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 20px;">日期：{date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
+            <div class="sponsor-text-footer">💖 講義完全免費，您的支持是我們持續開發的動力。</div>
         </div>
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
                 const opt = {{
-                    margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ scale: 2, useCORS: true }},
+                    margin: 0, 
+                    filename: '{title}.pdf', 
+                    image: {{ type: 'jpeg', quality: 1.0 }},
+                    html2canvas: {{ scale: 2, useCORS: true, letterRendering: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
-                html2pdf().set(opt).from(element).save();
+                // 增加延遲確保 MathJax 渲染完畢再下載
+                setTimeout(() => {{
+                    html2pdf().set(opt).from(element).save();
+                }}, 1000);
             }}
             {auto_js}
         </script>
