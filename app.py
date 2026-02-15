@@ -865,87 +865,53 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
-    """
-    長文強化渲染版：
-    1. 增加 MathJax 等待時間至 4 秒。
-    2. 強制 SVG 高度重算，防止 PDF 內容被截斷。
-    """
-    text_content = text_content.strip() if text_content else "請輸入內容"
+    text_content = text_content.strip()
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
-    
-    # 支援表格與 Markdown
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
     
-    auto_js = ""
-    if auto_download:
-        auto_js = """
-        window.onload = function() {
-            console.log("正在渲染長文公式，請稍候...");
-            MathJax.typesetPromise().then(() => {
-                // 長文需要更多時間讓瀏覽器計算佈局，給予 4 秒緩衝
-                setTimeout(downloadPDF, 4000);
-            }).catch((err) => {
-                console.log("MathJax 錯誤: " + err.message);
-                setTimeout(downloadPDF, 4000);
-            });
-        };
-        """
+    # 增加一個手動下載按鈕，作為自動下載失敗時的備案
+    manual_btn = '<button onclick="downloadPDF()" class="fallback-btn">如果沒有自動下載，請點我</button>'
+    
+    auto_js = "window.onload = function() { MathJax.typesetPromise().then(() => { setTimeout(downloadPDF, 3000); }); };" if auto_download else ""
 
     return f"""
     <html>
     <head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
         <script>
-            window.MathJax = {{
-                tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['$$', '$$']] }},
-                svg: {{ fontCache: 'global' }},
-                startup: {{ typeset: true }}
-            }};
+            window.MathJax = {{ tex: {{ inlineMath: [['$', '$']] }}, svg: {{ fontCache: 'global' }} }};
         </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
-            @page {{ size: A4; margin: 0; }}
-            body {{ font-family: 'Roboto', 'Noto Sans TC', sans-serif; line-height: 1.6; padding: 0; margin: 0; background: #eee; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 0; padding: 20mm 25mm; box-sizing: border-box; }}
-            .content {{ font-size: 15px; text-align: justify; color: #111; }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }}
-            h2 {{ color: #0277bd; border-left: 5px solid #0277bd; padding-left: 10px; margin-top: 25px; }}
-            mjx-container[jax="SVG"][display="false"] {{ vertical-align: -0.15em !important; }}
-            .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
-            .sponsor-text-footer {{ color: #999; font-size: 10px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; }}
+            body {{ font-family: sans-serif; background: #eee; padding: 20px; }}
+            #printable-area {{ background: white; padding: 20mm; width: 210mm; margin: auto; box-sizing: border-box; }}
+            .fallback-btn {{ display: block; margin: 10px auto; padding: 10px 20px; background: #FF4B4B; color: white; border: none; border-radius: 5px; cursor: pointer; }}
+            .manual-page-break {{ page-break-before: always; }}
         </style>
     </head>
     <body>
+        {manual_btn if auto_download else ""}
         <div id="printable-area">
-            <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666;">Generated: {date_str}</div>
+            <h1 style="text-align:center;">{title}</h1>
             {img_section}
             <div class="content">{html_body}</div>
-            <div class="sponsor-text-footer">Handout Pro v4.2 | 感謝支持</div>
         </div>
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
-                const opt = {{
-                    margin: 0, filename: '{title}.pdf', 
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ scale: 2, useCORS: true, letterRendering: true }},
+                html2pdf().set({{
+                    margin: 0, filename: '{title}.pdf',
+                    html2canvas: {{ scale: 2, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }};
-                html2pdf().set(opt).from(element).save().then(() => {{
-                    console.log("下載完成");
-                }});
+                }}).from(element).save();
             }}
             {auto_js}
         </script>
     </body>
     </html>
     """
-
-
 def sync_editor():
     """當編輯框內容改變時，立刻同步到保險箱"""
     st.session_state.final_content = st.session_state.editor_widget
