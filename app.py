@@ -423,7 +423,7 @@ def ai_decode_and_save(input_text, fixed_category):
         try:
             genai.configure(api_key=key)
             # 建議使用 gemini-1.5-flash 或 gemini-2.0-flash (目前最穩定)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(final_prompt)
             
             if response and response.text:
