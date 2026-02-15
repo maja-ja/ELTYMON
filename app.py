@@ -947,13 +947,14 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 初始化所有狀態 (確保不會在 Rerun 時被清空)
+    # --- 1. 核心狀態初始化 (保險箱架構) ---
+    # 這些 key 只要存在，Streamlit 的 Rerun 就絕對不會去動它
     if "preview_editor" not in st.session_state:
         st.session_state.preview_editor = ""
-    if "manual_input_content" not in st.session_state:
-        st.session_state.manual_input_content = ""
     if "handout_title_val" not in st.session_state:
         st.session_state.handout_title_val = "AI 專題講義"
+    if "manual_input_content" not in st.session_state:
+        st.session_state.manual_input_content = ""
     if "trigger_download" not in st.session_state:
         st.session_state.trigger_download = False
 
@@ -972,32 +973,26 @@ def run_handout_app():
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
-            c1, c2 = st.columns([1, 2])
-            with c1: 
-                if st.button("🔄 旋轉 90°"): 
-                    st.session_state.rotate_angle = (st.session_state.get("rotate_angle", 0) + 90) % 360
-                    st.rerun()
-            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
         
-        # 左側輸入
-        st.text_area("講義素材內容", key="manual_input_content", height=200)
+        # 左側原始素材輸入 (這裡是資料源)
+        st.text_area("講義素材內容 (左側)", key="manual_input_content", height=200)
         
-        # --- ✨ 關鍵修正：手動同步按鈕 ---
-        # 移除自動同步，改用按鈕，防止下載時內容被「自動重設」為空
-        if st.button("⬅️ 將素材推送到編輯器 (不經 AI)", use_container_width=True):
+        # --- ✨ 強制導入按鈕 ---
+        # 只有點這個按鈕，左邊的字才會「覆蓋」右邊。不點，右邊就永遠保留使用者的輸入。
+        if st.button("⬅️ 將左側素材推送到右側編輯器", use_container_width=True):
             st.session_state.preview_editor = st.session_state.manual_input_content
             st.rerun()
 
         st.divider()
 
         if is_admin:
-            st.info("🔓 管理員模式：可調用 AI 進行排版。")
+            st.info("🔓 管理員模式：可調用 AI 生成。")
             SAFE_STYLES = {
-                "📘 標準教科書 (推薦)": "使用Markdown標題與LaTeX公式",
-                "📝 試卷與解析模式": "題目、解析、答案結構",
+                "📘 標準教科書": "使用Markdown標題與LaTeX公式",
+                "📝 試卷模式": "題目、解析、答案結構",
                 "⚙️ 自定義": ""
             }
             selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
@@ -1010,9 +1005,9 @@ def run_handout_app():
                         st.session_state.manual_input_content, 
                         f"{SAFE_STYLES[selected_style]}\n{user_instr}"
                     )
-                    # 只有點擊 AI 按鈕時，才會寫入編輯器
+                    # 只有 AI 成功後，才准許覆蓋右側內容
                     st.session_state.preview_editor = generated_res
-                    # 自動更新標題建議
+                    # 更新標題
                     for line in generated_res.split('\n'):
                         clean_t = line.replace('#', '').strip()
                         if clean_t:
@@ -1023,41 +1018,45 @@ def run_handout_app():
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # 下載按鈕 (純觸發)
+        # --- 📥 下載按鈕 ---
         if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
             log_user_intent("pdf_download")
+            # 這裡只改狀態，絕對不准去動 preview_editor 的文字！
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 📝 編輯器本體 ---
-        # 💡 使用 key 綁定，完全不使用 value 參數
-        # 這會讓編輯器直接與 session_state.preview_editor 同步，絕對不會被程式重設
+        # --- 📝 終極編輯器 (移除 value 參數) ---
+        # 💡 重點：因為我們設定了 key="preview_editor"，Streamlit 會自動
+        # 讓這個 Widget 與 st.session_state.preview_editor 綁死。
+        # 使用者打的每個字都會直接進 session_state，且不會被 Rerun 清除。
         st.text_area(
-            "📝 內容修訂 (您的修改會即時儲存)", 
+            "📝 內容修訂 (在這裡輸入或修改長文)", 
             key="preview_editor", 
             height=600
         )
         
-        # 標題 (同步綁定)
+        # 標題 (同樣用 key 綁死)
         st.text_input("講義標題", key="handout_title_val")
         
-        # 準備渲染
-        # 從綁定的 Key 中提取最後一秒的內容
-        final_content = st.session_state.preview_editor
-        final_title = st.session_state.handout_title_val
+        # --- 渲染前讀取 (確保下載到的是最新編輯內容) ---
+        # 這裡直接從 session_state 讀取最後一秒的狀態
+        final_content_to_render = st.session_state.preview_editor
+        final_title_to_render = st.session_state.handout_title_val
         
         img_b64 = get_image_base64(image) if image else ""
         
-        # 生成 HTML
-        final_html = generate_printable_html(
-            title=final_title,
-            text_content=final_content, 
-            img_b64=img_b64, 
-            img_width_percent=img_width,
-            auto_download=st.session_state.trigger_download
-        )
-        
-        components.html(final_html, height=1000, scrolling=True)
+        # 只有在有內容時才渲染 HTML，避免空白
+        if final_content_to_render.strip():
+            final_html = generate_printable_html(
+                title=final_title_to_render,
+                text_content=final_content_to_render, 
+                img_b64=img_b64, 
+                img_width_percent=img_width,
+                auto_download=st.session_state.trigger_download
+            )
+            components.html(final_html, height=1000, scrolling=True)
+        else:
+            st.warning("👉 請先在上方編輯器輸入內容，或點擊 AI 生成講義。")
 
         # 渲染完畢後重設下載狀態
         if st.session_state.trigger_download:
