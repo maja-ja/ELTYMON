@@ -261,13 +261,20 @@ def get_gemini_keys():
     return shuffled_keys
 
 def fix_content(text):
-    """全域字串清洗 (v3.0 邏輯)"""
+    """徹底修復 LaTeX 版：保護 \n 不被誤認為換行"""
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
     text = str(text)
-    text = text.replace('\\n', '  \n').replace('\n', '  \n')
-    if '\\\\' in text: text = text.replace('\\\\', '\\')
-    text = text.strip('"').strip("'")
-    return text
+    
+    # 1. 先處理 JSON 可能產生的雙重轉義
+    if '\\\\' in text: 
+        text = text.replace('\\\\', '\\')
+    
+    # 2. 【關鍵修正】保護 LaTeX 指令：
+    # 只有當 \n 後面不是字母時（例如行末），才當作換行。
+    # 這裡我們採用最安全的方法：暫時不處理 \\n，交給 Markdown 渲染器處理。
+    # 移除原本會導致 abla 的那行 replace('\\n', '  \n')
+    
+    return text.strip('"').strip("'")
 
 def speak(text, key_suffix=""):
     """TTS 發音生成 (v3.0 HTML 按鈕版)"""
