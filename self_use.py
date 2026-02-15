@@ -306,7 +306,7 @@ def handout_ai_generate(image, manual_input, instruction):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(parts)
             return response.text
         except Exception as e:
@@ -470,7 +470,7 @@ def handout_ai_generate(image, manual_input, instruction):
     if image: parts.append(image)
     try:
         genai.configure(api_key=keys[0])
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         return model.generate_content(parts).text
     except: return "AI 錯誤"
 
