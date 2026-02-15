@@ -947,19 +947,18 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 取得管理員狀態
-    is_admin = st.session_state.get("is_admin", False)
-    
-    # --- 🔒 Session State 核心初始化 (只跑一次) ---
+    # 1. 初始化所有狀態 (確保不會在 Rerun 時被清空)
+    if "preview_editor" not in st.session_state:
+        st.session_state.preview_editor = ""
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
-    if "preview_editor" not in st.session_state:
-        st.session_state.preview_editor = "" # 這裡是講義內容的唯一真相
-    if "rotate_angle" not in st.session_state:
-        st.session_state.rotate_angle = 0
     if "handout_title_val" not in st.session_state:
         st.session_state.handout_title_val = "AI 專題講義"
+    if "trigger_download" not in st.session_state:
+        st.session_state.trigger_download = False
 
+    is_admin = st.session_state.get("is_admin", False)
+    
     # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
@@ -973,92 +972,86 @@ def run_handout_app():
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
-            if st.session_state.rotate_angle != 0:
-                image = image.rotate(-st.session_state.rotate_angle, expand=True)
             c1, c2 = st.columns([1, 2])
             with c1: 
                 if st.button("🔄 旋轉 90°"): 
-                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
+                    st.session_state.rotate_angle = (st.session_state.get("rotate_angle", 0) + 90) % 360
                     st.rerun()
             with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
             st.image(image, use_container_width=True)
 
         st.divider()
         
-        # 左側輸入框 (手動素材)
+        # 左側輸入
         st.text_area("講義素材內容", key="manual_input_content", height=200)
         
+        # --- ✨ 關鍵修正：手動同步按鈕 ---
+        # 移除自動同步，改用按鈕，防止下載時內容被「自動重設」為空
+        if st.button("⬅️ 將素材推送到編輯器 (不經 AI)", use_container_width=True):
+            st.session_state.preview_editor = st.session_state.manual_input_content
+            st.rerun()
+
+        st.divider()
+
         if is_admin:
-            st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
+            st.info("🔓 管理員模式：可調用 AI 進行排版。")
             SAFE_STYLES = {
-                "📘 標準教科書 (推薦)": "【要求】：標題使用#，變數用$x$，長公式用$$，嚴禁純LaTeX。",
-                "📝 試卷與解析模式": "【要求】：分為題目、解析、答案，選項用(A)(B)(C)(D)。",
+                "📘 標準教科書 (推薦)": "使用Markdown標題與LaTeX公式",
+                "📝 試卷與解析模式": "題目、解析、答案結構",
                 "⚙️ 自定義": ""
             }
-            col_style, col_instr = st.columns([1, 1])
-            with col_style:
-                selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
-            with col_instr:
-                user_instr = st.text_input("補充指令", placeholder="例如：加練習題...")
+            selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
+            user_instr = st.text_input("補充指令")
 
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
-                if not st.session_state.manual_input_content and not uploaded_file:
-                    st.warning("⚠️ 請提供文字素材或圖片。")
-                else:
-                    with st.spinner("🤖 AI 正在排版中..."):
-                        final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
-                        image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        generated_res = handout_ai_generate(image_obj, st.session_state.manual_input_content, final_instruction)
-                        
-                        # --- 核心動作：強制更新內容並跳轉 ---
-                        st.session_state.preview_editor = generated_res 
-                        
-                        # 同時更新標題建議
-                        for line in generated_res.split('\n'):
-                            clean_t = line.replace('#', '').strip()
-                            if clean_t:
-                                st.session_state.handout_title_val = clean_t
-                                break
-                        st.rerun()
-        else:
-            st.warning("🔒 AI 專業生成僅限管理員")
+                with st.spinner("🤖 AI 正在排版中..."):
+                    generated_res = handout_ai_generate(
+                        Image.open(uploaded_file) if uploaded_file else None, 
+                        st.session_state.manual_input_content, 
+                        f"{SAFE_STYLES[selected_style]}\n{user_instr}"
+                    )
+                    # 只有點擊 AI 按鈕時，才會寫入編輯器
+                    st.session_state.preview_editor = generated_res
+                    # 自動更新標題建議
+                    for line in generated_res.split('\n'):
+                        clean_t = line.replace('#', '').strip()
+                        if clean_t:
+                            st.session_state.handout_title_val = clean_t
+                            break
+                    st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # 下載控制
-        if "trigger_download" not in st.session_state:
-            st.session_state.trigger_download = False
-
+        # 下載按鈕 (純觸發)
         if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
             log_user_intent("pdf_download")
-            # 點擊當下，內容已經在 st.session_state.preview_editor 裡了，直接出發
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 內容修訂框 (修正版) ---
-        # 💡 重點：完全不使用 value= 參數，資料全靠 key="preview_editor" 自動同步
-        # 如果是第一次從單字解碼跳轉過來，這裡會自動顯示跳轉後的內容
+        # --- 📝 編輯器本體 ---
+        # 💡 使用 key 綁定，完全不使用 value 參數
+        # 這會讓編輯器直接與 session_state.preview_editor 同步，絕對不會被程式重設
         st.text_area(
-            "📝 內容修訂 (您的編輯會即時儲存)", 
+            "📝 內容修訂 (您的修改會即時儲存)", 
             key="preview_editor", 
-            height=500
+            height=600
         )
         
-        # 標題輸入框 (同樣使用 key 綁定)
+        # 標題 (同步綁定)
         st.text_input("講義標題", key="handout_title_val")
         
-        # 準備渲染數據
-        # 從 Session State 直接抓取最新的、使用者編輯過的內容
-        final_content_to_print = st.session_state.preview_editor
-        final_title_to_print = st.session_state.handout_title_val
+        # 準備渲染
+        # 從綁定的 Key 中提取最後一秒的內容
+        final_content = st.session_state.preview_editor
+        final_title = st.session_state.handout_title_val
         
         img_b64 = get_image_base64(image) if image else ""
         
-        # 生成 HTML (確保這裡拿到的是最後一秒的內容)
+        # 生成 HTML
         final_html = generate_printable_html(
-            title=final_title_to_print,
-            text_content=final_content_to_print, 
+            title=final_title,
+            text_content=final_content, 
             img_b64=img_b64, 
             img_width_percent=img_width,
             auto_download=st.session_state.trigger_download
@@ -1066,8 +1059,8 @@ def run_handout_app():
         
         components.html(final_html, height=1000, scrolling=True)
 
+        # 渲染完畢後重設下載狀態
         if st.session_state.trigger_download:
-            # 執行完下載 JS 後，重設觸發狀態
             st.session_state.trigger_download = False
 # ==========================================
 # 6. 主程式入口與導航
