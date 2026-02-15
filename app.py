@@ -865,59 +865,141 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
+    """
+    終極完美版 (SVG + 高解析度)：
+    1. 使用 tex-svg 引擎：徹底解決 CHTML 在 PDF 轉檔時產生的「怪線」與「破碎」問題。
+    2. CSS 強制對齊：修復 SVG 與文字的基線對齊問題。
+    3. 4倍採樣 (Scale 4)：確保數學公式在 PDF 中銳利清晰。
+    """
     text_content = text_content.strip()
-    # 處理換頁符號
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
     
-    # 將 Markdown 轉為 HTML
+    # Markdown 轉 HTML
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 800); };" if auto_download else ""
 
     return f"""
     <html>
     <head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
-        <!-- 加入 MathJax 配置，確保能識別 $ 符號 -->
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+        
+        <!-- 1. MathJax 配置：使用 SVG 模式 (最適合 PDF 列印) -->
         <script>
             window.MathJax = {{
-                tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']] }},
-                svg: {{ fontCache: 'global' }}
+                loader: {{ load: ['[tex]/color'] }},
+                tex: {{ 
+                    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
+                    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
+                    packages: {{ '[+]': ['color'] }}
+                }},
+                svg: {{ 
+                    fontCache: 'global',
+                    scale: 1,
+                    displayAlign: 'center'
+                }},
+                options: {{
+                    enableMenu: false
+                }}
             }};
         </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        
         <style>
             @page {{ size: A4; margin: 0; }}
-            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #555; display: flex; flex-direction: column; align-items: center; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
-            .content {{ font-size: 16px; text-align: justify; }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
-            h2 {{ color: #0d47a1; border-left: 5px solid #2196f3; padding-left: 10px; margin-top: 25px; }}
-            h3 {{ color: #1565c0; font-weight: bold; margin-top: 20px; }}
-            p {{ margin-bottom: 15px; }}
-            ul, ol {{ margin-bottom: 15px; padding-left: 20px; }}
-            li {{ margin-bottom: 5px; }}
-            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
+            body {{ 
+                font-family: 'Roboto', 'Noto Sans TC', sans-serif; 
+                line-height: 1.6; 
+                padding: 0; margin: 0; 
+                background: #555; 
+                display: flex; flex-direction: column; align-items: center; 
+                -webkit-font-smoothing: antialiased;
+            }}
+            #printable-area {{ 
+                background: white; 
+                width: 210mm; min-height: 297mm; 
+                margin: 20px 0; padding: 20mm 25mm; 
+                box-sizing: border-box; position: relative; 
+                box-shadow: 0 0 15px rgba(0,0,0,0.2); 
+            }}
+            
+            /* --- 關鍵 CSS 修復 --- */
+            .content {{ font-size: 15px; text-align: justify; color: #222; }}
+            
+            /* 1. 修復 SVG 行內公式的垂直對齊 (解決忽高忽低) */
+            mjx-container[jax="SVG"][display="false"] {{
+                vertical-align: -0.15em !important; /* 微調基線 */
+                margin: 0 2px !important;
+            }}
+            
+            /* 2. 修復 SVG 區塊公式的間距 */
+            mjx-container[jax="SVG"][display="true"] {{
+                margin: 1.5em 0 !important;
+                display: block !important;
+            }}
+            
+            /* 3. 確保 SVG 路徑顏色正確 (避免變淡) */
+            mjx-container svg path {{
+                fill: #000 !important;
+                stroke: #000 !important;
+            }}
+
+            /* 標題美化 */
+            h1 {{ 
+                color: #1a237e; text-align: center; 
+                border-bottom: 3px solid #1a237e; 
+                padding-bottom: 15px; margin-bottom: 30px; margin-top: 10px;
+                font-size: 28px; letter-spacing: 1px;
+            }}
+            h2 {{ 
+                color: #0277bd; 
+                border-left: 6px solid #0277bd; 
+                padding-left: 12px; 
+                margin-top: 35px; margin-bottom: 18px; 
+                font-size: 20px; background: #f0f9ff; padding-top: 5px; padding-bottom: 5px;
+            }}
+            h3 {{ 
+                color: #2c3e50; font-weight: 700; 
+                margin-top: 25px; margin-bottom: 10px; 
+                font-size: 17px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; display: inline-block;
+            }}
+            
+            /* 列表優化 */
+            ul, ol {{ margin-bottom: 15px; padding-left: 25px; }}
+            li {{ margin-bottom: 8px; padding-left: 5px; }}
+            
+            /* 圖片容器 */
+            .img-wrapper {{ text-align: center; margin: 20px 0; }}
+            .img-wrapper img {{ box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 4px; }}
+
+            .sponsor-text-footer {{ color: #888; font-size: 11px; text-align: center; margin-top: 50px; border-top: 1px solid #eee; padding-top: 15px; }}
             .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
         </style>
     </head>
     <body>
         <div id="printable-area">
             <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 20px;">日期：{date_str}</div>
+            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 30px; font-family: 'Roboto Mono', monospace;">Generated: {date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
-            <div class="sponsor-text-footer">💖 講義完全免費，您的支持是我們持續開發的動力。</div>
+            <div class="sponsor-text-footer">Generated by AI Education Station | Handout Pro v4.2</div>
         </div>
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
                 const opt = {{
-                    margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 2, useCORS: true }},
+                    margin: 0, 
+                    filename: '{title}.pdf', 
+                    image: {{ type: 'jpeg', quality: 0.98 }},
+                    html2canvas: {{ 
+                        scale: 4,  // 提高採樣率，確保文字銳利
+                        useCORS: true, 
+                        letterRendering: true,
+                        scrollY: 0
+                    }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
                 html2pdf().set(opt).from(element).save();
@@ -940,7 +1022,7 @@ def run_handout_app():
         st.session_state.generated_text = ""
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
-
+    
     # 顯示跳轉成功提示
     if "專題講義" in st.session_state.manual_input_content:
         st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
@@ -983,7 +1065,7 @@ def run_handout_app():
         if is_admin:
             st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
             
-            # === ✨ 新增：安全排版風格選擇器 ===
+            # 安全排版風格選擇器
             SAFE_STYLES = {
                 "📘 標準教科書 (推薦)": """
                     【排版強制要求】：
@@ -1014,7 +1096,6 @@ def run_handout_app():
             with col_instr:
                 user_instr = st.text_input("額外補充指令 (選填)", placeholder="例如：增加三個練習題...")
 
-            # 顯示當前生效的排版規則 (讓使用者安心)
             if selected_style != "⚙️ 自定義 (不使用預設模板)":
                 with st.expander("查看當前排版規則", expanded=False):
                     st.code(SAFE_STYLES[selected_style], language="markdown")
@@ -1026,12 +1107,15 @@ def run_handout_app():
                     st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
                 else:
                     with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
-                        # 合併指令：安全風格 + 使用者補充
                         final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
-                        
                         image_obj = Image.open(uploaded_file) if uploaded_file else None
                         generated_res = handout_ai_generate(image_obj, current_material, final_instruction)
+                        
+                        # --- 關鍵修正點 ---
                         st.session_state.generated_text = generated_res
+                        # 強制覆蓋編輯器的 Session State，確保畫面更新
+                        st.session_state.preview_editor = generated_res 
+                        
                         st.success("✅ AI 生成成功！右側預覽已更新。")
                         st.rerun()
         else:
@@ -1050,9 +1134,17 @@ def run_handout_app():
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 內容編輯區 ---
-        preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
-        edited_content = st.text_area("📝 內容修訂", value=preview_source, height=600, key="preview_editor")
+        # --- 內容編輯區 (邏輯修正) ---
+        # 如果還沒有 AI 生成的內容，強制讓右邊同步左邊的輸入
+        if not st.session_state.generated_text:
+            st.session_state.preview_editor = st.session_state.manual_input_content
+
+        # 這裡不需要再設定 value，因為我們已經直接操作了 session_state['preview_editor']
+        edited_content = st.text_area(
+            "📝 內容修訂", 
+            key="preview_editor", 
+            height=600
+        )
         
         # 標題定義邏輯
         default_title = "AI 專題講義"
