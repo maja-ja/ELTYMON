@@ -261,20 +261,21 @@ def get_gemini_keys():
     return shuffled_keys
 
 def fix_content(text):
-    """徹底修復 LaTeX 版：保護 \n 不被誤認為換行"""
+    """解決 \n1. \n2. 顯示問題，並保護 LaTeX"""
     if text is None or str(text).strip() in ["無", "nan", ""]: return ""
     text = str(text)
     
-    # 1. 先處理 JSON 可能產生的雙重轉義
-    if '\\\\' in text: 
+    # 1. 處理 AI 輸出的字面反斜線 n (\\n)
+    text = text.replace('\\n', '\n')
+    
+    # 2. 處理 JSON 雙重轉義的反斜線
+    if '\\\\' in text:
         text = text.replace('\\\\', '\\')
+        
+    # 3. 為了讓 Markdown 換行，將單個 \n 轉為 兩個空白+換行
+    text = text.replace('\n', '  \n')
     
-    # 2. 【關鍵修正】保護 LaTeX 指令：
-    # 只有當 \n 後面不是字母時（例如行末），才當作換行。
-    # 這裡我們採用最安全的方法：暫時不處理 \\n，交給 Markdown 渲染器處理。
-    # 移除原本會導致 abla 的那行 replace('\\n', '  \n')
-    
-    return text.strip('"').strip("'")
+    return text.strip('"').strip("'").strip()
 
 def speak(text, key_suffix=""):
     """TTS 發音生成 (v3.0 HTML 按鈕版)"""
@@ -374,36 +375,38 @@ def submit_report(row_data):
 
 def ai_decode_and_save(input_text, fixed_category):
     """
-    核心解碼函式：
-    1. 強化 Prompt，要求 AI 對 LaTeX 反斜線進行雙重轉義 (\\nabla)。
-    2. 自動處理 Gemini 回傳的 Markdown 代碼塊 (```json)。
-    3. 支援多 Key 輪詢。
+    核心解碼函式 (強化版)：
+    1. 強制 AI 使用雙反斜線 (\\) 處理 LaTeX，防止 \n 轉義錯誤。
+    2. 自動清洗 ```json 標籤。
+    3. 採用穩定版模型名稱。
     """
     keys = get_gemini_keys()
     if not keys:
-        st.error("❌ 找不到 GEMINI_FREE_KEYS")
+        st.error("❌ 找不到 GEMINI_FREE_KEYS，請檢查 Secrets 設定。")
         return None
 
-    # --- 強化版 Prompt ---
+    # --- 強化版 System Prompt ---
     SYSTEM_PROMPT = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
     Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
     
     【領域鎖定】：你目前的身份是「{fixed_category}」專家。
 
-    ## 輸出規範 (Strict JSON Rules):
-    1. 必須輸出純 JSON 格式。
-    2. **關鍵：LaTeX 處理**：
-       - 所有的 LaTeX 指令必須使用「雙反斜線」轉義，以確保 JSON 解析正確。
-       - 例如：寫成 "\\\\nabla" 而不是 "\\nabla"。
-       - 公式請用單個 $ 包裹，例如 "$$ \\\\nabla \\\\cdot \\\\mathbf{{E}} = \\\\frac{{\\\\rho}}{{\\\\epsilon_0}} $$"。
-    3. **換行處理**：JSON 內部的換行請統一使用 "\\\\n"。
-    4. 不要輸出任何 Markdown 標記（如 ```json）。
-
+    ## 輸出規範 (Strict JSON Rules - 務必遵守):
+    1. **必須輸出純 JSON 格式**，嚴禁包含任何 Markdown 標記（如 ```json）。
+    2. **LaTeX 雙重轉義 (關鍵)**：
+       - 所有的 LaTeX 指令必須使用「雙反斜線」。
+       - 範例：寫成 "\\\\nabla" 而不是 "\\nabla"，寫成 "\\\\frac" 而不是 "\\frac"。
+       - 這是為了確保 JSON 解析後能保留正確的反斜線。
+    3. **公式包裹**：
+       - roots 欄位內的公式請直接寫內容，不要自帶 $ 符號。
+    4. **換行處理**：
+       - JSON 內部的換行請統一使用 "\\\\n"。
+    
     ## 欄位定義:
     - category: "{fixed_category}"
     - word: 核心概念名稱
-    - roots: 底層邏輯/關鍵公式 (使用 LaTeX)
+    - roots: 底層邏輯/關鍵公式 (使用 LaTeX，需雙重轉義)
     - meaning: 核心痛點或本質意義
     - breakdown: 結構拆解 (步驟或組成，用 \\\\n 分隔)
     - definition: 五歲小孩都能聽懂的解釋 (ELI5)
@@ -429,26 +432,33 @@ def ai_decode_and_save(input_text, fixed_category):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            # 建議使用 gemini-1.5-flash 或 gemini-2.0-flash (目前最穩定)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            # 使用目前最穩定的 1.5-flash 模型
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(final_prompt)
             
             if response and response.text:
-                raw_text = response.text
+                raw_res = response.text
                 
-                # --- 清洗 AI 回傳的 Markdown 標籤 ---
-                # 移除 ```json ... ``` 標籤
-                clean_json = re.sub(r'^```json\s*|\s*```$', '', raw_text.strip(), flags=re.MULTILINE)
+                # --- 1. 清洗 Markdown 代碼塊 ---
+                # 移除開頭的 ```json 和結尾的 ```
+                clean_json = re.sub(r'^```json\s*|\s*```$', '', raw_res.strip(), flags=re.MULTILINE)
                 
-                # 驗證是否為合法 JSON
+                # --- 2. 驗證 JSON 合法性 ---
                 try:
-                    json.loads(clean_json)
-                    return clean_json # 回傳純 JSON 字串
-                except json.JSONDecodeError:
-                    # 如果解析失敗，嘗試修復常見的轉義錯誤
-                    fixed_json = clean_json.replace('\n', '\\n')
-                    return fixed_json
-                    
+                    # 嘗試解析以確保格式正確
+                    parsed_data = json.loads(clean_json)
+                    # 重新轉回字串回傳（確保格式標準化）
+                    return json.dumps(parsed_data, ensure_ascii=False)
+                except json.JSONDecodeError as je:
+                    # 如果解析失敗，嘗試最後一次暴力修復換行符號
+                    try:
+                        fixed_json = clean_json.replace('\n', '\\n')
+                        json.loads(fixed_json)
+                        return fixed_json
+                    except:
+                        print(f"JSON 解析失敗: {je}")
+                        continue
+                        
         except Exception as e:
             last_error = e
             print(f"⚠️ Key 嘗試失敗: {e}")
@@ -457,17 +467,11 @@ def ai_decode_and_save(input_text, fixed_category):
     st.error(f"❌ 所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗 (使用修正後的 fix_content)
+    """
+    最終穩定版：修復 LaTeX 渲染、換行邏輯與 UI 排版
+    """
+    # 1. 基礎變數清洗 (確保使用最新版的 fix_content)
     r_word = str(row.get('word', '未命名主題'))
-    
-    # --- 關鍵修正：LaTeX 處理邏輯 ---
-    raw_roots = fix_content(row.get('roots', ""))
-    # 如果 AI 沒加錢字號，我們幫它加；如果已經有了，就不要再 replace 避免變成 $$$$
-    if raw_roots and not raw_roots.startswith('$'):
-        r_roots = f"$${raw_roots}$$"
-    else:
-        r_roots = raw_roots
-    
     r_phonetic = fix_content(row.get('phonetic', "")) 
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_def = fix_content(row.get('definition', ""))
@@ -477,12 +481,24 @@ def show_encyclopedia_card(row):
     r_trans = str(row.get('translation', ""))
     r_ex = fix_content(row.get('example', ""))
 
-    # 2. 標題與發音區
+    # --- 2. 核心原理 LaTeX 強化處理 ---
+    raw_roots = fix_content(row.get('roots', ""))
+    # 先移除所有舊的 $ 符號，避免出現 $$$$ 導致紅字
+    clean_roots = raw_roots.replace('$', '').strip()
+    
+    if clean_roots:
+        # 重新包裹成標準的區塊公式，這能解決 \text{} 暴露在外產生的紅字問題
+        r_roots = f"$${clean_roots}$$"
+    else:
+        r_roots = "（無公式或原理資料）"
+
+    # --- 3. 標題與發音區 ---
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
     if r_phonetic and r_phonetic != "無":
         st.caption(f"/{r_phonetic}/")
 
-    # 3. 邏輯拆解區 (視覺化漸層外框)
+    # --- 4. 邏輯拆解區 (藍色漸層外框) ---
+    # 確保 r_breakdown 內的 \n 已經被 fix_content 轉為 Markdown 換行
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
@@ -490,9 +506,9 @@ def show_encyclopedia_card(row):
         </div>
     """, unsafe_allow_html=True)
 
-    st.write("") # 間距
+    st.write("") # 增加間距
     
-    # 4. 核心內容區 (定義與原理)
+    # --- 5. 核心內容區 (定義與原理) ---
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("### 🎯 定義與解釋")
@@ -504,13 +520,13 @@ def show_encyclopedia_card(row):
         
     with c2:
         st.markdown("### 💡 核心原理")
-        # 使用 st.markdown 渲染處理過的 LaTeX
+        # 使用 st.markdown 渲染處理過的 LaTeX，這對混合文本最穩定
         st.markdown(r_roots)
         
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
-    # 5. 專家視角 (配合 CSS 變數自動變色)
+    # --- 6. 專家視角 (配合 CSS 變數自動變色) ---
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
@@ -519,7 +535,7 @@ def show_encyclopedia_card(row):
             </div>
         """, unsafe_allow_html=True)
 
-    # 6. 深度百科 (隱藏細節)
+    # --- 7. 深度百科 (隱藏細節) ---
     with st.expander("🔍 深度百科 (辨析、起源、邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -529,7 +545,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
 
-    # 7. 功能操作區 (發音、回報、一鍵跳轉)
+    # --- 8. 功能操作區 (發音、回報、一鍵跳轉) ---
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
@@ -543,7 +559,7 @@ def show_encyclopedia_card(row):
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
             log_user_intent(f"jump_{r_word}") 
             
-            # 構建跳轉草稿
+            # 構建跳轉草稿 (確保 LaTeX 也能正確帶入講義)
             inherited_draft = (
                 f"# 專題講義：{r_word}\n\n"
                 f"## 🧬 邏輯拆解\n{r_breakdown}\n\n"
