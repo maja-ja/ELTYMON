@@ -1027,7 +1027,7 @@ def run_handout_app():
     # 1. 取得管理員狀態
     is_admin = st.session_state.get("is_admin", False)
     
-    # 初始化 Session State
+    # --- 初始化 Session State (關鍵修正：只在第一次初始化) ---
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
@@ -1035,6 +1035,10 @@ def run_handout_app():
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
     
+    # 確保預覽編輯器的 key 存在，若不存在則初始化為空
+    if "preview_editor" not in st.session_state:
+        st.session_state.preview_editor = ""
+
     # 顯示跳轉成功提示
     if "專題講義" in st.session_state.manual_input_content:
         st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
@@ -1123,9 +1127,8 @@ def run_handout_app():
                         image_obj = Image.open(uploaded_file) if uploaded_file else None
                         generated_res = handout_ai_generate(image_obj, current_material, final_instruction)
                         
-                        # --- 關鍵修正點 ---
+                        # --- 關鍵：只有在 AI 生成成功時，才覆蓋右側編輯器 ---
                         st.session_state.generated_text = generated_res
-                        # 強制覆蓋編輯器的 Session State，確保畫面更新
                         st.session_state.preview_editor = generated_res 
                         
                         st.success("✅ AI 生成成功！右側預覽已更新。")
@@ -1146,19 +1149,20 @@ def run_handout_app():
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 內容編輯區 (邏輯修正) ---
-        # 如果還沒有 AI 生成的內容，強制讓右邊同步左邊的輸入
-        if not st.session_state.generated_text:
-            st.session_state.preview_editor = st.session_state.manual_input_content
+        # --- 內容編輯區 (關鍵修正) ---
+        # 1. 如果編輯器是空的，且左側有內容（例如剛跳轉過來），才進行初始化同步
+        # 這樣可以防止每次 Rerun 都覆蓋使用者的編輯
+        if not st.session_state.preview_editor and st.session_state.manual_input_content:
+             st.session_state.preview_editor = st.session_state.manual_input_content
 
-        # 這裡不需要再設定 value，因為我們已經直接操作了 session_state['preview_editor']
+        # 2. 綁定 Session State，不再依賴 value 參數，確保內容持久化
         edited_content = st.text_area(
             "📝 內容修訂", 
             key="preview_editor", 
             height=600
         )
         
-        # 標題定義邏輯
+        # 3. 標題定義邏輯 (從編輯後的內容抓取)
         default_title = "AI 專題講義"
         if edited_content:
             for line in edited_content.split('\n'):
@@ -1166,15 +1170,17 @@ def run_handout_app():
                 if clean_line:
                     default_title = clean_line
                     break
+        
+        # 讓使用者可以修改標題
         handout_title = st.text_input("講義標題", value=default_title)
         
         # 準備渲染
         img_b64 = get_image_base64(image) if image else ""
         
-        # 生成 HTML
+        # 生成 HTML (使用當前編輯框的內容)
         final_html = generate_printable_html(
             title=handout_title,
-            text_content=edited_content, 
+            text_content=edited_content,  # 確保這裡傳入的是有內容的變數
             img_b64=img_b64, 
             img_width_percent=img_width,
             auto_download=st.session_state.trigger_download
