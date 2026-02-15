@@ -813,7 +813,7 @@ def get_image_base64(image):
     image.save(buffered, format="JPEG", quality=95)
     return base64.b64encode(buffered.getvalue()).decode()
 
-ddef handout_ai_generate(image, manual_input, instruction):
+def handout_ai_generate(image, manual_input, instruction):
     """
     Handout AI 核心 (安全排版版)：
     強制區分行內 ($) 與區塊 ($$) 公式，杜絕排版崩壞。
