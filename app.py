@@ -866,27 +866,37 @@ def handout_ai_generate(image, manual_input, instruction):
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
     """
-    終極完美版 (SVG + 高解析度)：
-    1. 使用 tex-svg 引擎：徹底解決 CHTML 在 PDF 轉檔時產生的「怪線」與「破碎」問題。
-    2. CSS 強制對齊：修復 SVG 與文字的基線對齊問題。
-    3. 4倍採樣 (Scale 4)：確保數學公式在 PDF 中銳利清晰。
+    瀏覽器原生列印版 (Native Print)：
+    1. 捨棄 html2pdf.js，改用 window.print() 喚醒瀏覽器列印功能。
+    2. 使用 @media print CSS 隱藏 Streamlit 介面，只保留講義。
+    3. 這是目前最穩定、畫質最高 (向量級)、且絕對不會空白的方案。
     """
     text_content = text_content.strip()
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
     
-    # Markdown 轉 HTML
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-    auto_js = "window.onload = function() { setTimeout(downloadPDF, 800); };" if auto_download else ""
+    
+    # 如果觸發下載，直接執行 window.print()
+    auto_js = ""
+    if auto_download:
+        auto_js = """
+        window.onload = function() {
+            // 等待 MathJax 渲染完畢後，自動跳出列印視窗
+            MathJax.typesetPromise().then(() => {
+                setTimeout(() => { window.print(); }, 1000);
+            });
+        };
+        """
 
     return f"""
     <html>
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
         
-        <!-- 1. MathJax 配置：使用 SVG 模式 (最適合 PDF 列印) -->
+        <!-- MathJax SVG 模式 (最清晰) -->
         <script>
             window.MathJax = {{
                 loader: {{ load: ['[tex]/color'] }},
@@ -897,115 +907,83 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
                 }},
                 svg: {{ 
                     fontCache: 'global',
-                    scale: 1,
                     displayAlign: 'center'
-                }},
-                options: {{
-                    enableMenu: false
                 }}
             }};
         </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         
         <style>
-            @page {{ size: A4; margin: 0; }}
+            /* --- 網頁預覽樣式 --- */
             body {{ 
                 font-family: 'Roboto', 'Noto Sans TC', sans-serif; 
                 line-height: 1.6; 
-                padding: 0; margin: 0; 
                 background: #555; 
                 display: flex; flex-direction: column; align-items: center; 
-                -webkit-font-smoothing: antialiased;
+                margin: 0; padding: 20px;
             }}
             #printable-area {{ 
                 background: white; 
                 width: 210mm; min-height: 297mm; 
-                margin: 20px 0; padding: 20mm 25mm; 
-                box-sizing: border-box; position: relative; 
+                padding: 20mm 25mm; 
+                box-sizing: border-box; 
                 box-shadow: 0 0 15px rgba(0,0,0,0.2); 
-            }}
-            
-            /* --- 關鍵 CSS 修復 --- */
-            .content {{ font-size: 15px; text-align: justify; color: #222; }}
-            
-            /* 1. 修復 SVG 行內公式的垂直對齊 (解決忽高忽低) */
-            mjx-container[jax="SVG"][display="false"] {{
-                vertical-align: -0.15em !important; /* 微調基線 */
-                margin: 0 2px !important;
-            }}
-            
-            /* 2. 修復 SVG 區塊公式的間距 */
-            mjx-container[jax="SVG"][display="true"] {{
-                margin: 1.5em 0 !important;
-                display: block !important;
-            }}
-            
-            /* 3. 確保 SVG 路徑顏色正確 (避免變淡) */
-            mjx-container svg path {{
-                fill: #000 !important;
-                stroke: #000 !important;
+                margin-bottom: 20px;
             }}
 
-            /* 標題美化 */
-            h1 {{ 
-                color: #1a237e; text-align: center; 
-                border-bottom: 3px solid #1a237e; 
-                padding-bottom: 15px; margin-bottom: 30px; margin-top: 10px;
-                font-size: 28px; letter-spacing: 1px;
+            /* --- 關鍵：列印專用樣式 (@media print) --- */
+            @media print {{
+                /* 1. 隱藏所有不相關的元素 (Streamlit 介面) */
+                body * {{
+                    visibility: hidden;
+                }}
+                /* 2. 只顯示講義區域 */
+                #printable-area, #printable-area * {{
+                    visibility: visible;
+                }}
+                /* 3. 強制講義填滿頁面 */
+                #printable-area {{
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    width: 100%;
+                    margin: 0;
+                    padding: 20mm 25mm; /* 保持內距 */
+                    box-shadow: none;  /* 移除陰影 */
+                }}
+                /* 4. 設定紙張大小 */
+                @page {{
+                    size: A4;
+                    margin: 0; /* 瀏覽器邊距設為 0，由 padding 控制 */
+                }}
+                /* 5. 隱藏頁尾贊助文字 (可選) */
+                .sponsor-text-footer {{ display: none; }}
             }}
-            h2 {{ 
-                color: #0277bd; 
-                border-left: 6px solid #0277bd; 
-                padding-left: 12px; 
-                margin-top: 35px; margin-bottom: 18px; 
-                font-size: 20px; background: #f0f9ff; padding-top: 5px; padding-bottom: 5px;
-            }}
-            h3 {{ 
-                color: #2c3e50; font-weight: 700; 
-                margin-top: 25px; margin-bottom: 10px; 
-                font-size: 17px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; display: inline-block;
-            }}
-            
-            /* 列表優化 */
-            ul, ol {{ margin-bottom: 15px; padding-left: 25px; }}
-            li {{ margin-bottom: 8px; padding-left: 5px; }}
-            
-            /* 圖片容器 */
-            .img-wrapper {{ text-align: center; margin: 20px 0; }}
-            .img-wrapper img {{ box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 4px; }}
 
-            .sponsor-text-footer {{ color: #888; font-size: 11px; text-align: center; margin-top: 50px; border-top: 1px solid #eee; padding-top: 15px; }}
+            /* 內容樣式 */
+            .content {{ font-size: 12pt; text-align: justify; color: #000; }}
+            
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 2pt solid #1a237e; padding-bottom: 10px; margin-bottom: 20px; }}
+            h2 {{ color: #0277bd; border-left: 4pt solid #0277bd; padding-left: 10px; margin-top: 20px; background: #f0f9ff; }}
+            h3 {{ color: #333; font-weight: bold; margin-top: 15px; border-bottom: 1px dashed #ccc; }}
+            
+            /* SVG 對齊修正 */
+            mjx-container[jax="SVG"][display="false"] {{ vertical-align: -0.15em !important; margin: 0 2px !important; }}
+            mjx-container[jax="SVG"][display="true"] {{ margin: 1em 0 !important; }}
+            
             .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
+            .sponsor-text-footer {{ color: #888; font-size: 9pt; text-align: center; margin-top: 30px; border-top: 1px solid #eee; padding-top: 10px; }}
         </style>
     </head>
     <body>
         <div id="printable-area">
             <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 30px; font-family: 'Roboto Mono', monospace;">Generated: {date_str}</div>
+            <div style="text-align:right; font-size:10pt; color:#666; margin-bottom: 20px; font-family: monospace;">Generated: {date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
-            <div class="sponsor-text-footer">Generated by AI Education Station | Handout Pro v4.2</div>
+            <div class="sponsor-text-footer">Generated by AI Education Station</div>
         </div>
-        <script>
-            function downloadPDF() {{
-                const element = document.getElementById('printable-area');
-                const opt = {{
-                    margin: 0, 
-                    filename: '{title}.pdf', 
-                    image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ 
-                        scale: 4,  // 提高採樣率，確保文字銳利
-                        useCORS: true, 
-                        letterRendering: true,
-                        scrollY: 0
-                    }},
-                    jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }};
-                html2pdf().set(opt).from(element).save();
-            }}
-            {auto_js}
-        </script>
+        {auto_js}
     </body>
     </html>
     """
