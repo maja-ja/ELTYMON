@@ -367,71 +367,100 @@ def submit_report(row_data):
 
 def ai_decode_and_save(input_text, fixed_category):
     """
-    核心解碼函式 (多 Key 輪詢版)：
-    保留 v3.0 的詳細 Prompt 與欄位定義。
+    核心解碼函式：
+    1. 強化 Prompt，要求 AI 對 LaTeX 反斜線進行雙重轉義 (\\nabla)。
+    2. 自動處理 Gemini 回傳的 Markdown 代碼塊 (```json)。
+    3. 支援多 Key 輪詢。
     """
     keys = get_gemini_keys()
     if not keys:
         st.error("❌ 找不到 GEMINI_FREE_KEYS")
         return None
 
-    # 保留 v3.0 的詳細 Prompt
+    # --- 強化版 Prompt ---
     SYSTEM_PROMPT = f"""
     Role: 全領域知識解構專家 (Polymath Decoder).
     Task: 深度分析輸入內容，並將其解構為高品質、結構化的百科知識 JSON。
     
-    【領域鎖定】：你目前的身份是「{fixed_category}」專家，請務必以此專業視角進行解構、評論與推導。
-
-    ## 處理邏輯 (Field Mapping Strategy):
-    1. category: 必須固定填寫為「{fixed_category}」。
-    2. word: 核心概念名稱 (標題)。
-    3. roots: 底層邏輯 / 核心原理 / 關鍵公式。使用 LaTeX 格式並用 $ 包圍。
-    4. meaning: 該概念解決了什麼核心痛點或其存在的本質意義。
-    5. breakdown: 結構拆解。步驟流程或組成要素，逐步條列並使用 \\n 換行。
-    6. definition: 用五歲小孩都能聽懂的話 (ELI5) 解釋該概念。
-    7. phonetic: 關鍵年代、發明人名、或該領域的專門術語。標註正確發音與背景。
-    8. example: 兩個以上最具代表性的實際應用場景。
-    9. translation: 生活類比。以「🍎 生活比喻：」開頭。
-    10. native_vibe: 專家視角。以「🌊 專家心法：」開頭。
-    11. synonym_nuance: 相似概念對比與辨析。
-    12. visual_prompt: 視覺化圖景描述。
-    13. social_status: 在該領域的重要性評級。
-    14. emotional_tone: 學習此知識的心理感受。
-    15. street_usage: 避坑指南。常見認知誤區。
-    16. collocation: 關聯圖譜。三個延伸知識點。
-    17. etymon_story: 歷史脈絡或發現瞬間。
-    18. usage_warning: 邊界條件與失效場景。
-    19. memory_hook: 記憶金句。
-    20. audio_tag: 相關標籤 (以 # 開頭)。
+    【領域鎖定】：你目前的身份是「{fixed_category}」專家。
 
     ## 輸出規範 (Strict JSON Rules):
-    1. 必須輸出純 JSON 格式，不含任何 Markdown 標記。
-    2. 所有的鍵名 (Keys) 與字串值 (Values) 必須使用雙引號 (") 包裹。
-    3. LaTeX 公式請使用單個反斜線格式，但在 JSON 內需雙重轉義。
-    4. 換行統一使用 \\\\n。
+    1. 必須輸出純 JSON 格式。
+    2. **關鍵：LaTeX 處理**：
+       - 所有的 LaTeX 指令必須使用「雙反斜線」轉義，以確保 JSON 解析正確。
+       - 例如：寫成 "\\\\nabla" 而不是 "\\nabla"。
+       - 公式請用單個 $ 包裹，例如 "$$ \\\\nabla \\\\cdot \\\\mathbf{{E}} = \\\\frac{{\\\\rho}}{{\\\\epsilon_0}} $$"。
+    3. **換行處理**：JSON 內部的換行請統一使用 "\\\\n"。
+    4. 不要輸出任何 Markdown 標記（如 ```json）。
+
+    ## 欄位定義:
+    - category: "{fixed_category}"
+    - word: 核心概念名稱
+    - roots: 底層邏輯/關鍵公式 (使用 LaTeX)
+    - meaning: 核心痛點或本質意義
+    - breakdown: 結構拆解 (步驟或組成，用 \\\\n 分隔)
+    - definition: 五歲小孩都能聽懂的解釋 (ELI5)
+    - phonetic: 術語發音或背景
+    - example: 實際應用場景
+    - translation: 「🍎 生活比喻：」開頭
+    - native_vibe: 「🌊 專家心法：」開頭
+    - synonym_nuance: 相似概念辨析
+    - visual_prompt: 視覺化描述
+    - social_status: 重要性評級
+    - emotional_tone: 學習感受
+    - street_usage: 避坑指南
+    - collocation: 三個延伸知識點
+    - etymon_story: 歷史脈絡
+    - usage_warning: 邊界條件
+    - memory_hook: 記憶金句
+    - audio_tag: #標籤
     """
+    
     final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
 
     last_error = None
     for key in keys:
         try:
             genai.configure(api_key=key)
-            # 使用較新的模型
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            # 建議使用 gemini-1.5-flash 或 gemini-2.0-flash (目前最穩定)
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(final_prompt)
+            
             if response and response.text:
-                return response.text
+                raw_text = response.text
+                
+                # --- 清洗 AI 回傳的 Markdown 標籤 ---
+                # 移除 ```json ... ``` 標籤
+                clean_json = re.sub(r'^```json\s*|\s*```$', '', raw_text.strip(), flags=re.MULTILINE)
+                
+                # 驗證是否為合法 JSON
+                try:
+                    json.loads(clean_json)
+                    return clean_json # 回傳純 JSON 字串
+                except json.JSONDecodeError:
+                    # 如果解析失敗，嘗試修復常見的轉義錯誤
+                    fixed_json = clean_json.replace('\n', '\\n')
+                    return fixed_json
+                    
         except Exception as e:
             last_error = e
-            print(f"⚠️ Etymon Key failed: {e}")
+            print(f"⚠️ Key 嘗試失敗: {e}")
             continue
     
-    st.error(f"❌ 所有 Key 皆失敗: {last_error}")
+    st.error(f"❌ 所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
     return None
 def show_encyclopedia_card(row):
-    # 1. 變數定義與清洗
+    # 1. 變數定義與清洗 (使用修正後的 fix_content)
     r_word = str(row.get('word', '未命名主題'))
-    r_roots = fix_content(row.get('roots', "")).replace('$', '$$')
+    
+    # --- 關鍵修正：LaTeX 處理邏輯 ---
+    raw_roots = fix_content(row.get('roots', ""))
+    # 如果 AI 沒加錢字號，我們幫它加；如果已經有了，就不要再 replace 避免變成 $$$$
+    if raw_roots and not raw_roots.startswith('$'):
+        r_roots = f"$${raw_roots}$$"
+    else:
+        r_roots = raw_roots
+    
     r_phonetic = fix_content(row.get('phonetic', "")) 
     r_breakdown = fix_content(row.get('breakdown', ""))
     r_def = fix_content(row.get('definition', ""))
@@ -450,24 +479,27 @@ def show_encyclopedia_card(row):
     st.markdown(f"""
         <div class='breakdown-wrapper'>
             <h4 style='color: white; margin-top: 0;'>🧬 邏輯拆解</h4>
-            <div style='color: white; font-weight: 700;'>{r_breakdown}</div>
+            <div style='color: white; font-weight: 500; line-height: 1.6;'>{r_breakdown}</div>
         </div>
     """, unsafe_allow_html=True)
 
-    st.write("---")
+    st.write("") # 間距
     
     # 4. 核心內容區 (定義與原理)
     c1, c2 = st.columns(2)
     with c1:
-        st.info("### 🎯 定義與解釋")
+        st.markdown("### 🎯 定義與解釋")
         st.write(r_def) 
-        st.caption(f"📝 {r_ex}")
+        if r_ex and r_ex != "無":
+            st.info(f"💡 **應用實例：**\n{r_ex}")
         if r_trans and r_trans != "無":
             st.caption(f"（{r_trans}）")
         
     with c2:
-        st.success("### 💡 核心原理")
-        st.write(r_roots)
+        st.markdown("### 💡 核心原理")
+        # 使用 st.markdown 渲染處理過的 LaTeX
+        st.markdown(r_roots)
+        
         st.write(f"**🔍 本質意義：** {r_meaning}")
         st.write(f"**🪝 記憶鉤子：** {r_hook}")
 
@@ -502,15 +534,14 @@ def show_encyclopedia_card(row):
             
     with op3:
         if st.button("📄 生成講義 (預覽)", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
-            # 🔥 修改重點：使用 f-string 把 r_word (單字變數) 塞進去
             log_user_intent(f"jump_{r_word}") 
             
-           # 2. 執行跳轉邏輯
+            # 構建跳轉草稿
             inherited_draft = (
-                f"## 專題講義：{r_word}\n\n"
-                f"### 🧬 邏輯拆解\n{r_breakdown}\n\n"
-                f"### 🎯 核心定義\n{r_def}\n\n"
-                f"### 💡 核心原理\n{r_roots}\n\n"
+                f"# 專題講義：{r_word}\n\n"
+                f"## 🧬 邏輯拆解\n{r_breakdown}\n\n"
+                f"## 🎯 核心定義\n{r_def}\n\n"
+                f"## 💡 核心原理\n{r_roots}\n\n"
                 f"**本質意義**：{r_meaning}\n\n"
                 f"**應用實例**：{r_ex}\n\n"
                 f"**專家心法**：{r_vibe}"
