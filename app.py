@@ -914,11 +914,9 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # --- 1. 初始化所有狀態 (嚴禁在下載 Rerun 時重設) ---
+    # --- 1. 初始化 (絕對不准在 Rerun 時清空) ---
     if "preview_editor" not in st.session_state:
         st.session_state.preview_editor = ""
-    if "manual_input_content" not in st.session_state:
-        st.session_state.manual_input_content = ""
     if "handout_title_val" not in st.session_state:
         st.session_state.handout_title_val = "AI 專題講義"
     if "trigger_download" not in st.session_state:
@@ -926,26 +924,22 @@ def run_handout_app():
 
     is_admin = st.session_state.get("is_admin", False)
     
-    # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
-        
         uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
         image = None
-        img_width = 80
         if uploaded_file:
-            img_obj = Image.open(uploaded_file)
-            image = fix_image_orientation(img_obj)
+            image = fix_image_orientation(Image.open(uploaded_file))
             st.image(image, use_container_width=True)
 
         st.divider()
-        
-        # 左側輸入 (這不會影響右側，除非點擊導入)
+        # 左側是「素材暫存區」
         st.text_area("素材內容 (左側)", key="manual_input_content", height=200)
         
-        if st.button("⬅️ 將左側內容推送到編輯器 (手動同步)", use_container_width=True):
+        # ⚠️ 這是手動同步按鈕：不按這個，右邊的長文絕對不會變
+        if st.button("⬅️ 將內容推送到編輯器 (手動同步)", use_container_width=True):
             st.session_state.preview_editor = st.session_state.manual_input_content
             st.rerun()
 
@@ -955,10 +949,10 @@ def run_handout_app():
                     generated_res = handout_ai_generate(
                         Image.open(uploaded_file) if uploaded_file else None, 
                         st.session_state.manual_input_content, 
-                        "請使用 Markdown 標題與 LaTeX 公式排版。"
+                        "請使用標題 # 與 LaTeX 公式排版。"
                     )
+                    # 只有 AI 成功才會覆蓋右邊
                     st.session_state.preview_editor = generated_res
-                    # 抓取第一行當標題
                     for line in generated_res.split('\n'):
                         clean_t = line.replace('#', '').strip()
                         if clean_t: st.session_state.handout_title_val = clean_t; break
@@ -967,12 +961,15 @@ def run_handout_app():
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
+        # 📥 下載按鈕 (純觸發 Rerun)
         if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
-            # 點擊當下，內容絕對不會被清空
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 📝 編輯器本體 (拿掉 value 參數，防內容跳回) ---
+        # --- 📝 編輯器本體 ---
+        # 💡 重點：絕對不設定 value= 參數。
+        # 編輯器會與 st.session_state.preview_editor 同步，
+        # 在 Rerun 時（例如按下載按鈕時），Streamlit 會保留使用者的輸入。
         st.text_area(
             "📝 內容修訂 (您的編輯會即時儲存)", 
             key="preview_editor", 
@@ -981,26 +978,22 @@ def run_handout_app():
         
         st.text_input("講義標題", key="handout_title_val")
         
-        # 準備渲染
-        # 從綁定的 Key 中提取內容，確保下載到的是你剛才編輯的字
+        # 準備渲染數據
         final_content = st.session_state.preview_editor
         final_title = st.session_state.handout_title_val
-        
         img_b64 = get_image_base64(image) if image else ""
         
+        # 只要編輯器裡有字，就渲染
         if final_content.strip():
             final_html = generate_printable_html(
                 title=final_title,
                 text_content=final_content, 
                 img_b64=img_b64, 
-                img_width_percent=img_width,
+                img_width_percent=80,
                 auto_download=st.session_state.trigger_download
             )
             components.html(final_html, height=1000, scrolling=True)
-        else:
-            st.info("👉 請輸入內容或點擊同步/生成按鈕。")
 
-        # 重設下載狀態
         if st.session_state.trigger_download:
             st.session_state.trigger_download = False
 def run_handout_app():
