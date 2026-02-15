@@ -261,18 +261,25 @@ def get_gemini_keys():
     return shuffled_keys
 
 def fix_content(text):
-    """解決 \n1. \n2. 顯示問題，並保護 LaTeX"""
-    if text is None or str(text).strip() in ["無", "nan", ""]: return ""
+    """
+    最終修復版：
+    1. 將字面上的 "\\n" (反斜線+n) 轉換為 Markdown 的換行 (兩個空白+換行)。
+    2. 處理 JSON 殘留的引號。
+    """
+    if text is None or str(text).strip() in ["無", "nan", ""]: 
+        return ""
+    
     text = str(text)
     
-    # 1. 處理 AI 輸出的字面反斜線 n (\\n)
-    text = text.replace('\\n', '\n')
-    
-    # 2. 處理 JSON 雙重轉義的反斜線
+    # 1. 處理 JSON 雙重轉義 (將 \\ 變為 \)
     if '\\\\' in text:
         text = text.replace('\\\\', '\\')
         
-    # 3. 為了讓 Markdown 換行，將單個 \n 轉為 兩個空白+換行
+    # 2. 關鍵修復：處理字面換行符號
+    # 先將 "\\n" (字串) 轉為真正的換行字元
+    text = text.replace('\\n', '\n')
+    
+    # 3. 再將換行字元轉為 Markdown 認可的換行 (行尾加兩空白)
     text = text.replace('\n', '  \n')
     
     return text.strip('"').strip("'").strip()
