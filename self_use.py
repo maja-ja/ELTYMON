@@ -79,7 +79,8 @@ def ai_decode_only(input_text, category):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            
             res = model.generate_content(f"{PROMPT}\n\nTarget: {input_text}")
             clean_json = re.sub(r'^```json\s*|\s*```$', '', res.text.strip(), flags=re.MULTILINE)
             return json.loads(clean_json)
