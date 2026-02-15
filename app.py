@@ -1014,130 +1014,114 @@ def run_handout_app():
             st.session_state.trigger_download = False
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
+    
+    # 1. 取得管理員狀態
+    is_admin = st.session_state.get("is_admin", False)
+    
+    # 初始化 Session State
+    if "manual_input_content" not in st.session_state:
+        st.session_state.manual_input_content = ""
+    if "generated_text" not in st.session_state:
+        st.session_state.generated_text = ""
+    if "rotate_angle" not in st.session_state:
+        st.session_state.rotate_angle = 0
+    if "preview_editor" not in st.session_state:
+        st.session_state.preview_editor = ""
+    if "final_handout_title" not in st.session_state:
+        st.session_state.final_handout_title = "AI 專題講義"
 
-    # --- 1. 核心狀態初始化 (保險箱架構) ---
-    # 初始化 session_state 鍵值，防止 KeyError
-    state_keys = {
-        "preview_editor": "",          # 右側編輯器的內容（唯一真相）
-        "handout_title_val": "AI 專題講義", 
-        "manual_input_content": "",     # 左側素材內容
-        "trigger_download": False,
-        "is_admin": False
-    }
-    for key, default in state_keys.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-
-    # --- 2. 自動導入邏輯 (從解碼器跳轉過來時) ---
-    # 如果左側有素材，但右側是空的，自動進行第一次導入
-    if st.session_state.manual_input_content and not st.session_state.preview_editor:
-        st.session_state.preview_editor = st.session_state.manual_input_content
-
-    # 3. 頁面佈局 (調整比例 1:1.6 讓預覽更開闊)
-    col_ctrl, col_prev = st.columns([1, 1.6], gap="medium")
+    # 2. 頁面佈局
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
         
-        # 圖片上傳區
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
+        img_width = 80
         if uploaded_file:
             img_obj = Image.open(uploaded_file)
             image = fix_image_orientation(img_obj)
-            st.image(image, use_container_width=True, caption="已上傳素材圖")
-
-        # 左側素材區 (使用 key 綁定)
-        st.text_area("✍️ 講義原始素材", key="manual_input_content", height=200, 
-                     help="在這裡輸入原始文字，或是從單字解碼導入。")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("⬅️ 導入至編輯器", use_container_width=True):
-                st.session_state.preview_editor = st.session_state.manual_input_content
-                st.rerun()
-        with c2:
-            if st.button("🧹 清空所有內容", use_container_width=True):
-                st.session_state.preview_editor = ""
-                st.session_state.manual_input_content = ""
-                st.rerun()
+            if st.session_state.rotate_angle != 0:
+                image = image.rotate(-st.session_state.rotate_angle, expand=True)
+            c1, c2 = st.columns([1, 2])
+            with c1: 
+                if st.button("🔄 旋轉 90°"): 
+                    st.session_state.rotate_angle = (st.session_state.rotate_angle + 90) % 360
+                    st.rerun()
+            with c2: img_width = st.slider("圖片顯示寬度 (%)", 10, 100, 80)
+            st.image(image, use_container_width=True)
 
         st.divider()
-
-        # 管理員 AI 功能
-        if st.session_state.is_admin:
-            st.markdown("#### 🤖 AI 專業排版")
-            style_options = {
-                "📘 標準教科書": "請用Markdown標題、條列點、以及 LaTeX 公式排版。變數用$x$，大公式用$$。",
-                "📝 試卷模式": "請分為題目、解析、答案三部分。選項使用 (A)(B)(C)(D) 格式。",
+        
+        st.text_area("講義素材內容", key="manual_input_content", height=200)
+        
+        if is_admin:
+            SAFE_STYLES = {
+                "📘 標準教科書 (推薦)": "【要求】：標題使用#，變數用$x$，長公式用$$，嚴禁純LaTeX指令。",
+                "📝 試卷與解析模式": "【要求】：結構分為題目、解析、答案，選項用(A)(B)(C)(D)。",
                 "⚙️ 自定義": ""
             }
-            selected_style = st.selectbox("選擇排版風格", list(style_options.keys()))
-            user_instr = st.text_input("額外 AI 指令", placeholder="例如：增加三個練習題...")
+            col_style, col_instr = st.columns([1, 1])
+            with col_style:
+                selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
+            with col_instr:
+                user_instr = st.text_input("補充指令", placeholder="例如：加練習題...")
 
-            if st.button("🚀 啟動 AI 排版", type="primary", use_container_width=True):
-                if not st.session_state.manual_input_content and not uploaded_file:
-                    st.warning("⚠️ 請先提供素材。")
-                else:
-                    with st.spinner("AI 正在解析並排版講義中..."):
-                        image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        final_prompt = f"{style_options[selected_style]}\n{user_instr}"
-                        generated_res = handout_ai_generate(image_obj, st.session_state.manual_input_content, final_prompt)
-                        
-                        # 更新編輯器內容
-                        st.session_state.preview_editor = generated_res
-                        
-                        # 嘗試自動提取第一行當標題
-                        first_line = generated_res.split('\n')[0].replace('#', '').strip()
-                        if first_line:
-                            st.session_state.handout_title_val = first_line
-                        st.rerun()
-        else:
-            st.info("💡 目前為公開模式。手動編輯後可直接下載 PDF。")
+            if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
+                with st.spinner("🤖 AI 正在排版長文中..."):
+                    final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
+                    image_obj = Image.open(uploaded_file) if uploaded_file else None
+                    generated_res = handout_ai_generate(image_obj, st.session_state.manual_input_content, final_instruction)
+                    
+                    st.session_state.generated_text = generated_res
+                    st.session_state.preview_editor = generated_res
+                    
+                    # 自動抓取第一行當標題
+                    for line in generated_res.split('\n'):
+                        clean_t = line.replace('#', '').strip()
+                        if clean_t:
+                            st.session_state.final_handout_title = clean_t
+                            break
+                    st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # 下載按鈕 (優先放在最上方方便操作)
-        if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
-            if not st.session_state.preview_editor.strip():
-                st.error("❌ 編輯器內沒有內容，無法生成 PDF。")
-            else:
-                log_user_intent("pdf_download")
-                st.session_state.trigger_download = True
-                st.rerun()
+        # 下載控制
+        if "trigger_download" not in st.session_state:
+            st.session_state.trigger_download = False
 
-        # 標題輸入 (使用 key 綁定)
-        st.text_input("🏷️ 講義標題", key="handout_title_val")
+        if st.button("📥 下載講義 PDF (長文需等待 4 秒)", type="primary", use_container_width=True):
+            log_user_intent("pdf_download")
+            st.session_state.trigger_download = True
+            st.rerun()
 
-        # --- 📝 核心編輯器 (重要：不設 value，只設 key) ---
-        # 這樣當 Rerun 時，Streamlit 會保留 Widget 內的即時編輯內容
-        st.text_area(
-            "📝 內容修訂 (支援 Markdown 與 LaTeX)", 
-            key="preview_editor", 
-            height=600
+        # 內容修訂 (確保不丟失內容)
+        if not st.session_state.preview_editor and st.session_state.manual_input_content:
+             st.session_state.preview_editor = st.session_state.manual_input_content
+
+        # 使用 key 綁定，防止 rerun 丟失內容
+        edited_content = st.text_area("📝 內容修訂", key="preview_editor", height=500)
+        
+        # 標題持久化輸入框 (使用 key 綁定)
+        st.session_state.final_handout_title = st.text_input(
+            "講義標題 (點擊下載前請確認)", 
+            value=st.session_state.final_handout_title
         )
         
-        # 讀取最後一秒的狀態進行渲染
-        final_content = st.session_state.preview_editor
-        final_title = st.session_state.handout_title_val
+        # 渲染 HTML
         img_b64 = get_image_base64(image) if image else ""
+        final_html = generate_printable_html(
+            title=st.session_state.final_handout_title,
+            text_content=edited_content, 
+            img_b64=img_b64, 
+            img_width_percent=img_width,
+            auto_download=st.session_state.trigger_download
+        )
         
-        # 預覽區域
-        if final_content.strip():
-            with st.container(border=True):
-                final_html = generate_printable_html(
-                    title=final_title,
-                    text_content=final_content, 
-                    img_b64=img_b64, 
-                    img_width_percent=80,
-                    auto_download=st.session_state.trigger_download
-                )
-                components.html(final_html, height=1000, scrolling=True)
-        else:
-            st.info("尚未有預覽內容。請在左側輸入或使用導入功能。")
+        components.html(final_html, height=1000, scrolling=True)
 
-        # 下載後重設狀態
         if st.session_state.trigger_download:
             st.session_state.trigger_download = False
 # ==========================================
