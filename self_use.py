@@ -127,42 +127,99 @@ def page_learn(df):
             st.warning("查無結果")
     else:
         st.dataframe(df[['word', 'category', 'definition']], use_container_width=True)
-
 def page_lab(df):
     st.title("🔬 解碼實驗室 (先編輯，後儲存)")
+    st.info("輸入主題後，系統會自動預查資料庫。若已存在，您可以選擇跳過或重新解碼。")
+
     col1, col2 = st.columns([2, 1])
-    with col1: target = st.text_input("輸入解碼主題")
-    with col2: cat = st.selectbox("分類", ["物理科學", "英語辭源", "程式開發", "自定義"])
+    with col1: 
+        target = st.text_input("輸入解碼主題", placeholder="例如：熵、貝氏定理...", key="lab_target")
+    with col2: 
+        cat = st.selectbox("預設分類", ["物理科學", "英語辭源", "程式開發", "人工智慧", "自定義"])
 
-    if st.button("啟動 AI 解碼", type="primary"):
-        with st.spinner("AI 正在解析中..."):
+    # --- 核心優化：回覆預查功能 ---
+    has_existing = False
+    if target.strip():
+        # 進行精確匹配預查 (不分大小寫)
+        existing_match = df[df['word'].str.lower() == target.lower().strip()]
+        
+        if not existing_match.empty:
+            has_existing = True
+            st.warning(f"⚠️ 預查發現：書架上已有「{target}」的解碼資料。")
+            with st.expander("查看現有內容", expanded=False):
+                show_encyclopedia_card(existing_match.iloc[0])
+            
+            re_decode_confirm = st.checkbox("我確認要「重新解碼」並覆蓋舊資料", value=False)
+            if not re_decode_confirm:
+                st.info("💡 若內容無誤，您可以直接切換到「講義排版」使用。")
+        else:
+            st.success(f"🔍 預查確認：這是全新的主題，準備啟動 AI 解碼。")
+
+    # --- 啟動解碼按鈕邏輯 ---
+    # 若已有資料且未勾選重新解碼，則禁用按鈕或不執行
+    can_decode = True
+    if has_existing and not locals().get('re_decode_confirm', False):
+        can_decode = False
+
+    if st.button("🚀 啟動 AI 解碼", type="primary", disabled=not target.strip() or (has_existing and not can_decode)):
+        with st.spinner(f"正在透過 AI 深入解析「{target}」..."):
             draft = ai_decode_only(target, cat)
-            if draft: st.session_state.temp_draft = draft
-            else: st.error("AI 沒回應，請重試")
+            if draft: 
+                st.session_state.temp_draft = draft
+                st.toast("AI 草稿生成完畢！")
+            else: 
+                st.error("AI 沒回應，可能是 API Key 額度問題或網路異常。")
 
+    # --- 編輯與儲存區 (保持不變) ---
     if "temp_draft" in st.session_state:
         st.divider()
         st.subheader("📝 AI 草稿編輯區")
+        st.caption("您可以修改下方內容，確認完美後再點擊儲存。")
+        
         d = st.session_state.temp_draft
         
-        # 讓使用者修改 AI 生成的內容
-        e_word = st.text_input("主題名稱", d.get('word'))
-        e_roots = st.text_input("核心原理 (LaTeX)", d.get('roots'))
-        e_breakdown = st.text_area("邏輯拆解", d.get('breakdown'))
-        e_def = st.text_area("定義解釋", d.get('definition'))
-        e_vibe = st.text_area("專家心法", d.get('native_vibe'))
+        col_edit1, col_edit2 = st.columns(2)
+        with col_edit1:
+            e_word = st.text_input("主題名稱 (Word)", d.get('word'))
+            e_phonetic = st.text_input("發音背景 (Phonetic)", d.get('phonetic'))
+            e_roots = st.text_input("核心原理 (LaTeX 格式)", d.get('roots'))
+        with col_edit2:
+            e_cat = st.text_input("最終分類 (Category)", d.get('category'))
+            e_meaning = st.text_input("本質意義 (Meaning)", d.get('meaning'))
+            e_hook = st.text_input("記憶鉤子 (Memory Hook)", d.get('memory_hook'))
 
-        if st.button("✅ 確認無誤，存入雲端書架"):
+        e_breakdown = st.text_area("邏輯拆解 (使用 \\n 換行)", d.get('breakdown'), height=150)
+        e_def = st.text_area("詳細定義 (Definition)", d.get('definition'), height=150)
+        e_vibe = st.text_area("專家心法 (Native Vibe)", d.get('native_vibe'), height=150)
+
+        if st.button("✅ 確認無誤，存入雲端書架", use_container_width=True):
+            # 構建最終存檔資料
             new_row = d.copy()
-            new_row.update({"word": e_word, "roots": e_roots, "breakdown": e_breakdown, "definition": e_def, "native_vibe": e_vibe})
+            new_row.update({
+                "word": e_word, "category": e_cat, "roots": e_roots, 
+                "breakdown": e_breakdown, "definition": e_def, 
+                "native_vibe": e_vibe, "meaning": e_meaning,
+                "phonetic": e_phonetic, "memory_hook": e_hook
+            })
             
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            # 移除舊的(若存在)並加入新的
-            updated_df = pd.concat([df[df['word'] != e_word], pd.DataFrame([new_row])], ignore_index=True)
-            conn.update(data=updated_df)
-            st.success("儲存成功！")
-            del st.session_state.temp_draft
-            st.rerun()
+            try:
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                # 再次讀取最新資料以確保寫入位置正確
+                latest_df = conn.read(ttl=0)
+                # 執行覆蓋邏輯：移除舊的，加上新的
+                updated_df = pd.concat([latest_df[latest_df['word'] != e_word], pd.DataFrame([new_row])], ignore_index=True)
+                
+                conn.update(data=updated_df)
+                st.success(f"🎉 儲存成功！「{e_word}」已更新至雲端書架。")
+                st.balloons()
+                
+                # 清理狀態並強制刷新
+                if "temp_draft" in st.session_state: del st.session_state.temp_draft
+                st.cache_data.clear()
+                time.sleep(1.5)
+                st.rerun()
+            except Exception as e:
+                st.error(f"儲存到 Google Sheets 時發生錯誤: {e}")
 
 # ==========================================
 # 5. Handout 講義排版模組
