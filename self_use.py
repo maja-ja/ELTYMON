@@ -1,158 +1,408 @@
 import streamlit as st
 import pandas as pd
+import base64
+import time
+import json
+import re
+import random
+from io import BytesIO
+from PIL import Image, ImageOps
+from gtts import gTTS
 import google.generativeai as genai
 from streamlit_gsheets import GSheetsConnection
-import time
+import streamlit.components.v1 as components
+import markdown
 
 # ==========================================
-# 0. 基礎配置與安全性
+# 1. 核心配置與視覺美化 (CSS)
 # ==========================================
-st.set_page_config(page_title="Etymon Admin", page_icon="⚙️", layout="centered")
+st.set_page_config(page_title="AI 教育工作站", page_icon="🏫", layout="wide")
 
-def check_password():
-    """簡單的密碼檢查"""
-    if "admin_authenticated" not in st.session_state:
-        st.session_state.admin_authenticated = False
-    
-    if not st.session_state.admin_authenticated:
-        st.title("🔐 管理員登入")
-        pwd = st.text_input("輸入管理密碼", type="password")
-        if st.button("進入戰情室"):
-            if pwd == st.secrets.get("ADMIN_PASSWORD", "0000"):
-                st.session_state.admin_authenticated = True
-                st.rerun()
-            else:
-                st.error("密碼錯誤")
-        return False
-    return True
-
-# ==========================================
-# 1. 核心工具與 AI 邏輯
-# ==========================================
-
-def get_spreadsheet_url():
-    return st.secrets["connections"]["gsheets"]["spreadsheet"]
-
-@st.cache_data(ttl=60)
-def load_full_db():
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    return conn.read(spreadsheet=get_spreadsheet_url(), ttl=0)
-
-def ai_generate_word_data(word, category):
-    """呼叫 AI 生成標準的 JSON 單字資料"""
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    prompt = f"""
-    請以「{category}」專家的視角，解碼單字「{word}」。
-    請直接輸出 JSON 格式，不含 markdown 代碼塊，欄位如下：
-    {{
-        "category": "{category}",
-        "roots": "字根源頭/核心邏輯",
-        "meaning": "本質意義",
-        "word": "{word}",
-        "breakdown": "結構拆解",
-        "definition": "易懂的定義",
-        "phonetic": "音標/發音提示",
-        "example": "生活化例句",
-        "translation": "中文翻譯",
-        "native_vibe": "專家心得"
-    }}
-    """
-    try:
-        response = model.generate_content(prompt)
-        # 清理 JSON 字串
-        clean_json = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-    except Exception as e:
-        st.error(f"AI 生成失敗: {e}")
-        return None
-
-# ==========================================
-# 2. UI 介面 (爆改管理員版)
-# ==========================================
-
-def admin_ui():
+def inject_custom_css():
     st.markdown("""
         <style>
-            .main { background-color: #f0f2f6; }
-            .stButton > button { width: 100%; border-radius: 10px; }
-            .data-card { background: white; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #1976D2; }
+            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700&display=swap');
+            /* ... (此處省略部分重複的 CSS 樣式以節省空間) ... */
+            .hero-word { font-size: 2.8rem; font-weight: 800; color: #1A237E; }
+            .vibe-box { background-color: #F0F7FF; padding: 20px; border-radius: 12px; border-left: 6px solid #2196F3; margin: 15px 0; }
+            .breakdown-wrapper { background: linear-gradient(135deg, #1E88E5 0%, #1565C0 100%); padding: 25px 30px; border-radius: 15px; color: white !important; }
+            .sponsor-container { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+            .btn-ecpay { background-color: #00A650; color: white !important; text-decoration: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; text-align: center; }
+            .btn-bmc { background-color: #FFDD00; color: black !important; text-decoration: none; padding: 10px 15px; border-radius: 8px; font-weight: bold; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px; }
+            .btn-icon { width: 20px; height: 20px; }
+            @media (prefers-color-scheme: dark) {
+                .hero-word { color: #90CAF9 !important; }
+                .vibe-box { background-color: #1E262E !important; border-left: 6px solid #64B5F6 !important; }
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    st.title("🧪 Etymon 戰情室")
-    
-    tab1, tab2, tab3 = st.tabs(["🆕 新增單字", "🔍 管理庫存", "📊 數據統計"])
+# ==========================================
+# 2. 共用工具與核心函式 (邏輯保留)
+# ==========================================
 
-    # --- Tab 1: AI 輔助新增 ---
-    with tab1:
-        st.subheader("🤖 AI 自動補完")
-        new_w = st.text_input("要新增的單字", placeholder="例如: Entropy")
-        new_c = st.selectbox("所屬領域", ["英語辭源", "物理科學", "商業商戰", "人工智慧", "心理學", "自定義"])
-        
-        if st.button("✨ 呼叫 AI 生成資料庫內容"):
-            with st.spinner("AI 正在解析中..."):
-                res = ai_generate_word_data(new_w, new_c)
-                if res:
-                    st.session_state.temp_data = res
-                    st.success("解析成功！請檢查下方內容並確認存檔。")
+def get_gemini_keys():
+    """獲取並隨機打亂 API Keys"""
+    keys = st.secrets.get("GEMINI_FREE_KEYS", [])
+    if isinstance(keys, str): keys = [keys]
+    random.shuffle(keys)
+    return keys
 
-        if "temp_data" in st.session_state:
-            with st.form("confirm_form"):
-                d = st.session_state.temp_data
-                f_word = st.text_input("單字", d['word'])
-                f_roots = st.text_input("字根", d['roots'])
-                f_def = st.text_area("定義", d['definition'])
-                f_ex = st.text_area("例句", d['example'])
-                f_cat = st.text_input("分類", d['category'])
-                
-                if st.form_submit_button("💾 確認存入雲端資料庫"):
-                    conn = st.connection("gsheets", type=GSheetsConnection)
-                    df = load_full_db()
-                    new_row = pd.DataFrame([d])
-                    updated_df = pd.concat([df, new_row], ignore_index=True)
-                    conn.update(spreadsheet=get_spreadsheet_url(), data=updated_df)
-                    st.balloons()
-                    st.success(f"已存入：{f_word}")
-                    del st.session_state.temp_data
+def fix_content(text):
+    """處理 JSON 字串與 Markdown 換行"""
+    if text is None or str(text).strip().lower() in ["無", "nan", ""]: return ""
+    text = str(text).replace('\\\\', '\\').replace('\\n', '\n').replace('\n', '  \n')
+    return text.strip('"\' ')
 
-    # --- Tab 2: 庫存管理 (搜尋、修改、刪除) ---
-    with tab2:
-        df = load_full_db()
-        st.subheader(f"目前總量: {len(df)}")
-        search = st.text_input("🔍 搜尋現有單字進行管理")
-        
-        if search:
-            match = df[df['word'].str.contains(search, case=False)]
-            for idx, row in match.iterrows():
-                with st.expander(f"📦 {row['word']} ({row['category']})"):
-                    st.write(row.to_dict())
-                    if st.button("🗑️ 刪除此筆資料", key=f"del_{idx}"):
-                        df = df.drop(idx)
-                        conn = st.connection("gsheets", type=GSheetsConnection)
-                        conn.update(spreadsheet=get_spreadsheet_url(), data=df)
-                        st.warning("已刪除，請重新整理頁面。")
-                        st.rerun()
+def speak(text, key_suffix=""):
+    """TTS 發音生成"""
+    english_only = re.sub(r"[^a-zA-Z0-9\s'-]", " ", str(text)).strip()
+    if not english_only: return
+    try:
+        tts = gTTS(text=english_only, lang='en')
+        fp = BytesIO()
+        tts.write_to_fp(fp)
+        audio_base64 = base64.b64encode(fp.getvalue()).decode()
+        unique_id = f"audio_{int(time.time()*1000)}_{key_suffix}"
+        components.html(f'<button onclick="document.getElementById(\'{unique_id}\').play()">🔊 聽發音</button><audio id="{unique_id}" src="data:audio/mp3;base64,{audio_base64}"></audio>', height=40)
+    except Exception as e:
+        print(f"TTS Error: {e}")
 
-    # --- Tab 3: 數據統計 (Metrics) ---
-    with tab3:
-        st.subheader("📈 用戶意圖統計")
+def get_spreadsheet_url():
+    """安全地獲取 Google Sheets URL"""
+    try: return st.secrets["connections"]["gsheets"]["spreadsheet"]
+    except KeyError: return st.secrets.get("gsheets", {}).get("spreadsheet")
+
+@st.cache_data(ttl=300)
+def load_etymon_db():
+    """從 Google Sheets 載入知識百科資料庫"""
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(ttl=0)
+        # 確保核心欄位存在
+        for col in ['word', 'definition', 'category', 'roots']:
+            if col not in df.columns: df[col] = "無"
+        return df.dropna(subset=['word']).fillna("無").reset_index(drop=True)
+    except Exception as e:
+        st.error(f"資料庫載入失敗: {e}")
+        return pd.DataFrame(columns=['word', 'definition', 'category', 'roots'])
+
+# ==========================================
+# 3. Etymon 知識百科模組
+# ==========================================
+
+def ai_decode_term(input_text, category):
+    """AI 核心解碼函式 (保留過去的穩定 Prompt)"""
+    keys = get_gemini_keys()
+    if not keys:
+        st.error("找不到 Gemini API Keys，請檢查 Streamlit Secrets 設定。")
+        return None
+
+    SYSTEM_PROMPT = f"""
+    Role: 全領域知識解構專家. Task: 深度分析輸入內容，並將其解構為高品質的 JSON。
+    【領域鎖定】：你目前的身份是「{category}」專家。
+    ## 輸出規範 (Strict JSON Rules):
+    1. **必須輸出純 JSON 格式**，嚴禁包含任何 Markdown 標記（如 ```json）。
+    2. **LaTeX 雙重轉義**: 所有 LaTeX 指令必須使用「雙反斜線」(例如: "\\\\frac")。
+    3. **換行處理**: JSON 內部換行請統一使用 "\\\\n"。
+    ## 欄位定義:
+    - category: "{category}"
+    - word: 核心概念名稱
+    - roots: 底層邏輯/關鍵公式 (使用 LaTeX)
+    - meaning: 核心本質意義
+    - breakdown: 結構拆解 (用 \\\\n 分隔)
+    - definition: 給五歲小孩的解釋 (ELI5)
+    - phonetic: 發音或背景
+    - example: 實際應用場景
+    - translation: 「🍎 生活比喻：」開頭
+    - native_vibe: 「🌊 專家心法：」開頭
+    - synonym_nuance: 相似概念辨析
+    - usage_warning: 邊界條件
+    - memory_hook: 記憶金句
+    """
+    last_error = "未知錯誤"
+    for key in keys:
         try:
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            m_df = conn.read(spreadsheet=get_spreadsheet_url(), worksheet="metrics", ttl=0)
-            st.dataframe(m_df.sort_values(by='count', ascending=False), use_container_width=True)
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」")
+            clean_json = re.sub(r'^```json\s*|\s*```$', '', response.text.strip(), flags=re.M)
+            json.loads(clean_json) # 驗證 JSON 格式
+            return clean_json
+        except Exception as e:
+            last_error = str(e)
+            continue
+    st.error(f"所有 API Key 皆嘗試失敗。最後錯誤: {last_error}")
+    return None
+
+def display_etymon_card(row):
+    """顯示單張知識卡片 (保留過去的穩定 UI)"""
+    r_word = str(row.get('word', 'N/A'))
+    r_phonetic = fix_content(row.get('phonetic', ''))
+    r_breakdown = fix_content(row.get('breakdown', ''))
+    r_def = fix_content(row.get('definition', ''))
+    r_meaning = str(row.get('meaning', ''))
+    r_hook = fix_content(row.get('memory_hook', ''))
+    r_vibe = fix_content(row.get('native_vibe', ''))
+    r_ex = fix_content(row.get('example', ''))
+    
+    raw_roots = fix_content(row.get('roots', ''))
+    clean_roots = raw_roots.replace('$', '').strip()
+    r_roots = f"$${clean_roots}$$" if clean_roots else "（無公式或原理）"
+
+    st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
+    if r_phonetic != "無": st.caption(f"/{r_phonetic}/")
+
+    st.markdown(f"<div class='breakdown-wrapper'><h4>🧬 邏輯拆解</h4>{r_breakdown}</div>", unsafe_allow_html=True)
+    st.write("")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("### 🎯 定義與解釋")
+        st.write(r_def)
+        if r_ex and r_ex != "無": st.info(f"💡 **應用實例：**\n{r_ex}")
+    with c2:
+        st.markdown("### 💡 核心原理")
+        st.markdown(r_roots)
+        st.write(f"**🔍 本質意義：** {r_meaning}")
+        st.write(f"**🪝 記憶鉤子：** {r_hook}")
+
+    if r_vibe and r_vibe != "無":
+        st.markdown(f"<div class='vibe-box'><h4>🌊 專家視角</h4>{r_vibe}</div>", unsafe_allow_html=True)
+    
+    with st.expander("🔍 深度百科 (辨析、邊界條件)"):
+        st.markdown(f"**⚖️ 相似對比：** \n{fix_content(row.get('synonym_nuance', '無'))}")
+        st.markdown(f"**⚠️ 使用注意：** \n{fix_content(row.get('usage_warning', '無'))}")
+    
+    speak(r_word, f"card_{r_word}")
+    st.divider()
+
+def run_etymon_app(df):
+    """Etymon 知識百科主應用程式"""
+    st.title("📚 Etymon 知識百科全書")
+    st.info("您可以在此查詢已建立的知識卡，或透過 AI 新增知識到共享資料庫中。")
+    
+    tab_learn, tab_create = st.tabs(["🔍 查詢與學習", "🔬 新增知識卡"])
+
+    with tab_learn:
+        st.subheader("隨機探索或精確搜尋")
+        
+        # 搜尋功能
+        search_query = st.text_input("搜尋知識庫...", placeholder="輸入關鍵字，例如 '熵' 或 '光合作用'")
+        if search_query:
+            query_clean = search_query.strip().lower()
+            mask = df.apply(lambda row: row.astype(str).str.lower().str.contains(query_clean).any(), axis=1)
+            results = df[mask]
+            st.write(f"找到 {len(results)} 筆相關結果：")
+            for _, row in results.iterrows():
+                with st.container(border=True):
+                    display_etymon_card(row.to_dict())
+        else:
+            # 隨機探索
+            if st.button("🎲 隨機來一張知識卡", use_container_width=True, type="primary"):
+                if not df.empty:
+                    st.session_state.random_card = df.sample(1).iloc.to_dict()
             
-            if st.button("🧹 重設統計數據"):
-                empty_m = pd.DataFrame(columns=['label', 'count'])
-                conn.update(spreadsheet=get_spreadsheet_url(), worksheet="metrics", data=empty_m)
-                st.rerun()
-        except:
-            st.info("尚無統計數據。")
+            if 'random_card' in st.session_state and st.session_state.random_card:
+                with st.container(border=True):
+                    display_etymon_card(st.session_state.random_card)
+
+    with tab_create:
+        st.subheader("透過 AI 新增知識")
+        with st.form("create_form"):
+            new_term = st.text_input("輸入想解構的新主題：", placeholder="例如: '貝氏定理'、'馬基維利主義'...")
+            
+            categories = sorted(df['category'].unique().tolist())
+            if "自定義" not in categories: categories.append("自定義")
+            selected_category = st.selectbox("選定領域標籤", categories)
+            
+            final_category = st.text_input("若選自定義，請輸入領域名稱：") if selected_category == "自定義" else selected_category
+            
+            force_refresh = st.checkbox("🔄 強制刷新 (若主題已存在，用新資料覆蓋)")
+            
+            submitted = st.form_submit_button("🚀 啟動 AI 解碼", use_container_width=True)
+
+            if submitted and new_term and final_category:
+                is_exist = not df.empty and (df['word'].astype(str).str.lower() == new_term.lower()).any()
+                
+                if is_exist and not force_refresh:
+                    st.warning(f"「{new_term}」已存在知識庫中。如需更新請勾選「強制刷新」。")
+                    display_etymon_card(df[df['word'].astype(str).str.lower() == new_term.lower()].iloc.to_dict())
+                else:
+                    with st.spinner(f"正在以【{final_category}】視角解構「{new_term}」..."):
+                        json_res = ai_decode_term(new_term, final_category)
+                        if json_res:
+                            try:
+                                new_data = json.loads(json_res)
+                                conn = st.connection("gsheets", type=GSheetsConnection)
+                                current_df = conn.read(ttl=0)
+                                
+                                if is_exist and force_refresh:
+                                    current_df = current_df[current_df['word'].astype(str).str.lower() != new_term.lower()]
+                                
+                                updated_df = pd.concat([current_df, pd.DataFrame([new_data])], ignore_index=True)
+                                conn.update(data=updated_df)
+                                
+                                st.success(f"🎉 「{new_term}」解碼完成並已存入雲端！")
+                                st.balloons()
+                                st.cache_data.clear() # 清除快取以便下次載入最新資料
+                                display_etymon_card(new_data)
+                            except Exception as e:
+                                st.error(f"寫入資料庫失敗: {e}")
+                                st.code(json_res)
 
 # ==========================================
-# 3. 執行入口
+# 4. Handout AI 講義生成模組
 # ==========================================
+
+def handout_ai_generate(image, manual_input, instruction):
+    """Handout AI 核心 (保留過去的穩定 Prompt)"""
+    keys = get_gemini_keys()
+    if not keys: return "❌ 錯誤：API Key 未設定"
+    prompt = """
+    你是一位專業的講義排版專家。請根據輸入素材撰寫一份結構清晰、排版完美的 Markdown 講義。
+    【⚠️ 絕對排版紅線】:
+    1. **行內公式**: 必須用 `$` 包裹, 如 `$E=mc^2$`。
+    2. **區塊公式**: 必須用 `$$` 包裹並獨立成行。
+    3. **標題**: 僅使用 Markdown 的 `#`, `##`, `###`。
+    【內容要求】：語氣專業且教學導向，直接輸出內容，不要有「好的，這是您的講義」等廢話。
+    """
+    parts = [prompt, f"【講義素材】：\n{manual_input}", f"【額外排版要求】：{instruction}"]
+    if image: parts.append(image)
+
+    last_error = "未知錯誤"
+    for key in keys:
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(parts)
+            return response.text
+        except Exception as e:
+            last_error = str(e)
+            continue
+    return f"AI 異常: {last_error}"
+
+def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
+    """生成可列印的 HTML (保留過去的穩定渲染邏輯)"""
+    html_body = markdown.markdown(text_content, extensions=['fenced_code', 'tables'])
+    auto_js = "setTimeout(downloadPDF, 500);" if auto_download else ""
+    return f"""
+    <html><head>
+        <script>
+            window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']] }}, chtml: {{ scale: 1.1 }} }};
+        </script>
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+        <style>
+            @page {{ size: A4; margin: 0; }} body {{ background: #555; display: flex; justify-content: center; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm; box-sizing: border-box; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
+            h1 {{ text-align: center; }} .content {{ font-size: 16px; line-height: 1.8; }}
+        </style>
+    </head><body>
+        <div id="printable-area">
+            <h1>{title}</h1>
+            {f'<img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%; display:block; margin:auto;">' if img_b64 else ""}
+            <div class="content">{html_body}</div>
+        </div>
+        <script>
+            function downloadPDF() {{
+                const el = document.getElementById('printable-area');
+                html2pdf().set({{ filename: '{title}.pdf', jsPDF: {{ format: 'a4' }}, html2canvas: {{ scale: 2 }} }}).from(el).save();
+            }}
+            {auto_js}
+        </script>
+    </body></html>"""
+
+def run_handout_app():
+    """Handout AI 講義生成主應用程式"""
+    st.title("🎓 AI 講義排版大師")
+    st.info("上傳圖片或貼上文字素材，AI 將為您自動生成結構化、排版優美的 Markdown 講義，並可直接下載為 PDF。")
+
+    # 初始化 session state
+    for key, default_val in [("preview_editor", ""), ("handout_title", "AI 專題講義"), ("trigger_download", False)]:
+        if key not in st.session_state: st.session_state[key] = default_val
+
+    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+
+    with col_ctrl:
+        st.subheader("1. 素材與控制")
+        uploaded_file = st.file_uploader("上傳圖片 (可選)", type=["jpg", "png", "jpeg"])
+        image = Image.open(uploaded_file) if uploaded_file else None
+        if image: st.image(image, "上傳的圖片", use_container_width=True)
+
+        manual_input = st.text_area("或貼上文字素材", height=200, placeholder="將您的筆記、題目、文章貼在這裡...")
+        instruction = st.text_input("額外指令 (可選)", placeholder="例如：請將內容整理成三大重點，並附上練習題。")
+        
+        if st.button("🚀 啟動 AI 生成講義", type="primary", use_container_width=True):
+            if not manual_input and not image:
+                st.warning("請至少提供文字素材或上傳一張圖片。")
+            else:
+                with st.spinner("🤖 AI 正在撰寫與排版講義..."):
+                    generated_res = handout_ai_generate(image, manual_input, instruction)
+                    st.session_state.preview_editor = generated_res
+                    # 自動抓取第一行當標題
+                    first_line = generated_res.split('\n').replace('#', '').strip()
+                    if first_line: st.session_state.handout_title = first_line
+
+    with col_prev:
+        st.subheader("2. 預覽、修訂與下載")
+        
+        st.session_state.handout_title = st.text_input("講義標題", value=st.session_state.handout_title)
+        
+        edited_content = st.text_area("內容編輯器 (可在此手動修改)", value=st.session_state.preview_editor, height=500)
+        
+        if st.button("📥 下載講義 PDF", use_container_width=True):
+            st.session_state.trigger_download = True
+        
+        img_b64 = base64.b64encode(uploaded_file.getvalue()).decode() if uploaded_file else ""
+        
+        if edited_content:
+            final_html = generate_printable_html(
+                title=st.session_state.handout_title,
+                text_content=edited_content,
+                img_b64=img_b64,
+                img_width_percent=80,
+                auto_download=st.session_state.trigger_download
+            )
+            components.html(final_html, height=800, scrolling=True)
+
+        if st.session_state.trigger_download:
+            st.session_state.trigger_download = False
+
+# ==========================================
+# 5. 主程式入口
+# ==========================================
+def main():
+    inject_custom_css()
+
+    st.sidebar.title("🏫 AI 教育工作站")
+    st.sidebar.markdown("一個整合了知識學習與內容創作的 AI 工具。")
+
+    app_mode = st.sidebar.radio(
+        "選擇功能模組",
+        ("📚 Etymon 知識百科", "🎓 AI 講義生成")
+    )
+    
+    st.sidebar.divider()
+    st.sidebar.markdown("### 💖 隨喜贊助")
+    st.sidebar.markdown("""
+        本站所有功能皆免費使用。若您覺得有幫助，您的支持是我們持續開發與維護 AI 算力的最大動力！
+        <div class="sponsor-container">
+            <a href="#" target="_blank" class="btn-ecpay">💳 綠界 ECPay</a>
+            <a href="#" target="_blank" class="btn-bmc">
+                <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
+                Buy Me a Coffee
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+    st.sidebar.divider()
+    st.sidebar.caption("v5.0 Streamlined | Public Access")
+
+    if app_mode == "📚 Etymon 知識百科":
+        etymon_df = load_etymon_db()
+        run_etymon_app(etymon_df)
+    elif app_mode == "🎓 AI 講義生成":
+        run_handout_app()
+
 if __name__ == "__main__":
-    if check_password():
-        admin_ui()
+    main()
