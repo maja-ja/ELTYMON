@@ -813,41 +813,50 @@ def get_image_base64(image):
     image.save(buffered, format="JPEG", quality=95)
     return base64.b64encode(buffered.getvalue()).decode()
 
-def handout_ai_generate(image, manual_input, instruction):
+ddef handout_ai_generate(image, manual_input, instruction):
     """
-    Handout AI 核心 (修正版)：
-    強制要求 Markdown 結構 + LaTeX 數學公式，解決 \section 無法渲染的問題。
+    Handout AI 核心 (安全排版版)：
+    強制區分行內 ($) 與區塊 ($$) 公式，杜絕排版崩壞。
     """
     keys = get_gemini_keys()
     if not keys: return "❌ 錯誤：API Key 未設定"
 
-    # --- 關鍵修改：Prompt 工程 ---
-    # 明確禁止純 LaTeX 文件結構，要求 Markdown 混排
+    # --- 🛡️ 安全排版核心指令 ---
     prompt = """
-    你是一位專業教師，請為學生撰寫一份高品質的講義。
+    你是一位專業的講義排版專家。請根據輸入素材撰寫一份結構清晰、排版完美的講義。
     
-    【排版格式嚴格要求】：
-    1. **標題結構**：請務必使用 Markdown 語法（# 主標題, ## 副標題, ### 小標題）。
-    2. **數學公式**：請使用 LaTeX 語法，並務必用單個 $ 或雙個 $$ 包裹。
-       - 例如：$E = mc^2$ 或 $$ \nabla \cdot E = \frac{\rho}{\epsilon_0} $$
-    3. **禁止事項**：
-       - 嚴禁使用 \section, \subsection, \textbf 等純 LaTeX 文件指令。
-       - 不要包含 ```markdown 或 ```latex 的代碼塊標記。
+    【⚠️ 絕對排版紅線 (必須遵守)】：
+    1. **行內公式 (Inline Math)**：
+       - 當變數或短公式出現在文字行中間時，**必須**使用單個錢字號 `$ ... $`。
+       - 範例：正確為「設電阻為 $R$ 歐姆」，**嚴禁**寫成「設電阻為 $$R$$ 歐姆」(這會導致換行跑版)。
     
+    2. **區塊公式 (Block Math)**：
+       - 只有長公式或重點推導才使用雙錢字號 `$$ ... $$` 並獨立成行。
+       - 範例：
+         $$ V = I \times R $$
+    
+    3. **標題結構**：
+       - 僅使用 Markdown 標題 (`#`, `##`, `###`)。
+       - **嚴禁**使用 LaTeX 標題指令 (如 `\section`, `\textbf`)。
+    
+    4. **列表安全**：
+       - 在列表 (List) 項目中，盡量避免放入複雜的區塊公式 `$$`，這容易導致 PDF 生成錯誤。若必須放，請確保換行縮排正確。
+
     【內容要求】：
-    請直接開始撰寫內容，不要有開場白。
+    - 語氣專業且教學導向。
+    - 直接輸出內容，不要有「好的，這是您的講義」等廢話。
     """
     
     parts = [prompt]
-    if manual_input: parts.append(f"【講義素材】：{manual_input}")
-    if instruction: parts.append(f"【額外指令】：{instruction}")
+    if manual_input: parts.append(f"【講義素材】：\n{manual_input}")
+    if instruction: parts.append(f"【額外排版要求】：{instruction}")
     if image: parts.append(image)
 
     last_error = None
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-flash') # 使用 1.5-flash 較穩定
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(parts)
             return response.text
         except Exception as e:
@@ -924,7 +933,7 @@ def run_handout_app():
     # 1. 取得管理員狀態
     is_admin = st.session_state.get("is_admin", False)
     
-    # 初始化 Session State 變數
+    # 初始化 Session State
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
@@ -966,15 +975,50 @@ def run_handout_app():
         st.text_area(
             "講義素材內容 (AI 將根據此內容進行專業排版)", 
             key="manual_input_content", 
-            height=300,
+            height=200,
             help="您可以修改跳轉過來的草稿，或在此輸入新的教學素材。"
         )
         
         # --- 權限控管核心區塊 ---
         if is_admin:
-            ai_instr = st.text_input("額外 AI 指令 (選填)", placeholder="例如：增加三個隨堂練習題、標註重點...")
             st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
             
+            # === ✨ 新增：安全排版風格選擇器 ===
+            SAFE_STYLES = {
+                "📘 標準教科書 (推薦)": """
+                    【排版強制要求】：
+                    1. 變數與短式務必使用行內公式 $...$ (例如 $x$, $y=ax+b$)，嚴禁使用區塊公式以免跑版。
+                    2. 重點推導或長公式才使用區塊 $$...$$ 並獨立成行。
+                    3. 標題使用 Markdown # 語法。
+                    4. 語氣專業，適合教學閱讀。
+                """,
+                "📝 試卷與解析模式": """
+                    【排版強制要求】：
+                    1. 結構分為「題目」、「解析」、「答案」三部分。
+                    2. 選項請使用 (A) (B) (C) (D) 列表。
+                    3. 解析步驟請條列式說明。
+                    4. 避免在選項中使用複雜的區塊公式 $$...$$。
+                """,
+                "🧮 純數學推導模式": """
+                    【排版強制要求】：
+                    1. 專注於算式推導，步驟之間請加入文字連接詞（如「因此」、「代入得」）。
+                    2. 所有物理量符號必須嵌入文字行中 ($...$)，不要換行。
+                    3. 最終結果請加框或加粗顯示。
+                """,
+                "⚙️ 自定義 (不使用預設模板)": ""
+            }
+            
+            col_style, col_instr = st.columns([1, 1])
+            with col_style:
+                selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
+            with col_instr:
+                user_instr = st.text_input("額外補充指令 (選填)", placeholder="例如：增加三個練習題...")
+
+            # 顯示當前生效的排版規則 (讓使用者安心)
+            if selected_style != "⚙️ 自定義 (不使用預設模板)":
+                with st.expander("查看當前排版規則", expanded=False):
+                    st.code(SAFE_STYLES[selected_style], language="markdown")
+
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
                 current_material = st.session_state.manual_input_content
                 
@@ -982,8 +1026,11 @@ def run_handout_app():
                     st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
                 else:
                     with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
+                        # 合併指令：安全風格 + 使用者補充
+                        final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
+                        
                         image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        generated_res = handout_ai_generate(image_obj, current_material, ai_instr)
+                        generated_res = handout_ai_generate(image_obj, current_material, final_instruction)
                         st.session_state.generated_text = generated_res
                         st.success("✅ AI 生成成功！右側預覽已更新。")
                         st.rerun()
@@ -1005,9 +1052,9 @@ def run_handout_app():
 
         # --- 內容編輯區 ---
         preview_source = st.session_state.generated_text if st.session_state.generated_text else st.session_state.manual_input_content
-        edited_content = st.text_area("📝 內容修訂", value=preview_source, height=400, key="preview_editor")
+        edited_content = st.text_area("📝 內容修訂", value=preview_source, height=600, key="preview_editor")
         
-        # === 【修正點】補上標題定義邏輯 ===
+        # 標題定義邏輯
         default_title = "AI 專題講義"
         if edited_content:
             for line in edited_content.split('\n'):
@@ -1016,14 +1063,13 @@ def run_handout_app():
                     default_title = clean_line
                     break
         handout_title = st.text_input("講義標題", value=default_title)
-        # ==================================
         
         # 準備渲染
         img_b64 = get_image_base64(image) if image else ""
         
         # 生成 HTML
         final_html = generate_printable_html(
-            title=handout_title,  # 現在這裡有定義了，不會報錯
+            title=handout_title,
             text_content=edited_content, 
             img_b64=img_b64, 
             img_width_percent=img_width,
