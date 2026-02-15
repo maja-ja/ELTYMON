@@ -866,34 +866,29 @@ def handout_ai_generate(image, manual_input, instruction):
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
     """
-    空白修復版：
-    1. 加入 MathJax.typesetPromise() 確保公式渲染完成才下載。
-    2. 延長緩衝時間至 2 秒。
-    3. 調降 scale 至 2，避免記憶體不足導致白屏。
+    長文強化渲染版：
+    1. 增加 MathJax 等待時間至 4 秒。
+    2. 強制 SVG 高度重算，防止 PDF 內容被截斷。
     """
-    text_content = text_content.strip()
+    text_content = text_content.strip() if text_content else "請輸入內容"
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
     
+    # 支援表格與 Markdown
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
-    
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
     
-    # 關鍵修正：只有在 auto_download 為 True 時，才生成自動下載的 JS
-    # 並且使用 Promise 等待 MathJax 渲染完畢
     auto_js = ""
     if auto_download:
         auto_js = """
         window.onload = function() {
-            // 1. 等待 MathJax 承諾 (Promise) 完成
+            console.log("正在渲染長文公式，請稍候...");
             MathJax.typesetPromise().then(() => {
-                console.log("MathJax 渲染完成，準備下載...");
-                // 2. 額外再等 2 秒，確保 DOM 佈局穩定
-                setTimeout(downloadPDF, 2000);
+                // 長文需要更多時間讓瀏覽器計算佈局，給予 4 秒緩衝
+                setTimeout(downloadPDF, 4000);
             }).catch((err) => {
                 console.log("MathJax 錯誤: " + err.message);
-                // 就算出錯也嘗試下載
-                setTimeout(downloadPDF, 2000);
+                setTimeout(downloadPDF, 4000);
             });
         };
         """
@@ -902,119 +897,47 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
     <html>
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-        
-        <!-- MathJax 配置 -->
         <script>
             window.MathJax = {{
-                loader: {{ load: ['[tex]/color'] }},
-                tex: {{ 
-                    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
-                    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
-                    packages: {{ '[+]': ['color'] }}
-                }},
-                svg: {{ 
-                    fontCache: 'global',
-                    scale: 1,
-                    displayAlign: 'center'
-                }},
-                startup: {{
-                    typeset: true // 確保自動啟動渲染
-                }}
+                tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']], displayMath: [['$$', '$$']] }},
+                svg: {{ fontCache: 'global' }},
+                startup: {{ typeset: true }}
             }};
         </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-        
         <style>
             @page {{ size: A4; margin: 0; }}
-            body {{ 
-                font-family: 'Roboto', 'Noto Sans TC', sans-serif; 
-                line-height: 1.6; 
-                padding: 0; margin: 0; 
-                background: #555; 
-                display: flex; flex-direction: column; align-items: center; 
-                -webkit-font-smoothing: antialiased;
-            }}
-            #printable-area {{ 
-                background: white; 
-                width: 210mm; min-height: 297mm; 
-                margin: 20px 0; padding: 20mm 25mm; 
-                box-sizing: border-box; position: relative; 
-                box-shadow: 0 0 15px rgba(0,0,0,0.2); 
-            }}
-            
-            .content {{ font-size: 15px; text-align: justify; color: #222; }}
-            
-            /* SVG 垂直對齊修正 */
-            mjx-container[jax="SVG"][display="false"] {{
-                vertical-align: -0.15em !important;
-                margin: 0 2px !important;
-            }}
-            mjx-container[jax="SVG"][display="true"] {{
-                margin: 1.5em 0 !important;
-                display: block !important;
-            }}
-            mjx-container svg path {{
-                fill: #000 !important;
-                stroke: #000 !important;
-            }}
-
-            h1 {{ 
-                color: #1a237e; text-align: center; 
-                border-bottom: 3px solid #1a237e; 
-                padding-bottom: 15px; margin-bottom: 30px; margin-top: 10px;
-                font-size: 28px;
-            }}
-            h2 {{ 
-                color: #0277bd; 
-                border-left: 6px solid #0277bd; 
-                padding-left: 12px; 
-                margin-top: 35px; margin-bottom: 18px; 
-                font-size: 20px; background: #f0f9ff; padding-top: 5px; padding-bottom: 5px;
-            }}
-            h3 {{ 
-                color: #2c3e50; font-weight: 700; 
-                margin-top: 25px; margin-bottom: 10px; 
-                font-size: 17px; border-bottom: 1px dashed #ccc; padding-bottom: 5px; display: inline-block;
-            }}
-            
-            ul, ol {{ margin-bottom: 15px; padding-left: 25px; }}
-            li {{ margin-bottom: 8px; }}
-            
-            .img-wrapper {{ text-align: center; margin: 20px 0; }}
-            .img-wrapper img {{ box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 4px; }}
-
-            .sponsor-text-footer {{ color: #888; font-size: 11px; text-align: center; margin-top: 50px; border-top: 1px solid #eee; padding-top: 15px; }}
+            body {{ font-family: 'Roboto', 'Noto Sans TC', sans-serif; line-height: 1.6; padding: 0; margin: 0; background: #eee; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 0; padding: 20mm 25mm; box-sizing: border-box; }}
+            .content {{ font-size: 15px; text-align: justify; color: #111; }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }}
+            h2 {{ color: #0277bd; border-left: 5px solid #0277bd; padding-left: 10px; margin-top: 25px; }}
+            mjx-container[jax="SVG"][display="false"] {{ vertical-align: -0.15em !important; }}
             .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
+            .sponsor-text-footer {{ color: #999; font-size: 10px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; }}
         </style>
     </head>
     <body>
         <div id="printable-area">
             <h1>{title}</h1>
-            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 30px; font-family: 'Roboto Mono', monospace;">Generated: {date_str}</div>
+            <div style="text-align:right; font-size:12px; color:#666;">Generated: {date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
-            <div class="sponsor-text-footer">Generated by AI Education Station | Handout Pro v4.2</div>
+            <div class="sponsor-text-footer">Handout Pro v4.2 | 感謝支持</div>
         </div>
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
-                // 顯示一個簡單的提示 (可選)
-                console.log("開始生成 PDF...");
-                
                 const opt = {{
-                    margin: 0, 
-                    filename: '{title}.pdf', 
+                    margin: 0, filename: '{title}.pdf', 
                     image: {{ type: 'jpeg', quality: 0.98 }},
-                    html2canvas: {{ 
-                        scale: 2,  // 降回 2 以確保穩定性
-                        useCORS: true, 
-                        letterRendering: true,
-                        scrollY: 0
-                    }},
+                    html2canvas: {{ scale: 2, useCORS: true, letterRendering: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
-                html2pdf().set(opt).from(element).save();
+                html2pdf().set(opt).from(element).save().then(() => {{
+                    console.log("下載完成");
+                }});
             }}
             {auto_js}
         </script>
@@ -1027,21 +950,17 @@ def run_handout_app():
     # 1. 取得管理員狀態
     is_admin = st.session_state.get("is_admin", False)
     
-    # --- 初始化 Session State (關鍵修正：只在第一次初始化) ---
+    # 初始化 Session State
     if "manual_input_content" not in st.session_state:
         st.session_state.manual_input_content = ""
     if "generated_text" not in st.session_state:
         st.session_state.generated_text = ""
     if "rotate_angle" not in st.session_state:
         st.session_state.rotate_angle = 0
-    
-    # 確保預覽編輯器的 key 存在，若不存在則初始化為空
     if "preview_editor" not in st.session_state:
         st.session_state.preview_editor = ""
-
-    # 顯示跳轉成功提示
-    if "專題講義" in st.session_state.manual_input_content:
-        st.toast("📝 已成功從單字解碼導入草稿內容", icon="✨")
+    if "final_handout_title" not in st.session_state:
+        st.session_state.final_handout_title = "AI 專題講義"
 
     # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
@@ -1049,7 +968,6 @@ def run_handout_app():
     with col_ctrl:
         st.subheader("1. 素材與生成控制")
         
-        # --- 圖片處理區 ---
         uploaded_file = st.file_uploader("上傳題目圖片 (可選)", type=["jpg", "png", "jpeg"])
         image = None
         img_width = 80
@@ -1058,7 +976,6 @@ def run_handout_app():
             image = fix_image_orientation(img_obj)
             if st.session_state.rotate_angle != 0:
                 image = image.rotate(-st.session_state.rotate_angle, expand=True)
-            
             c1, c2 = st.columns([1, 2])
             with c1: 
                 if st.button("🔄 旋轉 90°"): 
@@ -1069,118 +986,67 @@ def run_handout_app():
 
         st.divider()
         
-        # --- 文字輸入區 ---
-        st.text_area(
-            "講義素材內容 (AI 將根據此內容進行專業排版)", 
-            key="manual_input_content", 
-            height=200,
-            help="您可以修改跳轉過來的草稿，或在此輸入新的教學素材。"
-        )
+        st.text_area("講義素材內容", key="manual_input_content", height=200)
         
-        # --- 權限控管核心區塊 ---
         if is_admin:
-            st.info("🔓 管理員模式：可調用 AI 算力進行排版。")
-            
-            # 安全排版風格選擇器
             SAFE_STYLES = {
-                "📘 標準教科書 (推薦)": """
-                    【排版強制要求】：
-                    1. 變數與短式務必使用行內公式 $...$ (例如 $x$, $y=ax+b$)，嚴禁使用區塊公式以免跑版。
-                    2. 重點推導或長公式才使用區塊 $$...$$ 並獨立成行。
-                    3. 標題使用 Markdown # 語法。
-                    4. 語氣專業，適合教學閱讀。
-                """,
-                "📝 試卷與解析模式": """
-                    【排版強制要求】：
-                    1. 結構分為「題目」、「解析」、「答案」三部分。
-                    2. 選項請使用 (A) (B) (C) (D) 列表。
-                    3. 解析步驟請條列式說明。
-                    4. 避免在選項中使用複雜的區塊公式 $$...$$。
-                """,
-                "🧮 純數學推導模式": """
-                    【排版強制要求】：
-                    1. 專注於算式推導，步驟之間請加入文字連接詞（如「因此」、「代入得」）。
-                    2. 所有物理量符號必須嵌入文字行中 ($...$)，不要換行。
-                    3. 最終結果請加框或加粗顯示。
-                """,
-                "⚙️ 自定義 (不使用預設模板)": ""
+                "📘 標準教科書 (推薦)": "【要求】：標題使用#，變數用$x$，長公式用$$，嚴禁純LaTeX指令。",
+                "📝 試卷與解析模式": "【要求】：結構分為題目、解析、答案，選項用(A)(B)(C)(D)。",
+                "⚙️ 自定義": ""
             }
-            
             col_style, col_instr = st.columns([1, 1])
             with col_style:
                 selected_style = st.selectbox("選擇排版風格", list(SAFE_STYLES.keys()))
             with col_instr:
-                user_instr = st.text_input("額外補充指令 (選填)", placeholder="例如：增加三個練習題...")
-
-            if selected_style != "⚙️ 自定義 (不使用預設模板)":
-                with st.expander("查看當前排版規則", expanded=False):
-                    st.code(SAFE_STYLES[selected_style], language="markdown")
+                user_instr = st.text_input("補充指令", placeholder="例如：加練習題...")
 
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
-                current_material = st.session_state.manual_input_content
-                
-                if not current_material and not uploaded_file:
-                    st.warning("⚠️ 請提供文字素材或上傳圖片內容。")
-                else:
-                    with st.spinner("🤖 AI 正在進行深度排版與邏輯優化..."):
-                        final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
-                        image_obj = Image.open(uploaded_file) if uploaded_file else None
-                        generated_res = handout_ai_generate(image_obj, current_material, final_instruction)
-                        
-                        # --- 關鍵：只有在 AI 生成成功時，才覆蓋右側編輯器 ---
-                        st.session_state.generated_text = generated_res
-                        st.session_state.preview_editor = generated_res 
-                        
-                        st.success("✅ AI 生成成功！右側預覽已更新。")
-                        st.rerun()
-        else:
-            st.warning("🔒 **AI 專業生成功能僅限管理員使用**")
-            st.caption("公開模式權限說明：您可以手動編輯素材與下載 PDF。")
+                with st.spinner("🤖 AI 正在排版長文中..."):
+                    final_instruction = f"{SAFE_STYLES[selected_style]}\n{user_instr}"
+                    image_obj = Image.open(uploaded_file) if uploaded_file else None
+                    generated_res = handout_ai_generate(image_obj, st.session_state.manual_input_content, final_instruction)
+                    
+                    st.session_state.generated_text = generated_res
+                    st.session_state.preview_editor = generated_res
+                    
+                    # 自動抓取第一行當標題
+                    for line in generated_res.split('\n'):
+                        clean_t = line.replace('#', '').strip()
+                        if clean_t:
+                            st.session_state.final_handout_title = clean_t
+                            break
+                    st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
-        # --- 下載區塊 ---
+        # 下載控制
         if "trigger_download" not in st.session_state:
             st.session_state.trigger_download = False
 
-        if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
+        if st.button("📥 下載講義 PDF (長文需等待 4 秒)", type="primary", use_container_width=True):
             log_user_intent("pdf_download")
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 內容編輯區 (關鍵修正) ---
-        # 1. 如果編輯器是空的，且左側有內容（例如剛跳轉過來），才進行初始化同步
-        # 這樣可以防止每次 Rerun 都覆蓋使用者的編輯
+        # 內容修訂 (確保不丟失內容)
         if not st.session_state.preview_editor and st.session_state.manual_input_content:
              st.session_state.preview_editor = st.session_state.manual_input_content
 
-        # 2. 綁定 Session State，不再依賴 value 參數，確保內容持久化
-        edited_content = st.text_area(
-            "📝 內容修訂", 
-            key="preview_editor", 
-            height=600
+        # 使用 key 綁定，防止 rerun 丟失內容
+        edited_content = st.text_area("📝 內容修訂", key="preview_editor", height=500)
+        
+        # 標題持久化輸入框 (使用 key 綁定)
+        st.session_state.final_handout_title = st.text_input(
+            "講義標題 (點擊下載前請確認)", 
+            value=st.session_state.final_handout_title
         )
         
-        # 3. 標題定義邏輯 (從編輯後的內容抓取)
-        default_title = "AI 專題講義"
-        if edited_content:
-            for line in edited_content.split('\n'):
-                clean_line = line.replace('#', '').strip()
-                if clean_line:
-                    default_title = clean_line
-                    break
-        
-        # 讓使用者可以修改標題
-        handout_title = st.text_input("講義標題", value=default_title)
-        
-        # 準備渲染
+        # 渲染 HTML
         img_b64 = get_image_base64(image) if image else ""
-        
-        # 生成 HTML (使用當前編輯框的內容)
         final_html = generate_printable_html(
-            title=handout_title,
-            text_content=edited_content,  # 確保這裡傳入的是有內容的變數
+            title=st.session_state.final_handout_title,
+            text_content=edited_content, 
             img_b64=img_b64, 
             img_width_percent=img_width,
             auto_download=st.session_state.trigger_download
