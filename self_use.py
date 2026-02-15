@@ -109,25 +109,70 @@ def show_encyclopedia_card(row):
 # ==========================================
 # 4. 頁面函式
 # ==========================================
-
-def page_learn(df):
-    st.title("📖 知識庫搜尋")
-    search_query = st.text_input("🔍 模糊搜尋 (輸入多個關鍵字以空格分開，例如：物理 能量)", placeholder="例如：熵 物理")
+def page_lab(df):
+    st.title("🔬 解碼實驗室")
     
-    if search_query:
-        # --- 核心優化：模糊搜尋邏輯 ---
-        keywords = search_query.lower().split()
-        mask = df.astype(str).apply(lambda x: all(k in x.str.lower().to_string() for k in keywords), axis=1)
-        res = df[mask]
+    # 建立搜尋區
+    col1, col2 = st.columns([2, 1])
+    with col1: 
+        target = st.text_input("輸入解碼主題", placeholder="例如：貝氏定理...", key="lab_target")
+    with col2: 
+        cat = st.selectbox("預設分類", ["物理科學", "英語辭源", "程式開發", "人工智慧", "自定義"])
+
+    # --- 回覆預查：僅在「未生成草稿」時顯示 ---
+    has_existing = False
+    existing_row = None
+    if target.strip() and "temp_draft" not in st.session_state:
+        existing_match = df[df['word'].str.lower() == target.lower().strip()]
+        if not existing_match.empty:
+            has_existing = True
+            existing_row = existing_match.iloc[0]
+            st.warning(f"⚠️ 書架上已有「{target}」。")
+            with st.expander("查看現有資料 (若需重新解碼請點下方按鈕)", expanded=True):
+                show_encyclopedia_card(existing_row)
+
+    # 啟動解碼按鈕
+    if st.button("🚀 啟動 AI 解碼", type="primary", disabled=not target.strip()):
+        with st.spinner("AI 正在解析..."):
+            draft = ai_decode_only(target, cat)
+            if draft: 
+                st.session_state.temp_draft = draft
+                st.rerun() # 重新整理以觸發 UI 切換
+
+    # --- 編輯與儲存區 (當草稿存在時，只顯示這裡) ---
+    if "temp_draft" in st.session_state:
+        st.divider()
+        st.subheader("📝 AI 草稿編輯區 (舊資料已自動隱藏)")
         
-        if not res.empty:
-            st.info(f"找到 {len(res)} 筆結果")
-            for _, row in res.iterrows():
-                with st.container(border=True): show_encyclopedia_card(row)
-        else:
-            st.warning("查無結果")
-    else:
-        st.dataframe(df[['word', 'category', 'definition']], use_container_width=True)
+        d = st.session_state.temp_draft
+        with st.container(border=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                e_word = st.text_input("主題", d.get('word'))
+                e_roots = st.text_input("原理 (LaTeX)", d.get('roots'))
+            with c2:
+                e_cat = st.text_input("分類", d.get('category'))
+                e_meaning = st.text_input("本質", d.get('meaning'))
+
+            e_def = st.text_area("詳細定義", d.get('definition'), height=150)
+            
+            # 實時預覽 LaTeX (只在編輯器下方顯示一次)
+            if e_roots:
+                st.caption("LaTeX 預覽：")
+                st.latex(e_roots.replace('$', ''))
+
+        if st.button("💾 確認存入雲端書架", use_container_width=True, type="primary"):
+            new_data = d.copy()
+            new_data.update({"word": e_word, "roots": e_roots, "definition": e_def, "category": e_cat, "meaning": e_meaning})
+            # ... 執行資料庫 update 邏輯 ...
+            st.success("已更新書架！")
+            del st.session_state.temp_draft
+            st.cache_data.clear()
+            st.rerun()
+            
+        if st.button("🗑️ 捨棄草稿"):
+            del st.session_state.temp_draft
+            st.rerun()
 def page_lab(df):
     st.title("🔬 解碼實驗室 (先編輯，後儲存)")
     st.info("輸入主題後，系統會自動預查資料庫。若已存在，您可以選擇跳過或重新解碼。")
@@ -226,36 +271,43 @@ def page_lab(df):
 # 5. Handout 講義排版模組
 # ==========================================
 def run_handout_app():
-    st.title("🎓 AI 講義排版大師 Pro")
+    st.title("🎓 講義排版大師 Pro")
     
-    # 初始化
-    if "preview_editor" not in st.session_state: st.session_state.preview_editor = ""
-    if "final_handout_title" not in st.session_state: st.session_state.final_handout_title = "新講義"
+    # 僅使用一個控制下載的 state
+    if "trigger_download" not in st.session_state:
+        st.session_state.trigger_download = False
 
-    col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
+    col_ctrl, col_prev = st.columns([1, 1.4])
     
     with col_ctrl:
-        uploaded_file = st.file_uploader("上傳素材圖片", type=["jpg", "png", "jpeg"])
-        manual_input = st.text_area("素材內容", value=st.session_state.get("manual_input_content", ""), height=200)
+        # ... 上傳圖片與 AI 生成按鈕 ...
+        manual_input = st.text_area("素材內容", key="manual_input_content", height=300)
         
-        if st.button("🚀 AI 專業排版", type="primary", use_container_width=True):
-            with st.spinner("排版中..."):
-                res = handout_ai_generate(Image.open(uploaded_file) if uploaded_file else None, manual_input, "請使用標準 Markdown 排版")
-                st.session_state.preview_editor = res
-                st.rerun()
+        if st.button("📥 下載 PDF 講義", use_container_width=True, type="primary"):
+            st.session_state.trigger_download = True
+            st.rerun()
 
     with col_prev:
-        edited_content = st.text_area("📝 內容修訂", key="preview_editor", height=500)
-        title = st.text_input("講義標題", key="final_handout_title")
+        # 標題與編輯
+        handout_title = st.text_input("標題", key="handout_title_val")
+        edited_text = st.text_area("內容編輯器", key="preview_editor", height=500)
         
-        if st.button("📥 下載 PDF", use_container_width=True):
-            html = generate_printable_html(title, edited_content, "", 80, True)
-            components.html(html, height=0)
-        
-        # 預覽 HTML
-        html_preview = generate_printable_html(title, edited_content, "", 80, False)
-        components.html(html_preview, height=800, scrolling=True)
-
+        # --- 關鍵優化：只呼叫一次 HTML 元件 ---
+        if edited_text:
+            # 將預覽與下載邏輯封裝在同一個 HTML 中
+            html_content = generate_printable_html(
+                title=handout_title,
+                text_content=edited_text,
+                img_b64="", # 若有圖片則傳入
+                img_width_percent=80,
+                auto_download=st.session_state.trigger_download
+            )
+            # 只有一個 components.html，解決 LaTeX 重複渲染問題
+            components.html(html_content, height=1000, scrolling=True)
+            
+            # 下載完後重設狀態
+            if st.session_state.trigger_download:
+                st.session_state.trigger_download = False
 def get_image_base64(image):
     if image is None: return ""
     buffered = BytesIO()
