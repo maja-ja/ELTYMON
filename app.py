@@ -865,11 +865,6 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
-    """
-    排版修復版：
-    1. 改用 tex-chtml (CommonHTML) 引擎，解決 SVG 導致的文字錯位與換行問題。
-    2. 增加 CSS 強制修正行內公式的垂直對齊。
-    """
     text_content = text_content.strip()
     # 處理換頁符號
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
@@ -884,74 +879,27 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
     return f"""
     <html>
     <head>
-        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Roboto+Mono:wght@400&display=swap" rel="stylesheet">
-        
-        <!-- 1. MathJax 配置：改用 CHTML (CommonHTML) -->
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <!-- 加入 MathJax 配置，確保能識別 $ 符號 -->
         <script>
             window.MathJax = {{
-                tex: {{ 
-                    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],
-                    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],
-                    processEscapes: true
-                }},
-                chtml: {{ 
-                    scale: 1.1,  /* 稍微放大公式 */
-                    matchFontHeight: true 
-                }},
-                options: {{
-                    ignoreHtmlClass: 'tex2jax_ignore',
-                    processHtmlClass: 'tex2jax_process'
-                }}
+                tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']] }},
+                svg: {{ fontCache: 'global' }}
             }};
         </script>
-        <!-- 2. 載入 CHTML 版本的 MathJax -->
-        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
-        
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-        
         <style>
             @page {{ size: A4; margin: 0; }}
-            body {{ 
-                font-family: 'Noto Sans TC', sans-serif; 
-                line-height: 1.8; 
-                padding: 0; margin: 0; 
-                background: #555; 
-                display: flex; flex-direction: column; align-items: center; 
-            }}
-            #printable-area {{ 
-                background: white; 
-                width: 210mm; min-height: 297mm; 
-                margin: 20px 0; padding: 20mm 25mm; 
-                box-sizing: border-box; position: relative; 
-                box-shadow: 0 0 10px rgba(0,0,0,0.5); 
-            }}
-            
-            /* --- 關鍵 CSS 修復 --- */
-            .content {{ font-size: 16px; text-align: justify; color: #333; }}
-            
-            /* 修正行內公式的垂直對齊，避免文字忽高忽低 */
-            mjx-container[jax="CHTML"][display="false"] {{
-                margin: 0 2px !important;
-                vertical-align: middle !important;
-                display: inline-block !important;
-            }}
-            
-            /* 確保區塊公式有適當間距 */
-            mjx-container[jax="CHTML"][display="true"] {{
-                margin: 1em 0 !important;
-                display: block !important;
-                text-align: center !important;
-            }}
-
-            /* 標題樣式優化 */
+            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #555; display: flex; flex-direction: column; align-items: center; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
+            .content {{ font-size: 16px; text-align: justify; }}
             h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
-            h2 {{ color: #0d47a1; border-left: 5px solid #2196f3; padding-left: 10px; margin-top: 30px; margin-bottom: 15px; }}
-            h3 {{ color: #1565c0; font-weight: bold; margin-top: 25px; margin-bottom: 10px; }}
-            
+            h2 {{ color: #0d47a1; border-left: 5px solid #2196f3; padding-left: 10px; margin-top: 25px; }}
+            h3 {{ color: #1565c0; font-weight: bold; margin-top: 20px; }}
             p {{ margin-bottom: 15px; }}
             ul, ol {{ margin-bottom: 15px; padding-left: 20px; }}
             li {{ margin-bottom: 5px; }}
-            
             .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
             .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
         </style>
@@ -968,16 +916,11 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
                 const opt = {{
-                    margin: 0, 
-                    filename: '{title}.pdf', 
-                    image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 2, useCORS: true, letterRendering: true }},
+                    margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }},
+                    html2canvas: {{ scale: 2, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
-                // 增加延遲確保 MathJax 渲染完畢再下載
-                setTimeout(() => {{
-                    html2pdf().set(opt).from(element).save();
-                }}, 1000);
+                html2pdf().set(opt).from(element).save();
             }}
             {auto_js}
         </script>
