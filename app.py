@@ -807,58 +807,93 @@ def get_image_base64(image):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def handout_ai_generate(image, manual_input, instruction):
-    """Handout 的 AI 核心 (含輪詢機制)"""
+    """
+    Handout AI 核心 (修正版)：
+    強制要求 Markdown 結構 + LaTeX 數學公式，解決 \section 無法渲染的問題。
+    """
     keys = get_gemini_keys()
     if not keys: return "❌ 錯誤：API Key 未設定"
 
-    prompt = "你是一位專業教師。請撰寫講義。【格式】使用 $...$ 或 $$...$$ 撰寫 LaTeX。【排版】請直接開始內容，不要有前言。"
+    # --- 關鍵修改：Prompt 工程 ---
+    # 明確禁止純 LaTeX 文件結構，要求 Markdown 混排
+    prompt = """
+    你是一位專業教師，請為學生撰寫一份高品質的講義。
+    
+    【排版格式嚴格要求】：
+    1. **標題結構**：請務必使用 Markdown 語法（# 主標題, ## 副標題, ### 小標題）。
+    2. **數學公式**：請使用 LaTeX 語法，並務必用單個 $ 或雙個 $$ 包裹。
+       - 例如：$E = mc^2$ 或 $$ \nabla \cdot E = \frac{\rho}{\epsilon_0} $$
+    3. **禁止事項**：
+       - 嚴禁使用 \section, \subsection, \textbf 等純 LaTeX 文件指令。
+       - 不要包含 ```markdown 或 ```latex 的代碼塊標記。
+    
+    【內容要求】：
+    請直接開始撰寫內容，不要有開場白。
+    """
+    
     parts = [prompt]
-    if manual_input: parts.append(f"【補充】：{manual_input}")
-    if instruction: parts.append(f"【要求】：{instruction}")
+    if manual_input: parts.append(f"【講義素材】：{manual_input}")
+    if instruction: parts.append(f"【額外指令】：{instruction}")
     if image: parts.append(image)
 
     last_error = None
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash') # 使用 1.5-flash 較穩定
             response = model.generate_content(parts)
             return response.text
         except Exception as e:
             last_error = e
-            print(f"⚠️ Handout Key failed: {e}")
             continue
     
-    return f"AI 異常 (所有 Key 皆失敗): {str(last_error)}"
+    return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
     text_content = text_content.strip()
-    processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>').replace('\\\\', '\\')
+    # 處理換頁符號
+    processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
+    
+    # 將 Markdown 轉為 HTML
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
+    
     date_str = time.strftime("%Y-%m-%d")
     img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
-
-    # 若 auto_download 為 True，則 JS 在載入後自動執行下載
     auto_js = "window.onload = function() { setTimeout(downloadPDF, 500); };" if auto_download else ""
 
     return f"""
     <html>
     <head>
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <!-- 加入 MathJax 配置，確保能識別 $ 符號 -->
+        <script>
+            window.MathJax = {{
+                tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']] }},
+                svg: {{ fontCache: 'global' }}
+            }};
+        </script>
         <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
             @page {{ size: A4; margin: 0; }}
-            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #2c2c2c; display: flex; flex-direction: column; align-items: center; }}
-            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; }}
+            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.8; padding: 0; margin: 0; background: #555; display: flex; flex-direction: column; align-items: center; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px 0; padding: 20mm 25mm; box-sizing: border-box; position: relative; box-shadow: 0 0 10px rgba(0,0,0,0.5); }}
             .content {{ font-size: 16px; text-align: justify; }}
-            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }}
-            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 3px solid #1a237e; padding-bottom: 10px; margin-top: 0; }}
+            h2 {{ color: #0d47a1; border-left: 5px solid #2196f3; padding-left: 10px; margin-top: 25px; }}
+            h3 {{ color: #1565c0; font-weight: bold; margin-top: 20px; }}
+            p {{ margin-bottom: 15px; }}
+            ul, ol {{ margin-bottom: 15px; padding-left: 20px; }}
+            li {{ margin-bottom: 5px; }}
+            .sponsor-text-footer {{ color: #666; font-size: 12px; text-align: center; margin-top: 40px; border-top: 1px solid #eee; padding-top: 10px; }}
+            .manual-page-break {{ page-break-before: always; height: 1px; display: block; }}
         </style>
     </head>
     <body>
         <div id="printable-area">
-            <h1>{title}</h1><div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
-            {img_section}<div class="content">{html_body}</div>
+            <h1>{title}</h1>
+            <div style="text-align:right; font-size:12px; color:#666; margin-bottom: 20px;">日期：{date_str}</div>
+            {img_section}
+            <div class="content">{html_body}</div>
             <div class="sponsor-text-footer">💖 講義完全免費，您的支持是我們持續開發的動力。</div>
         </div>
         <script>
@@ -866,7 +901,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
                 const element = document.getElementById('printable-area');
                 const opt = {{
                     margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 1.0 }},
-                    html2canvas: {{ scale: 3, useCORS: true }},
+                    html2canvas: {{ scale: 2, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
                 }};
                 html2pdf().set(opt).from(element).save();
