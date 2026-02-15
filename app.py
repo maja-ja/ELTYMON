@@ -865,73 +865,68 @@ def handout_ai_generate(image, manual_input, instruction):
     
     return f"AI 異常: {str(last_error)}"
 def generate_printable_html(title, text_content, img_b64, img_width_percent, auto_download=False):
-    text_content = text_content.strip()
+    text_content = text_content.strip() if text_content else ""
     processed_content = text_content.replace('[換頁]', '<div class="manual-page-break"></div>')
     html_body = markdown.markdown(processed_content, extensions=['fenced_code', 'tables'])
     date_str = time.strftime("%Y-%m-%d")
-    img_section = f'<div class="img-wrapper"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
     
-    # 增加一個手動下載按鈕，作為自動下載失敗時的備案
-    manual_btn = '<button onclick="downloadPDF()" class="fallback-btn">如果沒有自動下載，請點我</button>'
-    
-    auto_js = "window.onload = function() { MathJax.typesetPromise().then(() => { setTimeout(downloadPDF, 3000); }); };" if auto_download else ""
+    img_section = f'<div style="text-align:center;margin:20px 0;"><img src="data:image/jpeg;base64,{img_b64}" style="width:{img_width_percent}%;"></div>' if img_b64 else ""
+
+    # 自動下載的 JS 腳本 (保持簡單，不使用複雜的 Promise)
+    auto_js = "window.onload = function() { setTimeout(downloadPDF, 1500); };" if auto_download else ""
 
     return f"""
     <html>
     <head>
-        <script>
-            window.MathJax = {{ tex: {{ inlineMath: [['$', '$']] }}, svg: {{ fontCache: 'global' }} }};
-        </script>
-        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap" rel="stylesheet">
+        <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
         <style>
-            body {{ font-family: sans-serif; background: #eee; padding: 20px; }}
-            #printable-area {{ background: white; padding: 20mm; width: 210mm; margin: auto; box-sizing: border-box; }}
-            .fallback-btn {{ display: block; margin: 10px auto; padding: 10px 20px; background: #FF4B4B; color: white; border: none; border-radius: 5px; cursor: pointer; }}
+            body {{ font-family: 'Noto Sans TC', sans-serif; line-height: 1.6; padding: 0; margin: 0; background: #f4f4f4; }}
+            #printable-area {{ background: white; width: 210mm; min-height: 297mm; margin: 20px auto; padding: 20mm 25mm; box-sizing: border-box; }}
+            .content {{ font-size: 16px; text-align: justify; }}
+            h1 {{ color: #1a237e; text-align: center; border-bottom: 2px solid #1a237e; padding-bottom: 10px; }}
             .manual-page-break {{ page-break-before: always; }}
         </style>
     </head>
     <body>
-        {manual_btn if auto_download else ""}
         <div id="printable-area">
-            <h1 style="text-align:center;">{title}</h1>
+            <h1>{title}</h1>
+            <div style="text-align:right; font-size:12px; color:#666;">日期：{date_str}</div>
             {img_section}
             <div class="content">{html_body}</div>
         </div>
         <script>
             function downloadPDF() {{
                 const element = document.getElementById('printable-area');
-                html2pdf().set({{
-                    margin: 0, filename: '{title}.pdf',
+                const opt = {{
+                    margin: 0, filename: '{title}.pdf', image: {{ type: 'jpeg', quality: 0.98 }},
                     html2canvas: {{ scale: 2, useCORS: true }},
                     jsPDF: {{ unit: 'mm', format: 'a4', orientation: 'portrait' }}
-                }}).from(element).save();
+                }};
+                html2pdf().set(opt).from(element).save();
             }}
             {auto_js}
         </script>
     </body>
     </html>
     """
-def sync_editor():
-    """當編輯框內容改變時，立刻同步到保險箱"""
-    st.session_state.final_content = st.session_state.editor_widget
-
-def sync_title():
-    """當標題改變時，同步到保險箱"""
-    st.session_state.final_title = st.session_state.title_widget
 def run_handout_app():
     st.header("🎓 AI 講義排版大師 Pro")
     
-    # 1. 確保保險箱存在 (只在第一次啟動時執行)
-    if "final_content" not in st.session_state:
-        st.session_state.final_content = ""
-    if "final_title" not in st.session_state:
-        st.session_state.final_title = "AI 專題講義"
+    # --- 1. 初始化所有狀態 (嚴禁在下載 Rerun 時重設) ---
+    if "preview_editor" not in st.session_state:
+        st.session_state.preview_editor = ""
+    if "manual_input_content" not in st.session_state:
+        st.session_state.manual_input_content = ""
+    if "handout_title_val" not in st.session_state:
+        st.session_state.handout_title_val = "AI 專題講義"
     if "trigger_download" not in st.session_state:
         st.session_state.trigger_download = False
 
     is_admin = st.session_state.get("is_admin", False)
     
+    # 2. 頁面佈局
     col_ctrl, col_prev = st.columns([1, 1.4], gap="large")
     
     with col_ctrl:
@@ -939,75 +934,73 @@ def run_handout_app():
         
         uploaded_file = st.file_uploader("上傳題目圖片", type=["jpg", "png", "jpeg"])
         image = None
+        img_width = 80
         if uploaded_file:
-            image = fix_image_orientation(Image.open(uploaded_file))
+            img_obj = Image.open(uploaded_file)
+            image = fix_image_orientation(img_obj)
             st.image(image, use_container_width=True)
 
         st.divider()
-        st.text_area("講義素材內容 (左側)", key="manual_input_content", height=200)
         
-        # 點擊此按鈕，強制把左側內容推入右側編輯器
-        if st.button("⬅️ 將素材推送到右側編輯器", use_container_width=True):
-            st.session_state.final_content = st.session_state.manual_input_content
+        # 左側輸入 (這不會影響右側，除非點擊導入)
+        st.text_area("素材內容 (左側)", key="manual_input_content", height=200)
+        
+        if st.button("⬅️ 將左側內容推送到編輯器 (手動同步)", use_container_width=True):
+            st.session_state.preview_editor = st.session_state.manual_input_content
             st.rerun()
 
         if is_admin:
             if st.button("🚀 啟動 AI 專業生成 (管理員)", type="primary", use_container_width=True):
-                with st.spinner("🤖 AI 正在排版中..."):
+                with st.spinner("🤖 AI 排版中..."):
                     generated_res = handout_ai_generate(
                         Image.open(uploaded_file) if uploaded_file else None, 
                         st.session_state.manual_input_content, 
-                        "使用Markdown標題與LaTeX公式，確保排版美觀。"
+                        "請使用 Markdown 標題與 LaTeX 公式排版。"
                     )
-                    st.session_state.final_content = generated_res
-                    # 自動提取第一行當標題
+                    st.session_state.preview_editor = generated_res
+                    # 抓取第一行當標題
                     for line in generated_res.split('\n'):
                         clean_t = line.replace('#', '').strip()
-                        if clean_t: st.session_state.final_title = clean_t; break
+                        if clean_t: st.session_state.handout_title_val = clean_t; break
                     st.rerun()
 
     with col_prev:
         st.subheader("2. A4 預覽與修訂")
         
         if st.button("📥 下載講義 PDF", type="primary", use_container_width=True):
+            # 點擊當下，內容絕對不會被清空
             st.session_state.trigger_download = True
             st.rerun()
 
-        # --- 📝 核心編輯器 (使用 Callback 鎖定狀態) ---
-        # 這裡是唯一真相：使用 value=st.session_state.final_content 顯示
-        # 使用 on_change=sync_editor 確保打字即儲存，點下載絕對不丟失
+        # --- 📝 編輯器本體 (拿掉 value 參數，防內容跳回) ---
         st.text_area(
-            "📝 內容修訂 (Safari/Chrome 穩定版)", 
-            value=st.session_state.final_content,
-            key="editor_widget", 
-            height=600,
-            on_change=sync_editor 
+            "📝 內容修訂 (您的編輯會即時儲存)", 
+            key="preview_editor", 
+            height=600
         )
         
-        st.text_input(
-            "講義標題", 
-            value=st.session_state.final_title,
-            key="title_widget",
-            on_change=sync_title
-        )
+        st.text_input("講義標題", key="handout_title_val")
         
-        # 準備渲染數據
+        # 準備渲染
+        # 從綁定的 Key 中提取內容，確保下載到的是你剛才編輯的字
+        final_content = st.session_state.preview_editor
+        final_title = st.session_state.handout_title_val
+        
         img_b64 = get_image_base64(image) if image else ""
         
-        # 只有在有內容時才呼叫組件，防止白紙
-        if st.session_state.final_content.strip():
+        if final_content.strip():
             final_html = generate_printable_html(
-                title=st.session_state.final_title,
-                text_content=st.session_state.final_content, 
+                title=final_title,
+                text_content=final_content, 
                 img_b64=img_b64, 
-                img_width_percent=80,
+                img_width_percent=img_width,
                 auto_download=st.session_state.trigger_download
             )
             components.html(final_html, height=1000, scrolling=True)
         else:
-            st.warning("👉 請先輸入內容或點擊 AI 生成。")
+            st.info("👉 請輸入內容或點擊同步/生成按鈕。")
 
-        # 結束下載觸發
+        # 重設下載狀態
         if st.session_state.trigger_download:
             st.session_state.trigger_download = False
 def run_handout_app():
