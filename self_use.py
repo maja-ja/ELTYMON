@@ -1560,7 +1560,7 @@ def main():
         st.markdown("### 💖 支持本站營運")
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal">
+                <a href="https://paypal.me/Kadowsella" target="_blank" class="sponsor-btn btn-paypal">
                     <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
