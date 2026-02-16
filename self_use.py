@@ -396,35 +396,27 @@ CORE_COLS = [
 ]
 
 @st.cache_data(ttl=600) # 快取時間稍微拉長至 10 分鐘，節省流量
-def load_db(source_type="Google Sheets"):
-    """
-    載入單字資料庫並清理欄位
-    """
-    df = pd.DataFrame(columns=CORE_COLS)
+# 定義 12 核心欄位 (與試算表完全一致)
+CORE_COLS = [
+    'word', 'category', 'roots', 'breakdown', 'definition', 
+    'meaning', 'native_vibe', 'example', 'synonym_nuance', 
+    'usage_warning', 'memory_hook', 'phonetic'
+]
+
+@st.cache_data(ttl=600)
+def load_db():
     try:
-        if source_type == "Google Sheets":
-            conn = st.connection("gsheets", type=GSheetsConnection)
-            url = get_spreadsheet_url()
-            # 讀取整個 Sheet
-            df = conn.read(spreadsheet=url, ttl=0)
-        elif source_type == "Local JSON":
-            if os.path.exists("master_db.json"):
-                with open("master_db.json", "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if data: df = pd.DataFrame(data)
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        url = get_spreadsheet_url()
+        # 關鍵修改：指定 worksheet="Sheet2"
+        df = conn.read(spreadsheet=url, worksheet="Sheet2", ttl=0)
         
-        # 1. 確保所有核心欄位都存在，不存在則補「無」
+        # 補齊缺失欄位
         for col in CORE_COLS:
             if col not in df.columns:
                 df[col] = "無"
         
-        # 2. 過濾掉 word 欄位是空的資料，並依照核心欄位排序
-        df = df.dropna(subset=['word'])
-        df = df.fillna("無")
-        
-        # 3. 僅回傳核心 12 欄位，並清除多餘空白
-        return df[CORE_COLS].reset_index(drop=True)
-        
+        return df.dropna(subset=['word']).fillna("無")[CORE_COLS].reset_index(drop=True)
     except Exception as e:
         st.error(f"❌ 資料庫載入失敗: {e}")
         return pd.DataFrame(columns=CORE_COLS)
@@ -680,132 +672,112 @@ def show_encyclopedia_card(row):
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 def page_etymon_lab():
-    st.title("🔬 跨領域解碼實驗室")
-    st.caption("透過多重領域視角的碰撞，挖掘概念底層的深層邏輯。例如：用『英語辭源』結合『職場政治』解構單字。")
+    """
+    🔬 批量解碼實驗室 (Batch Pro 版)
+    支援一次輸入多個主題，自動批量處理並同步至 Sheet2。
+    """
+    st.title("🔬 批量解碼實驗室")
+    st.caption("請在下方輸入多個主題（每行一個，或用逗號分隔），系統將自動進行批量跨領域拆解。")
     
-    # 12 核心欄位定義
-    CORE_COLS = [
-        'word', 'category', 'roots', 'breakdown', 'definition', 
-        'meaning', 'native_vibe', 'example', 'synonym_nuance', 
-        'usage_warning', 'memory_hook', 'phonetic'
-    ]
-
-    # --- 擴充後的領域清單 (依屬性分類) ---
-    CATEGORIES = {
-        "語言與邏輯": ["英語辭源", "語言邏輯", "符號學", "修辭學"],
-        "科學與技術": ["物理科學", "生物醫學", "天文地質", "數學邏輯", "神經科學", "量子力學", "人工智慧", "程式開發"],
-        "人文與社會": ["歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現", "古希臘神話", "人類學"],
-        "商業與職場": ["商業商戰", "金融投資", "產品設計", "數位行銷", "職場政治", "管理學", "賽局理論"],
-        "生活與藝術": ["餐飲文化", "社交禮儀", "藝術美學", "影視文學", "運動健身", "流行文化", "心理療癒"],
-        "其他": ["雜類", "自定義"]
-    }
+    CORE_COLS = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 'memory_hook', 'phonetic']
     
-    # 平鋪清單供 Selectbox 使用
-    FLAT_CATEGORIES = [item for sublist in CATEGORIES.values() for item in sublist]
+    # 領域清單 (保持不變)
+    FIXED_CATEGORIES = ["英語辭源", "語言邏輯", "物理科學", "神經科學", "量子力學", "歷史文明", "職場政治", "餐飲文化", "社交禮儀"]
+    FLAT_CATEGORIES = FIXED_CATEGORIES # 簡化顯示
 
     # --- UI 佈局 ---
-    new_word = st.text_input("🔍 欲解碼的主題：", placeholder="例如：'Salary'、'熵增'、'黑天鵝'...")
+    with st.container(border=True):
+        # 改用 text_area 支援多行輸入
+        raw_input = st.text_area("🔍 欲解碼的主題清單：", placeholder="例如：\nSalary\nEntropy\nGame Theory", height=150)
+        
+        col_cat1, col_cat2 = st.columns(2)
+        with col_cat1:
+            primary_cat = st.selectbox("🎯 主核心領域", FLAT_CATEGORIES, index=0)
+        with col_cat2:
+            aux_cats = st.multiselect("🧩 輔助分析視角", FLAT_CATEGORIES)
 
-    col_cat1, col_cat2 = st.columns(2)
-    with col_cat1:
-        primary_cat = st.selectbox("🎯 主核心領域 (核心邏輯)", FLAT_CATEGORIES, index=0)
-    with col_cat2:
-        aux_cats = st.multiselect("🧩 輔助分析視角 (跨界洞察)", FLAT_CATEGORIES, help="選擇 1-2 個輔助領域，AI 會進行交叉分析。")
-
-    # 處理自定義領域
-    final_primary = primary_cat
-    if primary_cat == "自定義":
-        custom_val = st.text_input("請輸入自定義主領域名稱：")
-        final_primary = custom_val if custom_val else "未分類"
-
-    # 組合最終分類標籤
-    display_category = final_primary
-    if aux_cats:
-        display_category += " + " + " + ".join(aux_cats)
-
-    st.info(f"**當前解碼視角：** `{display_category}`")
+        display_category = primary_cat + (" + " + " + ".join(aux_cats) if aux_cats else "")
 
     # 進階設定
-    with st.expander("⚙️ 實驗室參數設定"):
-        force_refresh = st.checkbox("🔄 強制刷新 (覆蓋現有資料庫內容)")
-        show_raw_json = st.checkbox("📄 顯示 AI 原始 JSON 數據")
+    with st.expander("⚙️ 批量處理設定"):
+        force_refresh = st.checkbox("🔄 強制刷新 (覆蓋已存在的單字)")
+        delay_between = st.slider("延遲時間 (秒)", 0.5, 3.0, 1.0, help="避免 API 請求過快被封鎖")
 
-    st.write("---")
-
-    if st.button("🚀 啟動深度解碼", type="primary", use_container_width=True):
-        if not new_word:
-            st.warning("請輸入解碼主題。")
+    if st.button("🚀 開始批量解碼", type="primary", use_container_width=True):
+        if not raw_input.strip():
+            st.warning("請輸入至少一個主題。")
             return
 
-        # 1. 讀取現有資料庫
+        # 1. 處理輸入清單：支援換行或逗號分隔
+        input_list = [w.strip() for w in re.split(r'[\n,，]', raw_input) if w.strip()]
+        total_words = len(input_list)
+        st.info(f"準備處理 {total_words} 個主題...")
+
+        # 2. 讀取現有資料庫 (Sheet2)
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
         try:
-            existing_data = conn.read(spreadsheet=url, ttl=0)
+            existing_data = conn.read(spreadsheet=url, worksheet="Sheet2", ttl=0)
         except:
             existing_data = pd.DataFrame(columns=CORE_COLS)
+
+        # 3. 批量處理迴圈
+        new_rows = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        # 檢查是否已存在
-        is_exist = False
-        match_mask = pd.Series([False])
-        if not existing_data.empty and 'word' in existing_data.columns:
-            match_mask = existing_data['word'].astype(str).str.lower() == new_word.lower().strip()
-            is_exist = match_mask.any()
-
-        if is_exist and not force_refresh:
-            st.info(f"💡 「{new_word}」已在資料庫中。")
-            show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
-            return
-
-        # 2. 執行 AI 解碼 (呼叫優化後的 ai_decode_and_save)
-        with st.spinner(f'正在融合【{display_category}】視角進行深度拆解...'):
-            # 這裡傳入主領域與輔助領域列表
-            raw_res = ai_decode_and_save(new_word, final_primary, aux_cats)
+        for i, word in enumerate(input_list):
+            status_text.text(f"正在處理 ({i+1}/{total_words}): {word}...")
             
-            if raw_res is None:
-                st.error("解析失敗：AI 未能回傳有效數據。")
-                return
+            # 檢查是否已存在
+            is_exist = False
+            if not existing_data.empty and 'word' in existing_data.columns:
+                is_exist = (existing_data['word'].astype(str).str.lower() == word.lower()).any()
 
-            try:
-                # 提取 JSON
-                match = re.search(r'\{.*\}', raw_res, re.DOTALL)
-                if not match:
-                    st.error("數據格式錯誤。")
-                    return
+            if is_exist and not force_refresh:
+                status_text.text(f"⏩ 跳過已存在的單字: {word}")
+            else:
+                # 呼叫 AI 生成
+                raw_res = ai_decode_and_save(word, primary_cat, aux_cats)
                 
-                res_data = json.loads(match.group(0), strict=False)
+                if raw_res:
+                    try:
+                        match = re.search(r'\{.*\}', raw_res, re.DOTALL)
+                        if match:
+                            res_data = json.loads(match.group(0), strict=False)
+                            # 補齊欄位與分類
+                            for col in CORE_COLS:
+                                if col not in res_data: res_data[col] = "無"
+                            res_data['category'] = display_category
+                            new_rows.append(res_data)
+                    except:
+                        st.error(f"❌ {word} 解析失敗")
+                
+                # 避免 API 頻率限制
+                time.sleep(delay_between)
+            
+            # 更新進度條
+            progress_bar.progress((i + 1) / total_words)
 
-                # 3. 資料清洗與 12 欄位對齊
-                for col in CORE_COLS:
-                    if col not in res_data:
-                        res_data[col] = "無"
-                
-                # 強制寫入組合後的分類名稱
-                res_data['category'] = display_category
-                
-                # 建立新的 Row 並確保欄位順序
-                new_row_df = pd.DataFrame([res_data])[CORE_COLS]
-
-                # 4. 更新資料庫
-                if is_exist and force_refresh:
-                    updated_df = pd.concat([existing_data[~match_mask], new_row_df], ignore_index=True)
-                else:
-                    updated_df = pd.concat([existing_data, new_row_df], ignore_index=True)
-                
-                conn.update(spreadsheet=url, data=updated_df)
-                
-                # 5. 成功回饋
-                st.success(f"✅ 「{new_word}」跨領域解碼完成！")
-                if show_raw_json:
-                    st.json(res_data)
-                
-                st.balloons()
-                show_encyclopedia_card(res_data)
-
-            except Exception as e:
-                st.error(f"⚠️ 處理失敗: {e}")
-                with st.expander("查看原始錯誤數據"):
-                    st.code(raw_res)
+        # 4. 批量寫回資料庫
+        if new_rows:
+            status_text.text("💾 正在同步至雲端 Sheet2...")
+            new_df = pd.DataFrame(new_rows)[CORE_COLS]
+            
+            if force_refresh and not existing_data.empty:
+                # 移除舊的重複項
+                new_words = [r['word'].lower() for r in new_rows]
+                existing_data = existing_data[~existing_data['word'].str.lower().isin(new_words)]
+            
+            updated_df = pd.concat([existing_data, new_df], ignore_index=True)
+            conn.update(spreadsheet=url, worksheet="Sheet2", data=updated_df)
+            
+            st.success(f"🎉 批量處理完成！成功新增/更新 {len(new_rows)} 個主題。")
+            st.balloons()
+        else:
+            st.info("沒有新的單字需要處理。")
+        
+        status_text.empty()
 # ==========================================
 # Etymon 模組: 頁面邏輯 (優化版)
 # ==========================================
