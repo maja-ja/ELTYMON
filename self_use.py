@@ -851,7 +851,7 @@ def page_etymon_home(df):
         st.info("目前資料庫尚無資料，請前往「解碼實驗室」新增第一個概念。")
 
     st.write("---")
-    st.caption("👈 提示：點擊左側選單進入「學習與搜尋」查看完整清單，或進入「測驗模式」挑戰記憶。")
+    st.caption("👈 提示：點擊左側選單進入「學習與搜尋」查看完整清單")
 
 
 def page_etymon_learn(df):
@@ -1462,7 +1462,7 @@ def main():
         df = load_db()
         
         # 子選單設定
-        menu = ["首頁", "學習與搜尋", "測驗模式"]
+        menu = ["首頁", "學習與搜尋"]
         if st.session_state.is_admin:
             menu.append("🔬 解碼實驗室")
             
