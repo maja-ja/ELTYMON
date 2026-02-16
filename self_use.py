@@ -454,6 +454,40 @@ def submit_report(row_data):
     except Exception as e:
         st.error(f"❌ 回報發送失敗：{e}")
         return False
+def generate_random_topics(primary_cat, aux_cats=[], count=5):
+    """
+    讓 AI 根據選定領域推薦值得解碼的主題清單。
+    """
+    keys = get_gemini_keys()
+    if not keys: return ""
+
+    combined_cats = " + ".join([primary_cat] + aux_cats)
+    
+    prompt = f"""
+    你是一位博學的知識策展人。
+    請針對「{combined_cats}」這個領域組合，推薦 {count} 個具備深度學習價值、且能產生有趣跨界洞察的主題或單字。
+    
+    【要求】：
+    1. 只輸出主題名稱，每個主題一行。
+    2. 嚴禁任何開場白、編號或解釋。
+    3. 挑選那些具有詞源故事、科學原理或社會學意義的概念。
+    
+    範例輸出：
+    Entropy
+    Salary
+    Pandora's Box
+    """
+
+    for key in keys:
+        try:
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            if response and response.text:
+                return response.text.strip()
+        except:
+            continue
+    return ""
 def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     """
     核心解碼函式 (Pro 整合版)：
@@ -689,6 +723,47 @@ def show_encyclopedia_card(row):
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 def page_etymon_lab():
+    st.title("🔬 批量解碼實驗室")
+    
+    # ... (領域選擇邏輯保持不變) ...
+    FIXED_CATEGORIES = ["英語辭源", "語言邏輯", "物理科學", "神經科學", "量子力學", "歷史文明", "職場政治", "餐飲文化", "社交禮儀"]
+    
+    col_cat1, col_cat2 = st.columns(2)
+    with col_cat1:
+        primary_cat = st.selectbox("🎯 主核心領域", FIXED_CATEGORIES, index=0)
+    with col_cat2:
+        aux_cats = st.multiselect("🧩 輔助分析視角", FIXED_CATEGORIES)
+
+    st.write("---")
+
+    # --- 新增：隨機靈感生成區 ---
+    col_input_header, col_gen_btn = st.columns([3, 1])
+    with col_input_header:
+        st.markdown("**📝 欲解碼的主題清單** (每行一個)")
+    with col_gen_btn:
+        # 隨機生成按鈕
+        if st.button("🎲 隨機靈感", use_container_width=True, help="讓 AI 根據領域推薦主題"):
+            with st.spinner("正在策展主題..."):
+                random_words = generate_random_topics(primary_cat, aux_cats, count=5)
+                # 將生成的單字存入 session_state 以便填入 text_area
+                st.session_state.batch_input = random_words
+                st.rerun()
+
+    # 使用 session_state 綁定 text_area 的內容
+    if "batch_input" not in st.session_state:
+        st.session_state.batch_input = ""
+
+    raw_input = st.text_area(
+        "輸入框", 
+        value=st.session_state.batch_input, 
+        placeholder="例如：\nSalary\nEntropy\nGame Theory", 
+        height=150,
+        label_visibility="collapsed",
+        key="batch_input_area" # 這裡用一個不同的 key
+    )
+    
+    # 同步回 session_state
+    st.session_state.batch_input = raw_input
     """
     🔬 批量解碼實驗室 (Batch Pro 版)
     支援一次輸入多個主題，自動批量處理並同步至 Sheet2。
