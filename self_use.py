@@ -456,89 +456,109 @@ def submit_report(row_data):
         return False
 def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     """
-    核心解碼函式 (跨領域 Pro 版)：
-    1. 支援主領域 + 多重輔助領域交叉分析。
-    2. 嚴格去 AI 腔調：禁止廢話，直擊本質。
-    3. 確保輸出符合 12 核心欄位。
+    核心解碼函式 (Pro 整合版)：
+    1. 跨領域交叉分析：主領域 + 輔助視角。
+    2. 深度去 AI 化：禁止廢話，直擊知識本質。
+    3. LaTeX 安全處理：強制雙重轉義防止渲染錯誤。
+    4. 12 核心欄位對齊。
     """
     keys = get_gemini_keys()
     if not keys:
         st.error("❌ 找不到 API Key，請檢查 Secrets 設定。")
         return None
 
-    # 構建領域描述字串
+    # 組合分類標籤
     combined_cats = " + ".join([primary_cat] + aux_cats)
-    aux_context = f"、{ '、'.join(aux_cats) }" if aux_cats else ""
-
-    # --- 深度去 AI 化與跨領域 Prompt ---
+    
+    # --- 核心生成指令 (System Prompt) ---
     SYSTEM_PROMPT = f"""
-    Role: 跨學科知識解構專家 (Interdisciplinary Decoder).
-    Task: 針對輸入內容進行深度拆解，並輸出高品質 JSON。
+    Role: 全領域知識解構專家 (Interdisciplinary Polymath Decoder).
+    Task: 針對輸入內容進行深度拆解，輸出高品質 JSON。
     
     【核心視角】：
-    你必須以「{primary_cat}」為核心邏輯，並強制揉合「{aux_context}」的視角進行交叉分析。
+    以「{primary_cat}」為框架，揉合「{', '.join(aux_cats) if aux_cats else '通用百科'}」視角進行交叉解碼。
     
     【🚫 絕對禁令 - 減少 AI 腔調】：
-    - **禁止廢話**：嚴禁使用「這是一個...」、「總結來說」、「值得注意的是」、「以下是為您準備的分析」等機器人贅詞。
-    - **禁止解釋指令**：直接輸出 JSON 內容，不要解釋你為什麼這樣寫。
-    - **口吻要求**：冷靜、精確、具備洞察力。像是一位在黑板前直接寫下重點的資深教授。
+    - 嚴禁任何開場白或結尾語（如：好的、這是我為您準備的...）。
+    - 嚴禁機器人式的過渡句。直接進入知識點，口吻要像冷靜、博學的資深教授。
+    - 嚴禁在 JSON 之外輸出任何文字。
 
-    ## 欄位定義 (嚴格遵守 12 欄位):
+    【📐 輸出規範】：
+    1. 必須輸出純 JSON 格式，嚴禁包含 ```json 標籤。
+    2. LaTeX 雙重轉義：所有 LaTeX 指令必須使用「雙反斜線」。範例："\\\\frac{{a}}{{b}}"。
+    3. 換行處理：JSON 內部的換行統一使用 "\\\\n"。
+
+    【📋 欄位定義 (12 核心欄位)】：
     1. word: 核心概念名稱。
     2. category: "{combined_cats}"。
-    3. roots: 底層邏輯/核心公式 (使用 LaTeX，雙重轉義如 "\\\\frac")。
-    4. breakdown: 結構拆解 (步驟或組成，用 \\\\n 分隔)。
-    5. definition: ELI5 直覺定義 (不准說「這代表...」，直接說明本質)。
+    3. roots: 底層邏輯/核心公式 (LaTeX，不加 $ 符號)。
+    4. breakdown: 結構拆解 (3-5 邏輯步驟，用 \\\\n 分隔)。
+    5. definition: 直覺定義 (ELI5，不准說「這代表...」，直接說明本質)。
     6. meaning: 本質意義 (一句話點破核心痛點)。
-    7. native_vibe: 專家心法 (必須體現「{primary_cat}」與「{aux_context}」碰撞出的獨特內行見解)。
-    8. example: 實際應用場景 (優先舉出跨領域結合的例子)。
+    7. native_vibe: 專家心法 (體現跨領域碰撞出的內行洞察)。
+    8. example: 實際應用場景 (優先選擇跨領域案例)。
     9. synonym_nuance: 相似概念辨析。
     10. usage_warning: 邊界條件與誤區。
     11. memory_hook: 記憶金句 (具畫面感的口訣)。
-    12. phonetic: 術語發音背景或詞源。
-
-    ## 輸出格式：
-    僅輸出純 JSON 內容，不含 Markdown 代碼塊標籤。
+    12. phonetic: 術語發音背景或詞源簡述。
     """
-    
+
     final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
 
+    # 嘗試使用 API Key 進行生成
     for key in keys:
         try:
             genai.configure(api_key=key)
+            # 使用 1.5-flash 兼顧速度與邏輯穩定性
             model = genai.GenerativeModel('gemini-1.5-flash')
             
-            # 降低 Temperature 以減少 AI 亂發揮，增加穩定性
             response = model.generate_content(
                 final_prompt,
-                generation_config={"temperature": 0.2}
+                generation_config={
+                    "temperature": 0.2, # 降低隨機性，確保格式穩定
+                    "top_p": 0.95,
+                    "max_output_tokens": 2048,
+                }
             )
             
             if response and response.text:
                 raw_res = response.text
                 
-                # 1. 清洗 Markdown 標籤
+                # 1. 清洗 Markdown 標籤 (預防萬一 AI 還是加了)
                 clean_json = re.sub(r'^```json\s*|\s*```$', '', raw_res.strip(), flags=re.MULTILINE)
                 
-                # 2. 驗證與補齊 12 欄位
+                # 2. 驗證 JSON 合法性並補齊欄位
                 try:
-                    parsed_data = json.loads(clean_json)
-                    required_cols = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
-                                     'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 
-                                     'memory_hook', 'phonetic']
-                    for col in required_cols:
+                    parsed_data = json.loads(clean_json, strict=False)
+                    
+                    CORE_COLS = [
+                        'word', 'category', 'roots', 'breakdown', 'definition', 
+                        'meaning', 'native_vibe', 'example', 'synonym_nuance', 
+                        'usage_warning', 'memory_hook', 'phonetic'
+                    ]
+                    
+                    # 確保 12 欄位完整，缺失則補「無」
+                    for col in CORE_COLS:
                         if col not in parsed_data:
                             parsed_data[col] = "無"
                     
-                    # 強制寫入組合後的分類
+                    # 強制寫入正確的分類標籤
                     parsed_data['category'] = combined_cats
                     
+                    # 回傳標準化的 JSON 字串
                     return json.dumps(parsed_data, ensure_ascii=False)
-                except json.JSONDecodeError:
-                    continue
+                    
+                except json.JSONDecodeError as je:
+                    # 嘗試修復常見的換行符號導致的 JSON 錯誤
+                    try:
+                        fixed_json = clean_json.replace('\n', '\\n')
+                        return json.dumps(json.loads(fixed_json), ensure_ascii=False)
+                    except:
+                        print(f"JSON 解析失敗: {je}")
+                        continue
                         
         except Exception as e:
-            print(f"⚠️ Key 嘗試失敗: {e}")
+            print(f"⚠️ API Key 嘗試失敗: {e}")
             continue
     
     return None
