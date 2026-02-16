@@ -1613,10 +1613,7 @@ def main():
             
         with tab_learn:
             page_etymon_learn(df)
-            
-        with tab_quiz:
-            page_etymon_quiz(df)
-        
+
         # 實驗室功能：僅管理員可見，且放在最下方
         if st.session_state.is_admin:
             st.write("---")
