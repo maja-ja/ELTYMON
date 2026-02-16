@@ -456,7 +456,8 @@ def submit_report(row_data):
         return False
 def generate_random_topics(primary_cat, aux_cats=[], count=5):
     """
-    讓 AI 根據選定領域推薦值得解碼的主題清單。
+    讓 AI 根據選定領域推薦值得解碼的『繁體中文』主題清單。
+    要求：純文字、無星號、無編號。
     """
     keys = get_gemini_keys()
     if not keys: return ""
@@ -465,26 +466,30 @@ def generate_random_topics(primary_cat, aux_cats=[], count=5):
     
     prompt = f"""
     你是一位博學的知識策展人。
-    請針對「{combined_cats}」這個領域組合，推薦 {count} 個具備深度學習價值、且能產生有趣跨界洞察的主題或單字。
+    請針對「{combined_cats}」這個領域組合，推薦 {count} 個具備深度學習價值、且能產生有趣跨界洞察的「繁體中文」主題或概念。
     
-    【要求】：
+    【絕對要求】：
     1. 只輸出主題名稱，每個主題一行。
-    2. 嚴禁任何開場白、編號或解釋。
-    3. 挑選那些具有詞源故事、科學原理或社會學意義的概念。
+    2. 必須使用「繁體中文」。
+    3. 嚴禁任何開場白、結尾、編號或解釋。
+    4. 嚴禁使用任何 Markdown 格式，絕對不能出現「**」或「-」符號。
+    5. 嚴禁出現任何標點符號。
     
     範例輸出：
-    Entropy
-    Salary
-    Pandora's Box
+    熵增定律
+    賽局理論
+    薪資的起源
     """
 
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(prompt)
             if response and response.text:
-                return response.text.strip()
+                # 二次清洗：移除所有星號、減號與多餘空白，確保存入資料庫時是乾淨的中文
+                clean_text = response.text.replace("*", "").replace("-", "").strip()
+                return clean_text
         except:
             continue
     return ""
@@ -724,20 +729,20 @@ def show_encyclopedia_card(row):
             st.rerun()
 def page_etymon_lab():
     """
-    🔬 跨領域批量解碼實驗室
-    功能：批量輸入、隨機靈感、跨界分析、自動同步 Sheet2。
+    🔬 跨領域批量解碼實驗室 (Pro 整合版)
+    功能：全中文介面、批量處理、隨機靈感、跨界分析、自動同步 Sheet2。
     """
     st.title("🔬 跨領域解碼實驗室")
-    st.caption("輸入多個主題並選擇領域視角，系統將進行深度邏輯拆解並存入雲端資料庫 Sheet2。")
+    st.caption("輸入多個中文主題並選擇領域視角，系統將進行深度邏輯拆解並自動同步至雲端資料庫 Sheet2。")
 
-    # 1. 定義 12 核心欄位 (嚴格對齊 Sheet2)
+    # 1. 定義 12 核心欄位 (嚴格對齊 Sheet2 順序)
     CORE_COLS = [
         'word', 'category', 'roots', 'breakdown', 'definition', 
         'meaning', 'native_vibe', 'example', 'synonym_nuance', 
         'usage_warning', 'memory_hook', 'phonetic'
     ]
 
-    # 2. 擴充領域清單
+    # 2. 擴充領域清單 (依屬性分類)
     CATEGORIES = {
         "語言與邏輯": ["英語辭源", "語言邏輯", "符號學", "修辭學"],
         "科學與技術": ["物理科學", "生物醫學", "神經科學", "量子力學", "人工智慧", "數學邏輯"],
@@ -745,6 +750,7 @@ def page_etymon_lab():
         "商業與職場": ["商業商戰", "金融投資", "產品設計", "數位行銷", "職場政治", "管理學", "賽局理論"],
         "生活與藝術": ["餐飲文化", "社交禮儀", "藝術美學", "影視文學", "運動健身", "流行文化", "心理療癒"]
     }
+    # 平鋪清單供 Selectbox 使用
     FLAT_CATEGORIES = [item for sublist in CATEGORIES.values() for item in sublist]
 
     # --- UI 佈局：領域選擇 ---
@@ -761,56 +767,60 @@ def page_etymon_lab():
 
     st.write("")
 
-    # --- 隨機靈感生成區 ---
+    # --- UI 佈局：中文輸入區 ---
     col_input_h, col_gen_h = st.columns([3, 1])
     with col_input_h:
-        st.markdown("**📝 欲解碼的主題清單** (每行一個)")
+        st.markdown("**📝 待解碼主題清單** (每行一個概念，或用逗號分隔)")
     with col_gen_h:
-        if st.button("🎲 隨機靈感", use_container_width=True):
+        # --- 功能：隨機靈感生成 (繁體中文、無符號) ---
+        if st.button("🎲 隨機靈感", use_container_width=True, help="讓 AI 根據領域推薦 5 個中文主題"):
             with st.spinner("正在策展中文主題..."):
-                # 呼叫優化後的函式
+                # 呼叫優化後的隨機生成函式
                 random_topics = generate_random_topics(primary_cat, aux_cats, count=5)
                 if random_topics:
                     st.session_state.batch_input = random_topics
                     st.rerun()
 
-    # 初始化與綁定輸入框
+    # 初始化與綁定輸入框內容
     if "batch_input" not in st.session_state:
         st.session_state.batch_input = ""
 
+    # 多行輸入框 (全中文提示)
     raw_input = st.text_area(
-        "主題輸入框",
+        "主題輸入區域",
         value=st.session_state.batch_input,
-        placeholder="例如：\n熵增定律\n賽局理論\n薪資的起源",
+        placeholder="例如：\n熵增定律\n薪資的起源\n賽局理論\n潘朵拉的盒子",
         height=180,
         label_visibility="collapsed",
         key="batch_input_area"
     )
+    # 同步回 session_state
     st.session_state.batch_input = raw_input
-
 
     # 進階設定
     with st.expander("⚙️ 批量處理參數"):
         force_refresh = st.checkbox("🔄 強制刷新 (覆蓋 Sheet2 已存在的資料)")
-        delay_sec = st.slider("API 請求間隔 (秒)", 0.5, 3.0, 1.0)
+        delay_sec = st.slider("API 請求間隔 (秒)", 0.5, 3.0, 1.0, help="避免請求過快導致 API 暫時封鎖")
 
     st.write("---")
 
     # --- 執行批量解碼 ---
     if st.button("🚀 啟動批量深度解碼", type="primary", use_container_width=True):
-        # 1. 處理輸入清單
+        # 1. 處理輸入清單 (支援換行、英文逗號、中文逗號)
         input_list = [w.strip() for w in re.split(r'[\n,，]', raw_input) if w.strip()]
+        
         if not input_list:
-            st.warning("請輸入至少一個主題。")
+            st.warning("請先輸入或生成主題清單。")
             return
 
-        # 2. 連接 Google Sheets
+        # 2. 連接 Google Sheets 並讀取 Sheet2
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
         try:
-            # 讀取 Sheet2
+            # 明確指定 Sheet2
             existing_data = conn.read(spreadsheet=url, worksheet="Sheet2", ttl=0)
         except:
+            # 若 Sheet2 尚無資料，建立符合 12 欄位的空表
             existing_data = pd.DataFrame(columns=CORE_COLS)
 
         # 3. 批量處理迴圈
@@ -822,7 +832,7 @@ def page_etymon_lab():
         for i, word in enumerate(input_list):
             status_text.markdown(f"⏳ **正在處理 ({i+1}/{total}):** `{word}`")
             
-            # 檢查是否已存在
+            # 檢查是否已存在 (不分大小寫)
             is_exist = False
             if not existing_data.empty and 'word' in existing_data.columns:
                 is_exist = (existing_data['word'].astype(str).str.lower() == word.lower()).any()
@@ -830,51 +840,62 @@ def page_etymon_lab():
             if is_exist and not force_refresh:
                 status_text.markdown(f"⏩ **跳過已存在項目:** `{word}`")
             else:
-                # 呼叫優化後的 AI 解碼函式 (12 欄位 + 去 AI 腔調)
+                # 呼叫優化後的 AI 解碼函式 (傳入主領域與輔助領域)
+                # 該函式內部已包含「去 AI 腔調」與「LaTeX 雙重轉義」指令
                 raw_res = ai_decode_and_save(word, primary_cat, aux_cats)
                 
                 if raw_res:
                     try:
-                        # 解析 JSON 並確保 12 欄位對齊
+                        # 解析 JSON
                         res_data = json.loads(raw_res)
-                        for col in CORE_COLS:
-                            if col not in res_data: res_data[col] = "無"
                         
-                        # 強制寫入正確的分類標籤
+                        # 確保 12 欄位完整性，缺失則補「無」
+                        for col in CORE_COLS:
+                            if col not in res_data:
+                                res_data[col] = "無"
+                        
+                        # 強制寫入最終組合的分類標籤
                         res_data['category'] = display_category
                         new_records.append(res_data)
                     except:
-                        st.error(f"❌ `{word}` 解析失敗，跳過。")
+                        st.error(f"❌ `{word}` 解析失敗，請檢查 AI 回傳格式。")
                 
-                # 避免 API 頻率限制
+                # 稍微延遲，保護 API 配額
                 time.sleep(delay_sec)
             
-            # 更新進度
+            # 更新進度條
             progress_bar.progress((i + 1) / total)
 
-        # 4. 批量同步至雲端
+        # 4. 批量同步至雲端 Sheet2
         if new_records:
             status_text.markdown("💾 **正在同步至雲端 Sheet2...**")
-            new_df = pd.DataFrame(new_records)[CORE_COLS] # 強制欄位排序
+            
+            # 建立新資料的 DataFrame 並強制欄位排序
+            new_df = pd.DataFrame(new_records)[CORE_COLS]
             
             if force_refresh and not existing_data.empty:
-                # 移除舊的重複項
+                # 若開啟強制刷新，先移除舊的重複單字
                 new_words_lower = [r['word'].lower() for r in new_records]
                 existing_data = existing_data[~existing_data['word'].str.lower().isin(new_words_lower)]
             
-            # 合併並寫回
+            # 合併新舊資料
             updated_df = pd.concat([existing_data, new_df], ignore_index=True)
-            conn.update(spreadsheet=url, worksheet="Sheet2", data=updated_df)
             
-            st.success(f"🎉 批量處理完成！成功同步 {len(new_records)} 筆資料至 Sheet2。")
-            st.balloons()
-            
-            # 顯示最後一個生成的卡片作為預覽
-            st.write("### 📝 最後生成結果預覽")
-            show_encyclopedia_card(new_records[-1])
+            # 執行雲端更新 (鎖定 Sheet2)
+            try:
+                conn.update(spreadsheet=url, worksheet="Sheet2", data=updated_df)
+                st.success(f"🎉 批量處理完成！成功同步 {len(new_records)} 筆資料至 Sheet2。")
+                st.balloons()
+                
+                # 顯示最後一個結果作為預覽
+                st.write("### 📝 最後生成結果預覽")
+                show_encyclopedia_card(new_records[-1])
+            except Exception as e:
+                st.error(f"❌ 雲端同步失敗: {e}")
         else:
             st.info("清單中的主題已存在於資料庫中，且未開啟強制刷新。")
         
+        # 清除狀態文字
         status_text.empty()
 # ==========================================
 # Etymon 模組: 頁面邏輯 (優化版)
