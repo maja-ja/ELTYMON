@@ -782,7 +782,7 @@ def show_encyclopedia_card(row):
     st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
     st.markdown(f"""
         <div class="sponsor-container" style="flex-direction: row; flex-wrap: wrap; gap: 10px;">
-            <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal</a>
+            <a href="https://https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal(目前只有這個)</a>
             <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay" style="flex: 1; min-width: 120px;">綠界贊助</a>
             <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc" style="flex: 1; min-width: 120px;">BMC</a>
         </div>
