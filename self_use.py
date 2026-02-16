@@ -1040,106 +1040,97 @@ def page_etymon_home(df):
     """, unsafe_allow_html=True)
 def page_etymon_learn(df):
     """
-    知識庫探索頁面：
-    1. 支援從首頁跳轉的深層連結 (Deep Link)。
-    2. 隨機探索模式 (可篩選領域)。
-    3. 強大搜尋模式 (支援全欄位檢索)。
+    知識庫探索 (導航堆疊優化版)：
+    1. 統一的返回邏輯，能記住最初的起點 (back_to)。
+    2. 在詳情頁 (curr_w) 和列表頁之間流暢切換。
+    3. 移除百科卡片內部的返回鍵，由頁面統一管理。
     """
     st.title("📖 知識庫探索")
     
     if df.empty:
-        st.warning("目前書架是空的，請先前往實驗室解碼一些內容吧！")
+        st.warning("目前資料庫是空的，請先前往實驗室新增內容。")
         return
 
-    # --- 1. 深層跳轉處理 (Deep Link) ---
-    # 如果 session_state 中已有 curr_w (從首頁跳轉過來)，直接顯示該單字
-    if st.session_state.get('curr_w'):
-        with st.container():
-            # 呼叫旗艦版百科卡片
-            show_encyclopedia_card(st.session_state.curr_w)
-            
-            st.write("")
-            if st.button("🔍 關閉詳情，回到搜尋列表", use_container_width=True):
-                st.session_state.curr_w = None
+    # --- 1. 【統一返回邏輯】：返回最初的起點 ---
+    # 只要 back_to 狀態存在 (代表是從首頁跳轉過來的)，就顯示這個按鈕
+    if st.session_state.get("back_to"):
+        col_back, _ = st.columns([1, 2])
+        with col_back:
+            if st.button(f"⬅️ 返回{st.session_state.back_to}", use_container_width=True):
+                target = st.session_state.back_to
+                # 清空所有跳轉狀態，徹底返回
                 st.session_state.back_to = None
+                st.session_state.curr_w = None
+                st.session_state.etymon_page = target
                 st.rerun()
-        return # 顯示完跳轉單字後直接結束，不顯示下方的 Tabs
 
-    # --- 2. 正常瀏覽模式 (Tabs 導航) ---
-    tab_explore, tab_search = st.tabs(["🎲 隨機探索", "🔍 搜尋與列表"])
+    # --- 2. 【核心顯示邏輯】：顯示詳情 或 顯示列表 ---
     
-    # --- Tab A: 隨機探索 ---
-    with tab_explore:
-        col_cat, col_btn = st.columns([2, 1])
-        with col_cat:
-            # 領域篩選
-            cats = ["全部領域"] + sorted(df['category'].unique().tolist())
-            sel_cat = st.selectbox("選擇學習領域", cats, key="explore_cat_sel")
+    # --- 模式 A：顯示單字詳情 (curr_w 存在) ---
+    if st.session_state.get('curr_w'):
+        # 呼叫百科卡片 (該卡片內部已移除返回鍵)
+        show_encyclopedia_card(st.session_state.curr_w)
         
-        with col_btn:
-            st.write("") # 對齊
-            if st.button("🎲 抽下一個", use_container_width=True, type="primary"):
-                f_df = df if sel_cat == "全部領域" else df[df['category'] == sel_cat]
-                if not f_df.empty:
-                    st.session_state.explore_w = f_df.sample(1).iloc[0].to_dict()
-                else:
-                    st.session_state.explore_w = None
+        # 提供“關閉詳情，回到列表”的按鈕
+        st.write("")
+        if st.button("🔍 關閉詳情，回到搜尋列表", use_container_width=True):
+            st.session_state.curr_w = None # 只清除當前單字，保留 back_to 狀態
+            st.rerun()
+            
+    # --- 模式 B：顯示探索與搜尋列表 (curr_w 不存在) ---
+    else:
+        tab_explore, tab_search = st.tabs(["🎲 隨機探索", "🔍 搜尋與列表"])
+        
+        # Tab 1: 隨機探索
+        with tab_explore:
+            col_cat, col_btn = st.columns([2, 1])
+            with col_cat:
+                cats = ["全部領域"] + sorted(df['category'].unique().tolist())
+                sel_cat = st.selectbox("選擇學習領域", cats, key="explore_cat_sel")
+            
+            with col_btn:
+                st.write("")
+                if st.button("🎲 抽下一個", use_container_width=True, type="primary"):
+                    f_df = df if sel_cat == "全部領域" else df[df['category'] == sel_cat]
+                    if not f_df.empty:
+                        # 這裡我們直接修改 curr_w 來顯示單字，流程更統一
+                        st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
+                        st.rerun()
 
-        # 顯示隨機抽到的單字
-        if st.session_state.get('explore_w'):
-            show_encyclopedia_card(st.session_state.explore_w)
-        else:
-            st.info("請點擊「🎲 抽下一個」開始探索知識。")
+            st.info("請點擊「🎲 抽下一個」開始探索，或切換至「🔍 搜尋與列表」進行查找。")
 
-    # --- Tab B: 搜尋與列表 ---
-    with tab_search:
-        col_input, col_mode = st.columns([3, 1])
-        with col_input:
-            search_query = st.text_input("🔍 關鍵字搜尋", placeholder="輸入單字、定義、領域或本質意義...", key="main_search_input")
-        with col_mode:
-            search_mode = st.radio("模式", ["包含", "精確"], horizontal=True, key="search_mode_radio")
+        # Tab 2: 搜尋與列表
+        with tab_search:
+            search_query = st.text_input("🔍 關鍵字搜尋", placeholder="輸入單字、定義、領域或本質意義...")
 
-        if search_query:
-            q = search_query.strip().lower()
-            if search_mode == "精確":
-                mask = df['word'].str.strip().str.lower() == q
-            else:
-                # 全欄位檢索：在 word, definition, category, meaning 中搜尋
+            if search_query:
+                q = search_query.strip().lower()
+                # 全欄位檢索
                 mask = (
                     df['word'].str.contains(q, case=False, na=False) |
                     df['definition'].str.contains(q, case=False, na=False) |
                     df['category'].str.contains(q, case=False, na=False) |
                     df['meaning'].str.contains(q, case=False, na=False)
                 )
-            
-            res_df = df[mask]
-            
-            if not res_df.empty:
-                st.success(f"💡 找到 {len(res_df)} 筆相符結果：")
-                for _, row in res_df.iterrows():
-                    with st.container(border=True):
-                        show_encyclopedia_card(row)
+                res_df = df[mask]
+                
+                if not res_df.empty:
+                    st.success(f"💡 找到 {len(res_df)} 筆相符結果：")
+                    for _, row in res_df.iterrows():
+                        with st.container(border=True):
+                            # 搜尋結果中的卡片不需要返回鍵，故直接呼叫
+                            show_encyclopedia_card(row)
+                else:
+                    st.error(f"❌ 找不到與「{search_query}」相關的內容。")
             else:
-                st.error(f"❌ 找不到與「{search_query}」相關的內容。")
-                # 模糊建議邏輯
-                fuzzy_mask = df['word'].str.contains(q[:2], case=False, na=False)
-                suggestions = df[fuzzy_mask]['word'].tolist()
-                if suggestions:
-                    st.info(f"您是不是在找：{', '.join(suggestions[:5])}？")
-        else:
-            # 預設顯示完整清單 (精簡版)
-            st.write("### 📚 完整知識清單")
-            st.dataframe(
-                df[['word', 'category', 'meaning', 'definition']], 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "word": "主題",
-                    "category": "領域視角",
-                    "meaning": "本質意義",
-                    "definition": "直覺定義 (ELI5)"
-                }
-            )
+                # 預設顯示完整清單
+                st.write("### 📚 完整知識清單")
+                st.dataframe(
+                    df[['word', 'category', 'meaning']], 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={ "word": "主題", "category": "領域視角", "meaning": "本質意義" }
+                )
 def fix_image_orientation(image):
     """
     修正圖片轉向：自動偵測手機拍攝時的 EXIF 資訊並轉正。
