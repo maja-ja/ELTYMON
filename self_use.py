@@ -1463,31 +1463,42 @@ def run_handout_app():
             st.session_state.trigger_download = False
 def main():
     """
-    主程式入口：負責導航、權限驗證與全域樣式注入。
+    AI 教育工作站 v4.5 - 最終整合版
+    優化：頂部導航、手機適配、12 欄位對齊、專業去 AI 腔調。
     """
-    # 1. 注入優化後的自定義 CSS (含 PayPal 樣式)
+    # 1. 注入優化後的 CSS (含手機版適配與 PayPal 樣式)
     inject_custom_css()
     
     # 2. 初始化核心 Session State
-    modes = ["Etymon Decoder (單字解碼)", "Handout Pro (講義排版)"]
-    
     if 'app_mode' not in st.session_state:
-        st.session_state.app_mode = modes[0]
-        
+        st.session_state.app_mode = "🔬 單字解碼"
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
 
     # ==========================================
-    # 3. 側邊欄 (Sidebar) 佈局
+    # 3. 側邊欄 (Sidebar)：權限與贊助
     # ==========================================
     with st.sidebar:
-        st.title("🏫 AI 專業教育工作站")
+        st.title("🏫 AI 教育工作站")
         
-        # --- 💖 支持本站營運 (PayPal / ECPay / BMC) ---
+        # --- 🔐 管理員入口 ---
+        with st.sidebar.expander("🔐 管理員登入"):
+            admin_pwd_input = st.text_input("輸入管理密碼", type="password", key="admin_pwd_sidebar")
+            if admin_pwd_input:
+                if admin_pwd_input == st.secrets.get("ADMIN_PASSWORD", "0000"):
+                    st.session_state.is_admin = True
+                    st.success("🔓 管理員模式已啟動")
+                else:
+                    st.session_state.is_admin = False
+                    st.error("❌ 密碼錯誤")
+
+        st.markdown("---")
+        
+        # --- 💖 隨喜贊助 (手機版建議保留在側邊或卡片底部) ---
         st.markdown("### 💖 支持本站營運")
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
+                <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal">
                     <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
@@ -1499,79 +1510,61 @@ def main():
                 </a>
             </div>
         """, unsafe_allow_html=True)
-        st.caption("講義下載完全免費。您的支持將用於支付 AI 算力與伺服器維護費用，感謝支持！")
+        st.caption("講義下載完全免費。您的支持將用於支付 AI 算力支出，感謝支持！")
         
         st.markdown("---")
-
-        # --- 🔐 管理員權限驗證 ---
-        with st.sidebar.expander("🔐 管理員登入"):
-            admin_pwd_input = st.text_input("輸入管理密碼", type="password", key="admin_pwd_input_sidebar")
-            
-            # 驗證邏輯
-            if admin_pwd_input:
-                if admin_pwd_input == st.secrets.get("ADMIN_PASSWORD", "0000"):
-                    st.session_state.is_admin = True
-                    st.success("🔓 管理員模式：已解鎖進階功能")
-                else:
-                    st.session_state.is_admin = False
-                    st.error("❌ 密碼錯誤")
-            else:
-                # 若未輸入密碼，預設為非管理員
-                st.session_state.is_admin = False
-
-        st.markdown("---")
-
-        # --- 🧭 模組導航控制 ---
-        try:
-            current_mode_index = modes.index(st.session_state.app_mode)
-        except ValueError:
-            current_mode_index = 0
-
-        selected_mode = st.sidebar.selectbox(
-            "切換工具模組", 
-            modes, 
-            index=current_mode_index,
-            help="選擇您要使用的 AI 工具"
-        )
-        
-        # 更新模式
-        st.session_state.app_mode = selected_mode
+        auth_status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
+        st.caption(f"v4.5 Pro | {auth_status}")
 
     # ==========================================
-    # 4. 路由邏輯 (Routing)
+    # 4. 頂部導航切換鈕 (手機版優化)
+    # ==========================================
+    # 使用橫向 radio 模擬切換鈕，這在所有 Streamlit 版本中都最穩定
+    modes = ["🔬 單字解碼", "📄 講義排版"]
+    
+    # 這裡使用一個容器來置中導航鈕
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
+    with nav_col2:
+        selected_mode = st.radio(
+            "切換工具模組",
+            modes,
+            index=modes.index(st.session_state.app_mode),
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+    st.session_state.app_mode = selected_mode
+    st.write("---")
+
+    # ==========================================
+    # 5. 路由邏輯 (Routing)
     # ==========================================
     
-    if st.session_state.app_mode == "Etymon Decoder (單字解碼)":
-        # 載入優化後的 12 欄位資料庫
+    if st.session_state.app_mode == "🔬 單字解碼":
+        # 載入 Sheet2 的 12 欄位資料
         df = load_db()
         
-        # 子選單設定
-        menu = ["首頁", "學習與搜尋"]
-        if st.session_state.is_admin:
-            menu.append("🔬 解碼實驗室")
-            
-        page = st.sidebar.radio("Etymon 功能選單", menu)
+        # 手機版優化：使用 Tabs 取代側邊欄選單
+        tab_home, tab_learn, tab_quiz = st.tabs(["🏠 首頁概覽", "📖 學習搜尋", "🧠 記憶挑戰"])
         
-        # 頁面跳轉
-        if page == "首頁":
+        with tab_home:
             page_etymon_home(df)
-        elif page == "學習與搜尋":
-            page_etymon_learn(df)
-        elif page == "🔬 解碼實驗室":
-            if st.session_state.is_admin:
-                page_etymon_lab()
-            else:
-                st.error("⛔ 權限不足：此功能僅限管理員使用。")
             
-    elif st.session_state.app_mode == "Handout Pro (講義排版)":
-        # 執行講義排版模組
+        with tab_learn:
+            page_etymon_learn(df)
+            
+        with tab_quiz:
+            page_etymon_quiz(df)
+        
+        # 實驗室功能：僅管理員可見，且放在最下方
+        if st.session_state.is_admin:
+            st.write("---")
+            with st.expander("🔬 進入批量解碼實驗室 (管理員專用)", expanded=False):
+                page_etymon_lab()
+            
+    elif st.session_state.app_mode == "📄 講義排版":
+        # 執行講義排版模組 (內含圖片優化與 PDF 渲染)
         run_handout_app()
 
-    # --- 側邊欄頁尾資訊 ---
-    st.sidebar.markdown("---")
-    auth_status = "🔴 管理員模式" if st.session_state.is_admin else "🟢 公開服務模式"
-    st.sidebar.caption(f"系統版本: v4.3 Pro Integrated")
-    st.sidebar.caption(f"當前狀態: {auth_status}")
-
+# 啟動程式
 if __name__ == "__main__":
     main()
