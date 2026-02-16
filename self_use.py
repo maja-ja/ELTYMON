@@ -782,7 +782,7 @@ def show_encyclopedia_card(row):
     st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
     st.markdown(f"""
         <div class="sponsor-container" style="flex-direction: row; flex-wrap: wrap; gap: 10px;">
-            <a href="https://https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal(目前只有這個)</a>
+            <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal(目前只有這個)</a>
             <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay" style="flex: 1; min-width: 120px;">綠界贊助</a>
             <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc" style="flex: 1; min-width: 120px;">BMC</a>
         </div>
@@ -1629,7 +1629,7 @@ def main():
         # 這裡直接使用 HTML，不呼叫外部函式，確保 100% 穩定顯示
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
+                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
                     <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助(目前只有這個)
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
