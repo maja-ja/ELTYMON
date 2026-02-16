@@ -16,101 +16,138 @@ import markdown
 st.set_page_config(page_title="AI 教育工作站 (Etymon + Handout)", page_icon="🏫", layout="wide")
 
 def inject_custom_css():
+    """
+    全域樣式注入：
+    1. 專業教育感配色 (深藍/灰/白)。
+    2. 手機版 RWD 自動適配。
+    3. 頂部導航鈕美化。
+    4. PayPal/綠界/BMC 贊助按鈕樣式。
+    """
     st.markdown("""
         <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+            /* --- 1. 全域字體與背景 --- */
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+TC:wght@400;500;700&display=swap');
             
-            /* --- 全域樣式優化 --- */
-            .stMainContainer { transition: background-color 0.3s ease; }
-            
-            /* --- Etymon Decoder 視覺元件 --- */
-            .hero-word { 
-                font-size: 2.5rem; 
-                font-weight: 800; 
-                color: #1A237E; 
-                margin-bottom: 0.5rem;
-                letter-spacing: -0.02em;
-            }
-            .vibe-box { 
-                background-color: #F8FAFC; 
-                padding: 1.25rem; 
-                border-radius: 8px; 
-                border-left: 5px solid #3B82F6; 
-                color: #334155 !important; 
-                margin: 1rem 0;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-            }
-            .breakdown-wrapper {
-                background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
-                padding: 1.5rem; 
-                border-radius: 12px; 
-                color: white !important;
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            }
-            
-            /* --- Handout Pro 樣式 --- */
-            .stTextArea textarea { 
-                font-size: 15px; 
-                line-height: 1.6; 
-                font-family: 'Consolas', 'Monaco', monospace; 
-            }
-            .info-card { 
-                background-color: #F0F9FF; 
-                border-left: 4px solid #0EA5E9; 
-                padding: 1rem; 
-                border-radius: 6px; 
-                margin-bottom: 1.25rem; 
+            html, body, [data-testid="ststAppViewContainer"] {
+                font-family: 'Inter', 'Noto Sans TC', sans-serif;
+                background-color: #FFFFFF;
             }
 
-            /* --- 贊助按鈕通用樣式 --- */
+            /* --- 2. Etymon 百科卡片視覺 (去 AI 腔調) --- */
+            .hero-word { 
+                font-size: 3rem; 
+                font-weight: 800; 
+                color: #1A237E; 
+                margin-bottom: 0px;
+                letter-spacing: -0.03em;
+                line-height: 1.2;
+            }
+            
+            /* 邏輯拆解區：專業漸層 */
+            .breakdown-wrapper {
+                background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%);
+                padding: 20px 25px; 
+                border-radius: 12px; 
+                color: white !important;
+                margin: 15px 0;
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+            }
+            
+            /* 專家心法區：簡潔內斂 */
+            .vibe-box { 
+                background-color: #F8FAFC; 
+                padding: 18px; 
+                border-radius: 10px; 
+                border-left: 6px solid #3B82F6; 
+                color: #1E293B !important; 
+                margin: 15px 0;
+                font-size: 15px;
+                line-height: 1.6;
+            }
+
+            /* --- 3. 贊助按鈕系統 --- */
             .sponsor-container {
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
-                margin-bottom: 24px;
+                gap: 10px;
+                margin: 15px 0;
             }
             .sponsor-btn {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 10px;
-                width: 100%;
+                gap: 8px;
                 padding: 10px 16px;
                 border-radius: 8px;
                 font-weight: 600;
+                font-size: 14px;
                 text-decoration: none !important;
                 transition: all 0.2s ease;
                 border: none;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-                font-size: 14px;
             }
-            .sponsor-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .sponsor-btn:active { transform: translateY(0); }
-            .btn-icon { width: 18px; height: 18px; object-fit: contain; }
-
-            /* --- 各品牌按鈕配色 --- */
-            /* 綠界 ECPay */
-            .btn-ecpay { background-color: #00A650; color: white !important; }
-            .btn-ecpay:hover { background-color: #008f45; }
-
-            /* Buy Me a Coffee */
-            .btn-bmc { background-color: #FFDD00; color: #000 !important; }
-            .btn-bmc:hover { background-color: #ffea00; }
-
-            /* PayPal */
+            .sponsor-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+            
+            /* 品牌配色 */
             .btn-paypal { background-color: #003087; color: white !important; }
-            .btn-paypal:hover { background-color: #00256b; }
+            .btn-ecpay { background-color: #00A650; color: white !important; }
+            .btn-bmc { background-color: #FFDD00; color: #000000 !important; }
+            .btn-icon { width: 18px; height: 18px; }
 
-            /* --- 深色模式適應 --- */
-            @media (prefers-color-scheme: dark) {
-                .hero-word { color: #93C5FD !important; }
-                .vibe-box { 
-                    background-color: #1E293B !important; 
-                    color: #E2E8F0 !important; 
-                    border-left-color: #60A5FA !important; 
+            /* --- 4. 頂部導航鈕 (Radio 模擬 Segmented Control) --- */
+            div[data-testid="stHorizontalBlock"] div[data-testid="stVerticalBlock"] > div[role="radiogroup"] {
+                background-color: #F1F5F9;
+                padding: 5px;
+                border-radius: 12px;
+                justify-content: center;
+            }
+            div[role="radiogroup"] label {
+                background-color: transparent;
+                padding: 8px 20px !important;
+                border-radius: 8px !important;
+                transition: 0.3s;
+            }
+            div[role="radiogroup"] label[data-baseweb="radio"] div:first-child { display: none; } /* 隱藏圓圈 */
+            div[role="radiogroup"] label[data-checked="true"] {
+                background-color: #FFFFFF !important;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            }
+
+            /* --- 5. 手機版 RWD 適配 (關鍵) --- */
+            @media (max-width: 640px) {
+                /* 縮小標題防止跑版 */
+                .hero-word { font-size: 2rem !important; }
+                
+                /* 讓按鈕在手機上更好點擊 */
+                .stButton button {
+                    width: 100% !important;
+                    height: 45px !important;
+                    border-radius: 10px !important;
                 }
-                .sponsor-title { color: #94A3B8; }
-                .stMarkdown p, .stMarkdown li { color: #E2E8F0 !important; }
+                
+                /* 調整卡片間距 */
+                .stMainContainer { padding: 10px !important; }
+                
+                /* 讓 Tabs 在手機上可以橫向滑動 */
+                .stTabs [data-baseweb="tab-list"] {
+                    gap: 10px !important;
+                }
+                .stTabs [data-baseweb="tab"] {
+                    padding: 8px 12px !important;
+                    font-size: 14px !important;
+                }
+                
+                /* 隱藏手機版側邊欄的部分裝飾 */
+                [data-testid="stSidebarNav"] { display: none; }
+            }
+
+            /* --- 6. 深色模式適應 --- */
+            @media (prefers-color-scheme: dark) {
+                html, body, [data-testid="stAppViewContainer"] { background-color: #0F172A; }
+                .hero-word { color: #60A5FA !important; }
+                .vibe-box { background-color: #1E293B !important; color: #E2E8F0 !important; }
+                .stMarkdown p, .stMarkdown li { color: #CBD5E1 !important; }
+                div[role="radiogroup"] { background-color: #1E293B; }
+                div[role="radiogroup"] label[data-checked="true"] { background-color: #334155 !important; }
             }
         </style>
     """, unsafe_allow_html=True)
