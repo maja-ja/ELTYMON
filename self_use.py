@@ -1629,8 +1629,8 @@ def main():
         # 這裡直接使用 HTML，不呼叫外部函式，確保 100% 穩定顯示
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal">
-                    <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
+                <a href="www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
+                    <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助(目前只有這個)
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
                     💳 綠界贊助 (台灣)
