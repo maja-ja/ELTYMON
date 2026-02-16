@@ -484,7 +484,7 @@ def generate_random_topics(primary_cat, aux_cats=[], count=5):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(prompt)
             if response and response.text:
                 # 二次清洗：移除所有星號、減號與多餘空白，確保存入資料庫時是乾淨的中文
