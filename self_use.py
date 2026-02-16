@@ -389,14 +389,20 @@ def log_user_intent(label):
         # 在 Console 輸出錯誤以便除錯，但不中斷前端顯示
         print(f"⚠️ Metrics logging failed for '{label}': {e}")
 
-
+# 定義 12 核心欄位 (與試算表完全一致)
 CORE_COLS = [
-    'word', 'category', 'roots', 'breakdown', 'definition', 
+'word', 'category', 'roots', 'breakdown', 'definition', 
     'meaning', 'native_vibe', 'example', 'synonym_nuance', 
     'usage_warning', 'memory_hook', 'phonetic'
 ]
+
 @st.cache_data(ttl=600)
 def load_db():
+    CORE_COLS = [
+'word', 'category', 'roots', 'breakdown', 'definition', 
+    'meaning', 'native_vibe', 'example', 'synonym_nuance', 
+    'usage_warning', 'memory_hook', 'phonetic'
+]
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
@@ -517,11 +523,10 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
                 # 2. 驗證與補齊 12 欄位
                 try:
                     parsed_data = json.loads(clean_json)
-                     = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
-                                 'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 
-                                 'memory_hook', 'phonetic']
-                    
-                    for col in :
+                    required_cols = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
+                                     'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 
+                                     'memory_hook', 'phonetic']
+                    for col in required_cols:
                         if col not in parsed_data:
                             parsed_data[col] = "無"
                     
