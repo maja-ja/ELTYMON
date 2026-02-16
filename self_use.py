@@ -1473,8 +1473,6 @@ def main():
             page_etymon_home(df)
         elif page == "學習與搜尋":
             page_etymon_learn(df)
-        elif page == "測驗模式":
-            page_etymon_quiz(df)
         elif page == "🔬 解碼實驗室":
             if st.session_state.is_admin:
                 page_etymon_lab()
