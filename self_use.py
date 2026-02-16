@@ -932,74 +932,97 @@ def page_etymon_lab():
 # ==========================================
 # Etymon 模組: 頁面邏輯 (優化版)
 # ==========================================
-
 def page_etymon_home(df):
     """
-    Etymon 門戶首頁：數據概覽與隨機啟發
+    Etymon Decoder 門戶首頁
+    功能：數據儀表板、隨機啟發卡片、深層跳轉邏輯。
     """
+    # 1. 標題與副標題 (去 AI 腔調，專業感)
     st.markdown("<h1 style='text-align: center; color: #1A237E;'>Etymon Decoder</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>深度知識解構與底層邏輯圖書館</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748B; font-size: 1.1rem;'>深度知識解構與跨領域邏輯圖書館</p>", unsafe_allow_html=True)
     st.write("---")
     
-    # 1. 數據儀表板 (視覺化指標)
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("📚 知識庫總量", f"{len(df)} 筆")
-    with c2:
-        st.metric("🏷️ 涵蓋領域", f"{df['category'].nunique() if not df.empty else 0} 類")
-    with c3:
-        st.metric("🧬 核心邏輯", f"{df['roots'].nunique() if not df.empty else 0} 組")
-    
-    st.write("---")
+    # 2. 數據儀表板 (Metrics)
+    if not df.empty:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("📚 知識庫總量", f"{len(df)} 筆")
+        with c2:
+            st.metric("🏷️ 涵蓋領域", f"{df['category'].nunique()} 類")
+        with c3:
+            # 計算獨特的字根/原理數量
+            unique_roots = df['roots'].nunique()
+            st.metric("🧬 核心邏輯", f"{unique_roots} 組")
+    else:
+        st.info("目前資料庫尚無資料，請前往實驗室進行首次解碼。")
+        return
 
-    # 2. 隨機推薦區 (啟發式學習)
-    col_header, col_btn = st.columns([4, 1])
-    with col_header: 
-        st.subheader("💡 隨機探索 (Random Inspiration)")
+    st.write("")
+
+    # 3. 隨機啟發區 (Random Inspiration)
+    col_h, col_btn = st.columns([4, 1])
+    with col_h:
+        st.subheader("💡 今日隨機啟發")
     with col_btn:
+        # 換一批按鈕
         if st.button("🔄 換一批", use_container_width=True):
-            if 'home_sample' in st.session_state: 
+            if 'home_sample' in st.session_state:
                 del st.session_state.home_sample
             st.rerun()
     
-    if not df.empty:
-        # 確保隨機抽取不重複
-        if 'home_sample' not in st.session_state:
-            st.session_state.home_sample = df.sample(min(3, len(df)))
-        
-        sample = st.session_state.home_sample
-        cols = st.columns(3)
-        for i, (index, row) in enumerate(sample.iterrows()):
-            with cols[i % 3]:
-                with st.container(border=True):
-                    st.markdown(f"### {row['word']}")
-                    st.caption(f"🏷️ {row['category']}")
-                    
-                    # 預覽內容：顯示本質意義 (meaning) 而非 roots，避免 LaTeX 截斷跑版
-                    preview_text = fix_content(row['meaning'])
-                    if len(preview_text) > 40:
-                        preview_text = preview_text[:40] + "..."
-                    st.markdown(f"**本質：** {preview_text}")
-                    
-                    st.write("") # 增加間距
-                    
-                    # 功能按鈕
-                    b1, b2 = st.columns([1, 1])
-                    with b1: 
-                        speak(row['word'], f"home_{i}")
-                    with b2: 
-                        if st.button("查看詳情", key=f"h_det_{i}_{row['word']}", use_container_width=True):
-                            st.session_state.curr_w = row.to_dict()
-                            st.session_state.app_mode = "Etymon Decoder (單字解碼)" # 確保在正確模式
-                            # 這裡可以跳轉到學習頁或直接彈出
-                            st.toast(f"已選取 {row['word']}")
-    else:
-        st.info("目前資料庫尚無資料，請前往「解碼實驗室」新增第一個概念。")
+    # 確保隨機抽取在 Session 中保持穩定，直到按下換一批
+    if 'home_sample' not in st.session_state:
+        st.session_state.home_sample = df.sample(min(3, len(df)))
+    
+    sample = st.session_state.home_sample
+    
+    # 建立三欄佈局 (手機版會自動堆疊)
+    cols = st.columns(3)
+    
+    for i, (index, row) in enumerate(sample.iterrows()):
+        with cols[i % 3]:
+            # 使用容器建立卡片感
+            with st.container(border=True):
+                st.markdown(f"### {row['word']}")
+                st.caption(f"🏷️ {row['category']}")
+                
+                # 預覽內容：顯示「本質意義」，這是最吸引人的部分
+                meaning_text = fix_content(row['meaning'])
+                if len(meaning_text) > 45:
+                    meaning_text = meaning_text[:45] + "..."
+                
+                st.markdown(f"**本質：**\n{meaning_text}")
+                
+                st.write("") # 間距
+                
+                # --- 功能按鈕區 ---
+                # 第一排：發音與報錯
+                b_col1, b_col2 = st.columns(2)
+                with b_col1:
+                    speak(row['word'], f"home_{i}")
+                with b_col2:
+                    if st.button("🚩 有誤", key=f"h_rep_{i}_{row['word']}", use_container_width=True):
+                        submit_report(row)
+                
+                # 第二排：查看詳情 (核心跳轉邏輯)
+                if st.button("🔍 查看詳情", key=f"h_det_{i}_{row['word']}", type="primary", use_container_width=True):
+                    # 1. 設定目標單字
+                    st.session_state.curr_w = row.to_dict()
+                    # 2. 設定跳轉目標頁面 (需與 main() 中的名稱一致)
+                    st.session_state.etymon_page = "📖 學習搜尋"
+                    # 3. 紀錄來源頁面，以便返回
+                    st.session_state.back_to = "🏠 首頁概覽"
+                    # 4. 執行跳轉
+                    st.rerun()
 
     st.write("---")
-    st.caption("👈 提示：點擊左側選單進入「學習與搜尋」查看完整清單")
-
-
+    
+    # 4. 底部引導
+    st.markdown("""
+        <div style='text-align: center; color: #94A3B8; font-size: 0.9rem;'>
+            👈 提示：點擊頂部「📖 學習搜尋」可查看完整清單，或使用「🧠 記憶挑戰」測試您的邏輯記憶。
+        </div>
+    """, unsafe_allow_html=True)
 def page_etymon_learn(df):
     """
     學習與搜尋頁面：支援隨機探索與精確查找
