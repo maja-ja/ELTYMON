@@ -950,14 +950,14 @@ def page_etymon_lab():
 def page_etymon_home(df):
     """
     Etymon Decoder 門戶首頁
-    功能：數據儀表板、隨機啟發卡片、深層跳轉邏輯。
+    功能：數據儀表板、隨機啟發卡片、深層跳轉邏輯 (設定 back_to 狀態)。
     """
-    # 1. 標題與副標題 (去 AI 腔調，專業感)
+    # 1. 標題與副標題
     st.markdown("<h1 style='text-align: center; color: #1A237E;'>Etymon Decoder</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #64748B; font-size: 1.1rem;'>深度知識解構與跨領域邏輯圖書館</p>", unsafe_allow_html=True)
     st.write("---")
     
-    # 2. 數據儀表板 (Metrics)
+    # 2. 數據儀表板
     if not df.empty:
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -965,7 +965,6 @@ def page_etymon_home(df):
         with c2:
             st.metric("🏷️ 涵蓋領域", f"{df['category'].nunique()} 類")
         with c3:
-            # 計算獨特的字根/原理數量
             unique_roots = df['roots'].nunique()
             st.metric("🧬 核心邏輯", f"{unique_roots} 組")
     else:
@@ -974,44 +973,38 @@ def page_etymon_home(df):
 
     st.write("")
 
-    # 3. 隨機啟發區 (Random Inspiration)
+    # 3. 隨機啟發區
     col_h, col_btn = st.columns([4, 1])
     with col_h:
         st.subheader("💡 今日隨機啟發")
     with col_btn:
-        # 換一批按鈕
         if st.button("🔄 換一批", use_container_width=True):
             if 'home_sample' in st.session_state:
                 del st.session_state.home_sample
             st.rerun()
     
-    # 確保隨機抽取在 Session 中保持穩定，直到按下換一批
+    # 保持隨機抽取穩定
     if 'home_sample' not in st.session_state:
         st.session_state.home_sample = df.sample(min(3, len(df)))
     
     sample = st.session_state.home_sample
-    
-    # 建立三欄佈局 (手機版會自動堆疊)
     cols = st.columns(3)
     
     for i, (index, row) in enumerate(sample.iterrows()):
         with cols[i % 3]:
-            # 使用容器建立卡片感
             with st.container(border=True):
                 st.markdown(f"### {row['word']}")
                 st.caption(f"🏷️ {row['category']}")
                 
-                # 預覽內容：顯示「本質意義」，這是最吸引人的部分
+                # 預覽內容：顯示「本質意義」
                 meaning_text = fix_content(row['meaning'])
                 if len(meaning_text) > 45:
                     meaning_text = meaning_text[:45] + "..."
-                
                 st.markdown(f"**本質：**\n{meaning_text}")
                 
                 st.write("") # 間距
                 
                 # --- 功能按鈕區 ---
-                # 第一排：發音與報錯
                 b_col1, b_col2 = st.columns(2)
                 with b_col1:
                     speak(row['word'], f"home_{i}")
@@ -1019,13 +1012,13 @@ def page_etymon_home(df):
                     if st.button("🚩 有誤", key=f"h_rep_{i}_{row['word']}", use_container_width=True):
                         submit_report(row)
                 
-                # 第二排：查看詳情 (核心跳轉邏輯)
+                # --- 【核心跳轉邏輯】 ---
                 if st.button("🔍 查看詳情", key=f"h_det_{i}_{row['word']}", type="primary", use_container_width=True):
                     # 1. 設定目標單字
                     st.session_state.curr_w = row.to_dict()
-                    # 2. 設定跳轉目標頁面 (需與 main() 中的名稱一致)
+                    # 2. 設定跳轉目標頁面
                     st.session_state.etymon_page = "📖 學習搜尋"
-                    # 3. 紀錄來源頁面，以便返回
+                    # 3. 記錄「最初的起點」，以便後續能返回此處
                     st.session_state.back_to = "🏠 首頁概覽"
                     # 4. 執行跳轉
                     st.rerun()
