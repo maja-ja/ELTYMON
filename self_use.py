@@ -1,4 +1,4 @@
-import streamlit as st
+Fimport streamlit as st
 import pandas as pd
 import base64
 import time
@@ -1370,10 +1370,13 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
     </html>
     """
 def run_handout_app():
-    """
-    Handout Pro 頁面邏輯 (專業版)：
-    提供圖片處理、AI 結構化排版、即時 Markdown 編輯與高品質 PDF 下載。
-    """
+    # --- 新增：返回按鈕 ---
+    col_back, col_space = st.columns([1, 4])
+    with col_back:
+        if st.button("⬅️ 返回單字解碼", use_container_width=True):
+            st.session_state.app_mode = "🔬 單字解碼"
+            st.rerun()
+    
     st.header("🎓 AI 講義排版大師 Pro")
     st.caption("將混亂的題目圖片或筆記素材，轉化為結構嚴謹、排版精美的 A4 教材。")
     
@@ -1560,7 +1563,7 @@ def main():
         st.markdown("### 💖 支持本站營運")
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://paypal.me/Kadowsella" target="_blank" class="sponsor-btn btn-paypal">
+                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
                     <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
