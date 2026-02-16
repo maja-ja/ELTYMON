@@ -1528,20 +1528,26 @@ def run_handout_app():
             st.session_state.trigger_download = False
 def main():
     """
-    AI 教育工作站 v4.5 - 最終整合版
-    優化：頂部導航、手機適配、12 欄位對齊、專業去 AI 腔調。
+    AI 教育工作站 v4.8 - 旗艦整合版
+    功能：頂部導航、深層跳轉、PayPal 支付、12 欄位對齊、手機優化。
     """
-    # 1. 注入優化後的 CSS (含手機版適配與 PayPal 樣式)
+    # 1. 注入全域 CSS 樣式 (含手機適配、PayPal 樣式、導航美化)
     inject_custom_css()
     
-    # 2. 初始化核心 Session State
+    # 2. 初始化全域 Session State
     if 'app_mode' not in st.session_state:
         st.session_state.app_mode = "🔬 單字解碼"
+    if 'etymon_page' not in st.session_state:
+        st.session_state.etymon_page = "🏠 首頁概覽"
     if 'is_admin' not in st.session_state:
         st.session_state.is_admin = False
+    if 'curr_w' not in st.session_state:
+        st.session_state.curr_w = None
+    if 'back_to' not in st.session_state:
+        st.session_state.back_to = None
 
     # ==========================================
-    # 3. 側邊欄 (Sidebar)：權限與贊助
+    # 3. 側邊欄 (Sidebar)：權限、贊助與狀態
     # ==========================================
     with st.sidebar:
         st.title("🏫 AI 教育工作站")
@@ -1559,35 +1565,22 @@ def main():
 
         st.markdown("---")
         
-        # --- 💖 隨喜贊助 (手機版建議保留在側邊或卡片底部) ---
+        # --- 💖 PayPal 智慧贊助按鈕 ---
         st.markdown("### 💖 支持本站營運")
-        st.markdown(f"""
-            <div class="sponsor-container">
-                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
-                    <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
-                </a>
-                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
-                    💳 綠界贊助 (台灣)
-                </a>
-                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc">
-                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
-                    Buy Me a Coffee
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
-        st.caption("講義下載完全免費。您的支持將用於支付 AI 算力支出，感謝支持！")
+        render_paypal_button() # 呼叫之前定義的 PayPal HTML 組件
+        
+        st.caption("講義下載完全免費。您的贊助將用於支持 AI 算力支出，感謝支持！")
         
         st.markdown("---")
         auth_status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
-        st.caption(f"v4.5 Pro | {auth_status}")
+        st.caption(f"v4.8 Pro Integrated | {auth_status}")
 
     # ==========================================
-    # 4. 頂部導航切換鈕 (手機版優化)
+    # 4. 頂部模組導航 (手機版優化)
     # ==========================================
-    # 使用橫向 radio 模擬切換鈕，這在所有 Streamlit 版本中都最穩定
     modes = ["🔬 單字解碼", "📄 講義排版"]
     
-    # 這裡使用一個容器來置中導航鈕
+    # 使用容器置中導航鈕
     nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
     with nav_col2:
         selected_mode = st.radio(
@@ -1597,7 +1590,12 @@ def main():
             horizontal=True,
             label_visibility="collapsed"
         )
-    st.session_state.app_mode = selected_mode
+    
+    # 若模組改變，重設子頁面
+    if selected_mode != st.session_state.app_mode:
+        st.session_state.app_mode = selected_mode
+        st.rerun()
+
     st.write("---")
 
     # ==========================================
@@ -1605,26 +1603,43 @@ def main():
     # ==========================================
     
     if st.session_state.app_mode == "🔬 單字解碼":
-        # 載入 Sheet2 的 12 欄位資料
+        # 載入 Sheet2 資料
         df = load_db()
         
-        # 手機版優化：使用 Tabs 取代側邊欄選單
-        tab_home, tab_learn = st.tabs(["🏠 首頁概覽", "📖 學習搜尋"])
+        # --- 子分頁導航 (使用自定義樣式，支援程式跳轉) ---
+        sub_menu = ["🏠 首頁概覽", "📖 學習搜尋"]
         
-        with tab_home:
+        # 這裡不使用 st.tabs，因為 tabs 無法透過程式碼強制跳轉
+        # 使用橫向 radio 模擬 Tab 效果
+        selected_sub = st.radio(
+            "功能選單",
+            sub_menu,
+            index=sub_menu.index(st.session_state.etymon_page),
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        if selected_sub != st.session_state.etymon_page:
+            st.session_state.etymon_page = selected_sub
+            st.rerun()
+
+        st.write("") # 間距
+
+        # --- 子頁面渲染 ---
+        if st.session_state.etymon_page == "🏠 首頁概覽":
             page_etymon_home(df)
             
-        with tab_learn:
+        elif st.session_state.etymon_page == "📖 學習搜尋":
             page_etymon_learn(df)
-
-        # 實驗室功能：僅管理員可見，且放在最下方
+      
+        # --- 管理員實驗室 (置底) ---
         if st.session_state.is_admin:
             st.write("---")
-            with st.expander("🔬 進入批量解碼實驗室 (管理員專用)", expanded=False):
+            with st.expander("🔬 跨領域批量解碼實驗室 (管理員專用)"):
                 page_etymon_lab()
             
     elif st.session_state.app_mode == "📄 講義排版":
-        # 執行講義排版模組 (內含圖片優化與 PDF 渲染)
+        # 執行講義排版模組
         run_handout_app()
 
 # 啟動程式
