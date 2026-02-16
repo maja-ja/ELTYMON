@@ -14,46 +14,6 @@ from streamlit_gsheets import GSheetsConnection
 import streamlit.components.v1 as components
 import markdown
 # ==========================================
-# 0. 用戶系統核心工具 (移植自 Kadowsella)
-# ==========================================
-def hash_password(password): 
-    import hashlib
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def load_user_db():
-    """讀取用戶資料表"""
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet="users", ttl=0)
-        # 確保必要欄位存在
-        cols = ['username', 'password', 'role', 'membership', 'ai_usage', 'is_online', 'last_seen']
-        for col in cols:
-            if col not in df.columns: 
-                df[col] = "free" if col=="membership" else (0 if col=="ai_usage" else "無")
-        return df.fillna("無")
-    except: 
-        return pd.DataFrame(columns=['username', 'password', 'role', 'membership', 'ai_usage', 'is_online', 'last_seen'])
-
-def save_user_to_db(new_data):
-    """註冊新用戶"""
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet="users", ttl=0)
-        new_data['created_at'] = time.strftime("%Y-%m-%d")
-        updated_df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
-        conn.update(worksheet="users", data=updated_df)
-        return True
-    except: return False
-
-def update_user_status(username, column, value):
-    """更新用戶特定狀態 (如在線時間、餘額)"""
-    try:
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(worksheet="users", ttl=0)
-        df.loc[df['username'] == username, column] = value
-        conn.update(worksheet="users", data=df)
-    except: pass
-# ==========================================
 # 2. 登入頁面 UI (移植自 Kadowsella)
 # ==========================================
 def login_page():
