@@ -1014,11 +1014,11 @@ def page_etymon_home(df):
     """, unsafe_allow_html=True)
 def page_etymon_learn(df):
     """
-    知識庫探索頁面 (最終整合版)：
-    1. 統一的返回邏輯，能記住最初的起點 (back_to)。
-    2. 在詳情頁 (curr_w) 和列表頁之間流暢切換。
-    3. 「搜尋與列表」分頁中新增領域篩選功能。
-    4. 隨機探索與跨欄位搜尋功能。
+    知識庫探索 (最終旗艦版)：
+    1. 統一導航：從首頁跳轉可一鍵返回首頁。
+    2. 詳情模式：直接顯示跳轉過來的單字百科卡片。
+    3. 探索模式：隨機探索可篩選領域，並進入詳情。
+    4. 搜尋模式：可按領域篩選、多欄位關鍵字搜尋。
     """
     st.title("📖 知識庫探索")
     
@@ -1033,13 +1033,12 @@ def page_etymon_learn(df):
         with col_back:
             if st.button(f"⬅️ 返回{st.session_state.back_to}", use_container_width=True):
                 target = st.session_state.back_to
-                # 清空所有跳轉狀態，徹底返回
-                st.session_state.back_to = None
-                st.session_state.curr_w = None
-                st.session_state.etymon_page = target
+                st.session_state.back_to = None      # 清除來源紀錄
+                st.session_state.curr_w = None       # 清除當前單字快取
+                st.session_state.etymon_page = target # 跳轉回來源頁面 (例如首頁概覽)
                 st.rerun()
 
-    # --- 2. 【核心顯示邏輯】：顯示詳情 或 顯示列表 ---
+    # --- 2. 【核心顯示邏輯】：顯示單字詳情 或 顯示探索/搜尋列表 ---
     
     # --- 模式 A：顯示單字詳情 (curr_w 存在) ---
     if st.session_state.get('curr_w'):
@@ -1064,42 +1063,41 @@ def page_etymon_learn(df):
                 sel_cat = st.selectbox("選擇學習領域", cats, key="explore_cat_sel")
             
             with col_btn:
-                st.write("")
+                st.write("") # 對齊
                 if st.button("🎲 抽下一個", use_container_width=True, type="primary"):
                     f_df = df if sel_cat == "全部領域" else df[df['category'] == sel_cat]
                     if not f_df.empty:
-                        # 將抽到的單字存入 curr_w 以進入詳情模式
+                        # 將抽到的單字存入 curr_w，進入詳情模式
                         st.session_state.curr_w = f_df.sample(1).iloc[0].to_dict()
-                        # 隨機探索也應提供返回來源的記憶，這裡預設為 "學習搜尋"
-                        # 這樣即便從隨機探索進入詳情，也能返回隨機探索Tab
+                        # 隨機探索時，來源設為學習搜尋頁本身
                         st.session_state.back_to = "📖 學習搜尋" 
-                        st.rerun()
                     else:
-                        st.info("該領域目前無內容可供隨機探索。")
+                        st.session_state.curr_w = None
+                    st.rerun()
 
-            st.info("請點擊「🎲 抽下一個」開始探索，或切換至「🔍 搜尋與列表」進行查找。")
+            if not st.session_state.get('curr_w'): # 只有在未顯示單字時才顯示提示
+                st.info("請點擊「🎲 抽下一個」開始探索，或切換至「🔍 搜尋與列表」進行查找。")
 
-        # --- Tab 2: 搜尋與列表 (核心修改處) ---
+        # --- Tab 2: 搜尋與列表 ---
         with tab_search:
             # --- 【新增】：篩選與搜尋控制項 ---
             col_input, col_cat_filter = st.columns([2, 1])
             
             with col_input:
-                search_query = st.text_input("🔍 關鍵字搜尋", placeholder="輸入單字、定義、領域或本質意義...", key="search_input")
+                search_query = st.text_input("🔍 關鍵字搜尋", placeholder="輸入單字、定義或本質意義...", key="search_input")
             
             with col_cat_filter:
                 # 建立領域清單 (包含 "所有領域")
                 cats_for_search = ["所有領域"] + sorted(df['category'].unique().tolist())
                 sel_cat_search = st.selectbox("篩選領域", cats_for_search, key="search_cat_selector")
 
-            # --- 【修改】：預先篩選 DataFrame ---
-            # 根據下拉選單的選擇，決定要操作的基礎 DataFrame
+            # --- 根據下拉選單的選擇，決定要操作的基礎 DataFrame ---
             if sel_cat_search == "所有領域":
                 base_df_for_display = df
             else:
                 base_df_for_display = df[df['category'] == sel_cat_search]
 
-            # --- 【修改】：搜尋邏輯應用在已篩選的 DataFrame 上 ---
+            # --- 搜尋邏輯應用在已篩選的 DataFrame 上 ---
             if search_query:
                 q = search_query.strip().lower()
                 # 全欄位檢索：在 word, definition, category, meaning 中搜尋
@@ -1114,46 +1112,32 @@ def page_etymon_learn(df):
                 
                 if not res_df.empty:
                     st.success(f"在「{sel_cat_search}」中找到 {len(res_df)} 筆結果：")
+                    # 顯示搜尋結果，每個結果都可點擊進入詳情
                     for _, row in res_df.iterrows():
                         with st.container(border=True):
-                            # 點擊搜尋結果，也進入詳情模式
-                            if st.button(f"查看 {row['word']} 詳情", key=f"search_det_{row['word']}"):
+                            # 提供按鈕讓用戶點擊進入單字詳情模式
+                            st.markdown(f"**{row['word']}** ( {row['category']} )")
+                            meaning_prev = fix_content(row['meaning'])
+                            st.caption(f"{meaning_prev[:80]}...")
+                            if st.button("查看完整詳情", key=f"search_det_{row['word']}", use_container_width=True):
                                 st.session_state.curr_w = row.to_dict()
-                                # 搜尋結果詳情，返回後也回到“學習搜尋”頁面
-                                st.session_state.back_to = "📖 學習搜尋" 
+                                st.session_state.back_to = "📖 學習搜尋" # 从搜索列表进入详情
                                 st.rerun()
-                            else:
-                                # 預覽模式：只顯示關鍵資訊
-                                st.markdown(f"**主題：** {row['word']}")
-                                st.markdown(f"**領域：** {row['category']}")
-                                st.markdown(f"**本質：** {fix_content(row['meaning'])[:60]}...")
-                                st.markdown(f"**定義：** {fix_content(row['definition'])[:60]}...")
-                                st.write("") # 間距
                 else:
                     st.error(f"在「{sel_cat_search}」中找不到與「{search_query}」相關的內容。")
-                    # 模糊建議
-                    fuzzy_mask = df['word'].str.contains(q[:2], case=False, na=False)
-                    suggestions = df[fuzzy_mask]['word'].tolist()
-                    if suggestions:
-                        st.info(f"您是不是在找：{', '.join(suggestions[:5])}？")
             else:
-                # --- 【修改】：預設列表也只顯示已篩選的內容 ---
+                # --- 預設列表也只顯示已篩選的內容 ---
                 st.write(f"### 📚 「{sel_cat_search}」 知識清單")
-                if not base_df_for_display.empty:
-                    # 提供一個按鈕，讓用戶可以點擊進入詳情
-                    for _, row in base_df_for_display.iterrows():
-                        with st.container(border=True):
-                            if st.button(f"查看 {row['word']} 詳情", key=f"list_det_{row['word']}"):
-                                st.session_state.curr_w = row.to_dict()
-                                st.session_state.back_to = "📖 學習搜尋"
-                                st.rerun()
-                            else:
-                                st.markdown(f"**主題：** {row['word']}")
-                                st.markdown(f"**領域：** {row['category']}")
-                                st.markdown(f"**本質：** {fix_content(row['meaning'])[:60]}...")
-                                st.write("") # 間距
-                else:
-                    st.info("該領域目前無任何知識卡片。")
+                st.dataframe(
+                    base_df_for_display[['word', 'category', 'meaning']], 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "word": "主題", 
+                        "category": "領域視角", 
+                        "meaning": "本質意義"
+                    }
+                )
 def fix_image_orientation(image):
     """
     修正圖片轉向：自動偵測手機拍攝時的 EXIF 資訊並轉正。
