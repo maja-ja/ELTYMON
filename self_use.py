@@ -640,8 +640,11 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     return None
 def show_encyclopedia_card(row):
     """
-    優化版百科卡片 (對齊 12 核心欄位)：
-    修復 LaTeX 渲染、優化邏輯拆解排版、提升講義生成相容性。
+    優化版百科卡片：
+    1. 對齊 12 核心欄位。
+    2. 強化 LaTeX (MathJax) 渲染穩定性。
+    3. 支援手機版 RWD 佈局。
+    4. 預構建高品質講義草稿。
     """
     # --- 1. 變數提取與清洗 (使用優化版 fix_content) ---
     r_word = str(row.get('word', '未命名主題'))
@@ -656,15 +659,17 @@ def show_encyclopedia_card(row):
     r_warning = fix_content(row.get('usage_warning', ""))
     r_hook = fix_content(row.get('memory_hook', ""))
 
-    # --- 2. LaTeX 核心原理處理 ---
+    # --- 2. LaTeX 核心原理處理 (防止紅字報錯) ---
     raw_roots = fix_content(row.get('roots', ""))
-    # 移除可能導致 MathJax 報錯的字元，確保被 $$ 包裹
+    # 移除可能導致 MathJax 衝突的舊錢字號
     clean_roots = raw_roots.replace('$', '').strip()
+    # 包裹為區塊公式
     r_roots = f"$${clean_roots}$$" if clean_roots and clean_roots != "無" else "*(無公式或原理資料)*"
 
-    # --- 3. 視覺標題區 ---
+    # --- 3. 標題與發音區 ---
     st.markdown(f"<div class='hero-word'>{r_word}</div>", unsafe_allow_html=True)
-    c_sub1, c_sub2 = st.columns([1, 4])
+    
+    c_sub1, c_sub2 = st.columns([1, 3])
     with c_sub1:
         st.caption(f"🏷️ {r_cat}")
     with c_sub2:
@@ -682,7 +687,7 @@ def show_encyclopedia_card(row):
     
     st.write("") 
 
-    # --- 5. 核心內容區 (左右並排) ---
+    # --- 5. 核心內容區 (手機版自動堆疊) ---
     col_left, col_right = st.columns(2, gap="large")
     
     with col_left:
@@ -693,18 +698,18 @@ def show_encyclopedia_card(row):
         
     with col_right:
         st.markdown("### 💡 核心原理")
-        # 直接渲染 LaTeX 區塊
+        # 渲染 LaTeX 區塊
         st.markdown(r_roots)
         
         st.markdown(f"**🔍 本質意義：**\n{r_meaning}")
         if r_hook and r_hook != "無":
             st.markdown(f"**🪝 記憶金句：**\n`{r_hook}`")
 
-    # --- 6. 🌊 專家視角 (心法) ---
+    # --- 6. 🌊 專家視角 (內行心法) ---
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
-                <h4 style='margin-top:0; color: #1E40AF;'>🌊 內行心法</h4>
+                <h4 style='margin-top:0; color: #1E40AF;'>🌊 專家視角 / 跨界洞察</h4>
                 {r_vibe}
             </div>
         """, unsafe_allow_html=True)
@@ -720,9 +725,11 @@ def show_encyclopedia_card(row):
     st.write("---")
 
     # --- 8. 功能操作區 (發音、回報、跳轉) ---
+    # 在手機上這三個按鈕會自動排成一列或堆疊
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
+        # 呼叫 TTS 發音
         speak(r_word, f"card_{r_word}")
         
     with op2:
@@ -733,7 +740,7 @@ def show_encyclopedia_card(row):
         if st.button("📄 生成專題講義", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
             log_user_intent(f"handout_{r_word}") 
             
-            # 預構建高品質講義草稿
+            # --- 預構建高品質講義草稿 (帶入 LaTeX) ---
             inherited_draft = f"""# 專題講義：{r_word}
 領域：{r_cat}
 
@@ -759,10 +766,11 @@ def show_encyclopedia_card(row):
 ---
 **💡 記憶秘訣**：{r_hook}
 """
+            # 將草稿存入 Session State 並跳轉
             st.session_state.manual_input_content = inherited_draft
             st.session_state.preview_editor = inherited_draft
             st.session_state.final_handout_title = f"{r_word} 專題講義"
-            st.session_state.app_mode = "Handout Pro (講義排版)"
+            st.session_state.app_mode = "📄 講義排版" # 確保與 main() 中的導航名稱一致
             st.rerun()
 def page_etymon_lab():
     """
