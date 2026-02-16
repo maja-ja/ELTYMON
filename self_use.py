@@ -640,24 +640,13 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     return None
 def show_encyclopedia_card(row):
     """
-    旗艦版百科卡片 (修復按鈕顯示)：
-    1. 支援從首頁跳轉後的「一鍵返回」功能。
-    2. 12 核心欄位精準排版，去 AI 腔調。
-    3. LaTeX (MathJax) 深度優化，防止紅字。
-    4. 整合 PayPal/綠界/BMC 贊助按鈕 (HTML 連結版)。
-    5. 一鍵生成專業講義。
+    最終版百科卡片 (移除內部返回鍵):
+    - 專為新的導航堆疊邏輯設計，由父頁面管理返回。
+    - 12 核心欄位精準排版，去 AI 腔調。
+    - LaTeX 深度優化，防止紅字。
+    - 整合 PayPal/綠界/BMC 贊助按鈕。
+    - 一鍵生成專業講義。
     """
-    # --- 0. 導航返回邏輯 ---
-    if st.session_state.get("back_to"):
-        col_back, _ = st.columns([1, 3])
-        with col_back:
-            if st.button(f"⬅️ 返回{st.session_state.back_to}", use_container_width=True):
-                target = st.session_state.back_to
-                st.session_state.back_to = None      # 清除來源紀錄
-                st.session_state.curr_w = None       # 清除當前單字快取
-                st.session_state.etymon_page = target # 跳轉回來源頁面
-                st.rerun()
-
     # --- 1. 變數提取與安全清洗 ---
     r_word = str(row.get('word', '未命名主題'))
     r_cat = str(row.get('category', '一般'))
@@ -748,26 +737,18 @@ def show_encyclopedia_card(row):
             
             inherited_draft = f"""# 專題講義：{r_word}
 領域：{r_cat}
-
 ## 🧬 邏輯結構
 {r_breakdown}
-
 ## 🎯 核心定義 (ELI5)
 {r_def}
-
 ## 💡 科學原理/底層邏輯
 {r_roots}
-
 **本質意義**：{r_meaning}
-
 ---
-
 ## 🚀 應用實例
 {r_ex}
-
 ## 🌊 專家心法
 {r_vibe}
-
 ---
 **💡 記憶秘訣**：{r_hook}
 """
@@ -777,12 +758,12 @@ def show_encyclopedia_card(row):
             st.session_state.app_mode = "📄 講義排版"
             st.rerun()
 
-    # --- 9. 💖 贊助支持 (修復版：使用 HTML 連結) ---
+    # --- 9. 💖 贊助支持 (HTML 連結版) ---
     st.write("---")
     st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
     st.markdown(f"""
         <div class="sponsor-container" style="flex-direction: row; flex-wrap: wrap; gap: 10px;">
-            <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal(目前只有這個)</a>
+            <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal</a>
             <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay" style="flex: 1; min-width: 120px;">綠界贊助</a>
             <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc" style="flex: 1; min-width: 120px;">BMC</a>
         </div>
