@@ -389,15 +389,14 @@ def log_user_intent(label):
         # 在 Console 輸出錯誤以便除錯，但不中斷前端顯示
         print(f"⚠️ Metrics logging failed for '{label}': {e}")
 
-@st.cache_data(ttl=600) # 快取時間稍微拉長至 10 分鐘，節省流量
-# 定義 12 核心欄位 (與試算表完全一致)
+
+
+@st.cache_data(ttl=600)
 CORE_COLS = [
     'word', 'category', 'roots', 'breakdown', 'definition', 
     'meaning', 'native_vibe', 'example', 'synonym_nuance', 
     'usage_warning', 'memory_hook', 'phonetic'
 ]
-
-@st.cache_data(ttl=600)
 def load_db():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
