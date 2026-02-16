@@ -640,11 +640,12 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     return None
 def show_encyclopedia_card(row):
     """
-    旗艦版百科卡片：
+    旗艦版百科卡片 (修復按鈕顯示)：
     1. 支援從首頁跳轉後的「一鍵返回」功能。
     2. 12 核心欄位精準排版，去 AI 腔調。
     3. LaTeX (MathJax) 深度優化，防止紅字。
-    4. Handout Pro 一鍵轉講義。
+    4. 整合 PayPal/綠界/BMC 贊助按鈕 (HTML 連結版)。
+    5. 一鍵生成專業講義。
     """
     # --- 0. 導航返回邏輯 ---
     if st.session_state.get("back_to"):
@@ -652,9 +653,9 @@ def show_encyclopedia_card(row):
         with col_back:
             if st.button(f"⬅️ 返回{st.session_state.back_to}", use_container_width=True):
                 target = st.session_state.back_to
-                st.session_state.back_to = None      
-                st.session_state.curr_w = None       
-                st.session_state.etymon_page = target 
+                st.session_state.back_to = None      # 清除來源紀錄
+                st.session_state.curr_w = None       # 清除當前單字快取
+                st.session_state.etymon_page = target # 跳轉回來源頁面
                 st.rerun()
 
     # --- 1. 變數提取與安全清洗 ---
@@ -685,7 +686,7 @@ def show_encyclopedia_card(row):
         if r_phonetic and r_phonetic != "無":
             st.caption(f" | /{r_phonetic}/")
 
-    # --- 4. 🧬 邏輯拆發 (專業漸層區塊) ---
+    # --- 4. 🧬 邏輯拆解 ---
     if r_breakdown and r_breakdown != "無":
         st.markdown(f"""
             <div class='breakdown-wrapper'>
@@ -775,6 +776,17 @@ def show_encyclopedia_card(row):
             st.session_state.final_handout_title = f"{r_word} 專題講義"
             st.session_state.app_mode = "📄 講義排版"
             st.rerun()
+
+    # --- 9. 💖 贊助支持 (修復版：使用 HTML 連結) ---
+    st.write("---")
+    st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
+    st.markdown(f"""
+        <div class="sponsor-container" style="flex-direction: row; flex-wrap: wrap; gap: 10px;">
+            <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal</a>
+            <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay" style="flex: 1; min-width: 120px;">綠界贊助</a>
+            <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc" style="flex: 1; min-width: 120px;">BMC</a>
+        </div>
+    """, unsafe_allow_html=True)
 def page_etymon_lab():
     """
     🔬 跨領域批量解碼實驗室
@@ -1570,10 +1582,14 @@ def run_handout_app():
             st.session_state.trigger_download = False
 def main():
     """
-    AI 教育工作站 v4.9 - 旗艦整合版 (移除 PayPal 組件)
-    優化：頂部導航、深層跳轉、12 欄位對齊、手機優化。
+    AI 教育工作站 v5.0 - 旗艦修復版
+    功能：
+    1. 修復贊助按鈕顯示 (PayPal/綠界/BMC)。
+    2. 頂部導航 (手機優化)。
+    3. 深層跳轉與返回邏輯。
+    4. 12 欄位資料庫對齊。
     """
-    # 1. 注入全域 CSS 樣式 (含手機適配、導航美化)
+    # 1. 注入全域 CSS 樣式 (含手機適配、按鈕美化)
     inject_custom_css()
     
     # 2. 初始化全域 Session State
@@ -1589,7 +1605,7 @@ def main():
         st.session_state.back_to = None
 
     # ==========================================
-    # 3. 側邊欄 (Sidebar)：權限與狀態
+    # 3. 側邊欄 (Sidebar)：權限與贊助
     # ==========================================
     with st.sidebar:
         st.title("🏫 AI 教育工作站")
@@ -1607,16 +1623,30 @@ def main():
 
         st.markdown("---")
         
-        # --- 💖 贊助支持 (僅保留文字連結或移除) ---
+        # --- 💖 贊助支持 (修復版：使用 HTML 連結) ---
         st.markdown("### 💖 支持本站營運")
-        st.caption("講義下載完全免費。您的支持將用於支持 AI 算力支出，感謝支持！")
         
-        # 如果有綠界或 BMC 連結，可以放在這裡，否則可直接註解掉
-        # st.markdown('<a href="YOUR_LINK" class="sponsor-btn btn-ecpay">💳 贊助支持</a>', unsafe_allow_html=True)
+        # 這裡直接使用 HTML，不呼叫外部函式，確保 100% 穩定顯示
+        st.markdown(f"""
+            <div class="sponsor-container">
+                <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal">
+                    <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
+                </a>
+                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
+                    💳 綠界贊助 (台灣)
+                </a>
+                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc">
+                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
+                    Buy Me a Coffee
+                </a>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.caption("講義下載完全免費。您的支持將用於支付 AI 算力支出，感謝支持！")
         
         st.markdown("---")
         auth_status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
-        st.caption(f"v4.9 Pro Integrated | {auth_status}")
+        st.caption(f"v5.0 Pro Integrated | {auth_status}")
 
     # ==========================================
     # 4. 頂部模組導航 (手機版優化)
