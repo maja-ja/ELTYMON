@@ -1606,7 +1606,7 @@ def main():
         df = load_db()
         
         # 手機版優化：使用 Tabs 取代側邊欄選單
-        tab_home, tab_learn, tab_quiz = st.tabs(["🏠 首頁概覽", "📖 學習搜尋"])
+        tab_home, tab_learn = st.tabs(["🏠 首頁概覽", "📖 學習搜尋"])
         
         with tab_home:
             page_etymon_home(df)
