@@ -481,7 +481,7 @@ def generate_random_topics(primary_cat, aux_cats=[], count=5):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(prompt)
             if response and response.text:
                 return response.text.strip()
@@ -544,7 +544,7 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
         try:
             genai.configure(api_key=key)
             # 使用 1.5-flash 兼顧速度與邏輯穩定性
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             response = model.generate_content(
                 final_prompt,
@@ -1123,7 +1123,7 @@ def handout_ai_generate(image, manual_input, instruction):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             # 設定生成參數，降低隨機性以確保排版穩定
             generation_config = {
