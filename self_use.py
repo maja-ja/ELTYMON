@@ -644,18 +644,17 @@ def show_encyclopedia_card(row):
     1. 支援從首頁跳轉後的「一鍵返回」功能。
     2. 12 核心欄位精準排版，去 AI 腔調。
     3. LaTeX (MathJax) 深度優化，防止紅字。
-    4. 整合 PayPal 智慧支付與 Handout Pro 一鍵轉講義。
+    4. Handout Pro 一鍵轉講義。
     """
     # --- 0. 導航返回邏輯 ---
-    # 如果是從首頁「查看詳情」跳轉過來的，顯示返回鍵
     if st.session_state.get("back_to"):
         col_back, _ = st.columns([1, 3])
         with col_back:
             if st.button(f"⬅️ 返回{st.session_state.back_to}", use_container_width=True):
                 target = st.session_state.back_to
-                st.session_state.back_to = None      # 清除來源紀錄
-                st.session_state.curr_w = None       # 清除當前單字快取
-                st.session_state.etymon_page = target # 跳轉回來源頁面
+                st.session_state.back_to = None      
+                st.session_state.curr_w = None       
+                st.session_state.etymon_page = target 
                 st.rerun()
 
     # --- 1. 變數提取與安全清洗 ---
@@ -671,9 +670,8 @@ def show_encyclopedia_card(row):
     r_warning = fix_content(row.get('usage_warning', ""))
     r_hook = fix_content(row.get('memory_hook', ""))
 
-    # --- 2. LaTeX 核心原理處理 (MathJax 強化) ---
+    # --- 2. LaTeX 核心原理處理 ---
     raw_roots = fix_content(row.get('roots', ""))
-    # 移除所有潛在的 $ 符號，統一由程式包裹 $$ 以確保區塊渲染穩定
     clean_roots = raw_roots.replace('$', '').strip()
     r_roots = f"$${clean_roots}$$" if clean_roots and clean_roots != "無" else "*(無公式或原理資料)*"
 
@@ -687,7 +685,7 @@ def show_encyclopedia_card(row):
         if r_phonetic and r_phonetic != "無":
             st.caption(f" | /{r_phonetic}/")
 
-    # --- 4. 🧬 邏輯拆解 (專業漸層區塊) ---
+    # --- 4. 🧬 邏輯拆發 (專業漸層區塊) ---
     if r_breakdown and r_breakdown != "無":
         st.markdown(f"""
             <div class='breakdown-wrapper'>
@@ -698,7 +696,7 @@ def show_encyclopedia_card(row):
     
     st.write("") 
 
-    # --- 5. 核心內容區 (左右並排，手機自動堆疊) ---
+    # --- 5. 核心內容區 ---
     col_left, col_right = st.columns(2, gap="large")
     
     with col_left:
@@ -709,23 +707,21 @@ def show_encyclopedia_card(row):
         
     with col_right:
         st.markdown("### 💡 核心原理")
-        # 直接渲染 LaTeX 區塊，MathJax 會處理雙重轉義後的內容
         st.markdown(r_roots)
-        
         st.markdown(f"**🔍 本質意義：**\n{r_meaning}")
         if r_hook and r_hook != "無":
             st.markdown(f"**🪝 記憶金句：**\n`{r_hook}`")
 
-    # --- 6. 🌊 專家視角 (跨界洞察) ---
+    # --- 6. 🌊 專家視角 ---
     if r_vibe and r_vibe != "無":
         st.markdown(f"""
             <div class='vibe-box'>
-                <h4 style='margin-top:0; color: #1E40AF;'>🌊 專家視角 / 內行心法</h4>
+                <h4 style='margin-top:0; color: #1E40AF;'>🌊 專家視角 / 跨界洞察</h4>
                 {r_vibe}
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 7. 🔍 深度百科 (隱藏細節) ---
+    # --- 7. 🔍 深度百科 ---
     with st.expander("🔎 更多細節 (辨析與邊界條件)"):
         sub_c1, sub_c2 = st.columns(2)
         with sub_c1:
@@ -735,7 +731,7 @@ def show_encyclopedia_card(row):
 
     st.write("---")
 
-    # --- 8. 功能操作區 (發音、回報、跳轉講義) ---
+    # --- 8. 功能操作區 ---
     op1, op2, op3 = st.columns([1, 1, 1.5])
     
     with op1:
@@ -749,7 +745,6 @@ def show_encyclopedia_card(row):
         if st.button("📄 生成專題講義", key=f"jump_ho_{r_word}", type="primary", use_container_width=True):
             log_user_intent(f"handout_{r_word}") 
             
-            # 預構建高品質講義草稿
             inherited_draft = f"""# 專題講義：{r_word}
 領域：{r_cat}
 
@@ -775,18 +770,11 @@ def show_encyclopedia_card(row):
 ---
 **💡 記憶秘訣**：{r_hook}
 """
-            # 存入 Session 並跳轉模組
             st.session_state.manual_input_content = inherited_draft
             st.session_state.preview_editor = inherited_draft
             st.session_state.final_handout_title = f"{r_word} 專題講義"
             st.session_state.app_mode = "📄 講義排版"
             st.rerun()
-
-    # --- 9. 💖 PayPal 智慧贊助按鈕 (卡片底部) ---
-    st.write("")
-    with st.container():
-        st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
-        render_paypal_button() # 呼叫 PayPal JS 組件
 def page_etymon_lab():
     """
     🔬 跨領域批量解碼實驗室
