@@ -761,33 +761,33 @@ def page_etymon_lab():
 
     st.write("")
 
-    # --- UI 佈局：輸入區 ---
+    # --- 隨機靈感生成區 ---
     col_input_h, col_gen_h = st.columns([3, 1])
     with col_input_h:
-        st.markdown("**📝 欲解碼的主題清單** (每行一個，或用逗號分隔)")
+        st.markdown("**📝 欲解碼的主題清單** (每行一個)")
     with col_gen_h:
-        # --- 功能：隨機靈感生成 ---
-        if st.button("🎲 隨機靈感", use_container_width=True, help="讓 AI 根據領域推薦 5 個主題"):
-            with st.spinner("策展主題中..."):
+        if st.button("🎲 隨機靈感", use_container_width=True):
+            with st.spinner("正在策展中文主題..."):
+                # 呼叫優化後的函式
                 random_topics = generate_random_topics(primary_cat, aux_cats, count=5)
                 if random_topics:
                     st.session_state.batch_input = random_topics
                     st.rerun()
 
-    # 初始化 session_state 儲存輸入內容
+    # 初始化與綁定輸入框
     if "batch_input" not in st.session_state:
         st.session_state.batch_input = ""
 
-    # 多行輸入框
     raw_input = st.text_area(
         "主題輸入框",
         value=st.session_state.batch_input,
-        placeholder="例如：\nSalary\nEntropy\nGame Theory",
+        placeholder="例如：\n熵增定律\n賽局理論\n薪資的起源",
         height=180,
-        label_visibility="collapsed"
+        label_visibility="collapsed",
+        key="batch_input_area"
     )
-    # 同步回 session_state
     st.session_state.batch_input = raw_input
+
 
     # 進階設定
     with st.expander("⚙️ 批量處理參數"):
