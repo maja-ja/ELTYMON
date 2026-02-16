@@ -464,45 +464,51 @@ def submit_report(row_data):
     except Exception as e:
         st.error(f"❌ 回報發送失敗：{e}")
         return False
-def ai_decode_and_save(input_text, fixed_category):
+def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
     """
-    核心解碼函式 (優化 12 欄位版)：
-    1. 減少 AI 慣用贅詞，強調直擊本質的專家口吻。
-    2. 嚴格對齊橫向表格的 12 個欄位。
-    3. 強化 LaTeX 雙重轉義處理。
+    核心解碼函式 (跨領域 Pro 版)：
+    1. 支援主領域 + 多重輔助領域交叉分析。
+    2. 嚴格去 AI 腔調：禁止廢話，直擊本質。
+    3. 確保輸出符合 12 核心欄位。
     """
     keys = get_gemini_keys()
     if not keys:
         st.error("❌ 找不到 API Key，請檢查 Secrets 設定。")
         return None
 
-    # --- 減少 AI 腔調的 System Prompt ---
-    SYSTEM_PROMPT = f"""
-    Role: 知識解構專家與內容策展人。你的任務是將複雜概念拆解為直觀、精鍊的百科知識。
-    
-    【核心原則】：
-    - 語言風格：專業、精準、具啟發性。
-    - **禁止 AI 贅詞**：嚴禁使用「總結來說」、「這是一個非常重要的概念」、「值得注意的是」、「以下是分析」等廢話。直接進入重點。
-    - **領域設定**：你現在是「{fixed_category}」領域的資深導師。
+    # 構建領域描述字串
+    combined_cats = " + ".join([primary_cat] + aux_cats)
+    aux_context = f"、{ '、'.join(aux_cats) }" if aux_cats else ""
 
-    ## 輸出規範 (Strict JSON Rules):
-    1. **必須輸出純 JSON**，嚴禁包含 ```json 標記。
-    2. **LaTeX 雙重轉義**：LaTeX 指令必須使用雙反斜線 (如 "\\\\frac", "\\\\infty")。
-    3. **換行處理**：JSON 內部的換行統一使用 "\\\\n"。
+    # --- 深度去 AI 化與跨領域 Prompt ---
+    SYSTEM_PROMPT = f"""
+    Role: 跨學科知識解構專家 (Interdisciplinary Decoder).
+    Task: 針對輸入內容進行深度拆解，並輸出高品質 JSON。
+    
+    【核心視角】：
+    你必須以「{primary_cat}」為核心邏輯，並強制揉合「{aux_context}」的視角進行交叉分析。
+    
+    【🚫 絕對禁令 - 減少 AI 腔調】：
+    - **禁止廢話**：嚴禁使用「這是一個...」、「總結來說」、「值得注意的是」、「以下是為您準備的分析」等機器人贅詞。
+    - **禁止解釋指令**：直接輸出 JSON 內容，不要解釋你為什麼這樣寫。
+    - **口吻要求**：冷靜、精確、具備洞察力。像是一位在黑板前直接寫下重點的資深教授。
 
     ## 欄位定義 (嚴格遵守 12 欄位):
-    - word: 核心概念名稱
-    - category: "{fixed_category}"
-    - roots: 底層邏輯/核心公式 (LaTeX，不加 $ 符號)
-    - breakdown: 結構拆解 (步驟或組成，用 \\\\n 分隔)
-    - definition: 五歲小孩都能聽懂的解釋 (ELI5，不准說「這代表...」，直接說明)
-    - meaning: 本質意義 (一句話點破核心痛點)
-    - native_vibe: 專家心法 (內行人才知道的直覺或眉角，以「🌊 專家視角：」開頭)
-    - example: 實際應用場景 (具體的落地例子)
-    - synonym_nuance: 相似概念辨析 (精確指出與鄰近概念的差異)
-    - usage_warning: 邊界條件與誤區 (什麼時候不適用？常見錯誤為何？)
-    - memory_hook: 記憶金句 (具畫面感或韻律感的口訣)
-    - phonetic: 術語發音背景或詞源簡述
+    1. word: 核心概念名稱。
+    2. category: "{combined_cats}"。
+    3. roots: 底層邏輯/核心公式 (使用 LaTeX，雙重轉義如 "\\\\frac")。
+    4. breakdown: 結構拆解 (步驟或組成，用 \\\\n 分隔)。
+    5. definition: ELI5 直覺定義 (不准說「這代表...」，直接說明本質)。
+    6. meaning: 本質意義 (一句話點破核心痛點)。
+    7. native_vibe: 專家心法 (必須體現「{primary_cat}」與「{aux_context}」碰撞出的獨特內行見解)。
+    8. example: 實際應用場景 (優先舉出跨領域結合的例子)。
+    9. synonym_nuance: 相似概念辨析。
+    10. usage_warning: 邊界條件與誤區。
+    11. memory_hook: 記憶金句 (具畫面感的口訣)。
+    12. phonetic: 術語發音背景或詞源。
+
+    ## 輸出格式：
+    僅輸出純 JSON 內容，不含 Markdown 代碼塊標籤。
     """
     
     final_prompt = f"{SYSTEM_PROMPT}\n\n解碼目標：「{input_text}」"
@@ -510,34 +516,37 @@ def ai_decode_and_save(input_text, fixed_category):
     for key in keys:
         try:
             genai.configure(api_key=key)
-            # 使用目前最穩定的 1.5-flash，若有 2.0-flash 亦可更換
             model = genai.GenerativeModel('gemini-1.5-flash')
-            response = model.generate_content(final_prompt)
+            
+            # 降低 Temperature 以減少 AI 亂發揮，增加穩定性
+            response = model.generate_content(
+                final_prompt,
+                generation_config={"temperature": 0.2}
+            )
             
             if response and response.text:
                 raw_res = response.text
                 
-                # 清洗 Markdown 標籤
+                # 1. 清洗 Markdown 標籤
                 clean_json = re.sub(r'^```json\s*|\s*```$', '', raw_res.strip(), flags=re.MULTILINE)
                 
-                # 驗證並格式化
+                # 2. 驗證與補齊 12 欄位
                 try:
                     parsed_data = json.loads(clean_json)
-                    # 確保 12 欄位完整性 (防禦性編程)
-                    for col in ["word", "category", "roots", "breakdown", "definition", "meaning", 
-                                "native_vibe", "example", "synonym_nuance", "usage_warning", 
-                                "memory_hook", "phonetic"]:
+                    CORE_COLS = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
+                                 'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 
+                                 'memory_hook', 'phonetic']
+                    
+                    for col in CORE_COLS:
                         if col not in parsed_data:
                             parsed_data[col] = "無"
                     
+                    # 強制寫入組合後的分類
+                    parsed_data['category'] = combined_cats
+                    
                     return json.dumps(parsed_data, ensure_ascii=False)
                 except json.JSONDecodeError:
-                    # 暴力修復常見的換行引發的 JSON 錯誤
-                    try:
-                        fixed_json = clean_json.replace('\n', '\\n')
-                        return json.dumps(json.loads(fixed_json), ensure_ascii=False)
-                    except:
-                        continue
+                    continue
                         
         except Exception as e:
             print(f"⚠️ Key 嘗試失敗: {e}")
@@ -671,42 +680,56 @@ def show_encyclopedia_card(row):
             st.session_state.app_mode = "Handout Pro (講義排版)"
             st.rerun()
 def page_etymon_lab():
-    st.title("🔬 解碼實驗室 (Lab)")
-    st.caption("輸入任何概念、單字或理論，系統將以專家視角進行底層邏輯拆解。")
+    st.title("🔬 跨領域解碼實驗室")
+    st.caption("透過多重領域視角的碰撞，挖掘概念底層的深層邏輯。例如：用『英語辭源』結合『職場政治』解構單字。")
     
-    # 12 核心欄位定義 (確保與 load_db 一致)
+    # 12 核心欄位定義
     CORE_COLS = [
         'word', 'category', 'roots', 'breakdown', 'definition', 
         'meaning', 'native_vibe', 'example', 'synonym_nuance', 
         'usage_warning', 'memory_hook', 'phonetic'
     ]
 
-    # 領域分類列表
-    FIXED_CATEGORIES = [
-        "英語辭源", "語言邏輯", "物理科學", "生物醫學", "天文地質", "數學邏輯", 
-        "歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現",
-        "商業商戰", "金融投資", "程式開發", "人工智慧", "產品設計", "數位行銷",
-        "藝術美學", "影視文學", "料理食觀", "運動健身", "流行文化", "雜類", "自定義"
-    ]
+    # --- 擴充後的領域清單 (依屬性分類) ---
+    CATEGORIES = {
+        "語言與邏輯": ["英語辭源", "語言邏輯", "符號學", "修辭學"],
+        "科學與技術": ["物理科學", "生物醫學", "天文地質", "數學邏輯", "神經科學", "量子力學", "人工智慧", "程式開發"],
+        "人文與社會": ["歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "考古發現", "古希臘神話", "人類學"],
+        "商業與職場": ["商業商戰", "金融投資", "產品設計", "數位行銷", "職場政治", "管理學", "賽局理論"],
+        "生活與藝術": ["餐飲文化", "社交禮儀", "藝術美學", "影視文學", "運動健身", "流行文化", "心理療癒"],
+        "其他": ["雜類", "自定義"]
+    }
     
-    # --- UI 佈局 ---
-    col_input, col_cat = st.columns([2, 1])
-    with col_input:
-        new_word = st.text_input("🔍 欲解碼的主題：", placeholder="例如：熵增定律、Game Theory、Subtle...")
-    with col_cat:
-        selected_category = st.selectbox("🏷️ 專業領域標籤", FIXED_CATEGORIES)
-        
-    if selected_category == "自定義":
-        custom_cat = st.text_input("請輸入自定義領域：")
-        final_category = custom_cat if custom_cat else "未分類"
-    else:
-        final_category = selected_category
+    # 平鋪清單供 Selectbox 使用
+    FLAT_CATEGORIES = [item for sublist in CATEGORIES.values() for item in sublist]
 
-    # 進階選項
-    with st.expander("⚙️ 進階設定"):
-        force_refresh = st.checkbox("🔄 強制刷新 (若已存在則覆蓋舊資料)")
-        show_raw = st.checkbox("📄 顯示 AI 原始 JSON 數據")
-    
+    # --- UI 佈局 ---
+    new_word = st.text_input("🔍 欲解碼的主題：", placeholder="例如：'Salary'、'熵增'、'黑天鵝'...")
+
+    col_cat1, col_cat2 = st.columns(2)
+    with col_cat1:
+        primary_cat = st.selectbox("🎯 主核心領域 (核心邏輯)", FLAT_CATEGORIES, index=0)
+    with col_cat2:
+        aux_cats = st.multiselect("🧩 輔助分析視角 (跨界洞察)", FLAT_CATEGORIES, help="選擇 1-2 個輔助領域，AI 會進行交叉分析。")
+
+    # 處理自定義領域
+    final_primary = primary_cat
+    if primary_cat == "自定義":
+        custom_val = st.text_input("請輸入自定義主領域名稱：")
+        final_primary = custom_val if custom_val else "未分類"
+
+    # 組合最終分類標籤
+    display_category = final_primary
+    if aux_cats:
+        display_category += " + " + " + ".join(aux_cats)
+
+    st.info(f"**當前解碼視角：** `{display_category}`")
+
+    # 進階設定
+    with st.expander("⚙️ 實驗室參數設定"):
+        force_refresh = st.checkbox("🔄 強制刷新 (覆蓋現有資料庫內容)")
+        show_raw_json = st.checkbox("📄 顯示 AI 原始 JSON 數據")
+
     st.write("---")
 
     if st.button("🚀 啟動深度解碼", type="primary", use_container_width=True):
@@ -714,7 +737,7 @@ def page_etymon_lab():
             st.warning("請輸入解碼主題。")
             return
 
-        # 1. 讀取現有資料庫進行比對
+        # 1. 讀取現有資料庫
         conn = st.connection("gsheets", type=GSheetsConnection)
         url = get_spreadsheet_url()
         try:
@@ -730,20 +753,21 @@ def page_etymon_lab():
             is_exist = match_mask.any()
 
         if is_exist and not force_refresh:
-            st.info(f"💡 「{new_word}」已在資料庫中，直接為您調取存檔。")
+            st.info(f"💡 「{new_word}」已在資料庫中。")
             show_encyclopedia_card(existing_data[match_mask].iloc[0].to_dict())
             return
 
-        # 2. 執行 AI 解碼
-        with st.spinner(f'正在以【{final_category}】視角拆解「{new_word}」的底層邏輯...'):
-            raw_res = ai_decode_and_save(new_word, final_category)
+        # 2. 執行 AI 解碼 (呼叫優化後的 ai_decode_and_save)
+        with st.spinner(f'正在融合【{display_category}】視角進行深度拆解...'):
+            # 這裡傳入主領域與輔助領域列表
+            raw_res = ai_decode_and_save(new_word, final_primary, aux_cats)
             
             if raw_res is None:
-                st.error("解析失敗：AI 未能回傳有效數據，請稍後再試。")
+                st.error("解析失敗：AI 未能回傳有效數據。")
                 return
 
             try:
-                # 提取並解析 JSON
+                # 提取 JSON
                 match = re.search(r'\{.*\}', raw_res, re.DOTALL)
                 if not match:
                     st.error("數據格式錯誤。")
@@ -751,29 +775,28 @@ def page_etymon_lab():
                 
                 res_data = json.loads(match.group(0), strict=False)
 
-                # 3. 資料清洗與對齊 (確保存入 12 欄位)
-                # 補齊缺失欄位
+                # 3. 資料清洗與 12 欄位對齊
                 for col in CORE_COLS:
                     if col not in res_data:
                         res_data[col] = "無"
                 
-                # 建立新的 DataFrame Row
-                new_row_df = pd.DataFrame([res_data])[CORE_COLS] # 強制欄位排序
+                # 強制寫入組合後的分類名稱
+                res_data['category'] = display_category
+                
+                # 建立新的 Row 並確保欄位順序
+                new_row_df = pd.DataFrame([res_data])[CORE_COLS]
 
                 # 4. 更新資料庫
                 if is_exist and force_refresh:
-                    # 移除舊資料
                     updated_df = pd.concat([existing_data[~match_mask], new_row_df], ignore_index=True)
                 else:
-                    # 直接新增
                     updated_df = pd.concat([existing_data, new_row_df], ignore_index=True)
                 
-                # 寫回雲端
                 conn.update(spreadsheet=url, data=updated_df)
                 
                 # 5. 成功回饋
-                st.success(f"✅ 「{new_word}」解碼完成並已同步至雲端資料庫。")
-                if show_raw:
+                st.success(f"✅ 「{new_word}」跨領域解碼完成！")
+                if show_raw_json:
                     st.json(res_data)
                 
                 st.balloons()
@@ -1403,7 +1426,7 @@ def main():
         st.markdown("### 💖 支持本站營運")
         st.markdown(f"""
             <div class="sponsor-container">
-                <a href="https://www.paypal.com/paypalme/YOUR_ID" target="_blank" class="sponsor-btn btn-paypal">
+                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
                     <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助
                 </a>
                 <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
