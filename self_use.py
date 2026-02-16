@@ -390,13 +390,12 @@ def log_user_intent(label):
         print(f"⚠️ Metrics logging failed for '{label}': {e}")
 
 
-
-@st.cache_data(ttl=600)
 CORE_COLS = [
     'word', 'category', 'roots', 'breakdown', 'definition', 
     'meaning', 'native_vibe', 'example', 'synonym_nuance', 
     'usage_warning', 'memory_hook', 'phonetic'
 ]
+@st.cache_data(ttl=600)
 def load_db():
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
