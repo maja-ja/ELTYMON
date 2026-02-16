@@ -388,12 +388,6 @@ def log_user_intent(label):
     except Exception as e:
         # 在 Console 輸出錯誤以便除錯，但不中斷前端顯示
         print(f"⚠️ Metrics logging failed for '{label}': {e}")
-# 定義精簡後的 12 個核心欄位 (橫的表格順序)
-CORE_COLS = [
-    'word', 'category', 'roots', 'breakdown', 'definition', 
-    'meaning', 'native_vibe', 'example', 'synonym_nuance', 
-    'usage_warning', 'memory_hook', 'phonetic'
-]
 
 @st.cache_data(ttl=600) # 快取時間稍微拉長至 10 分鐘，節省流量
 # 定義 12 核心欄位 (與試算表完全一致)
@@ -525,11 +519,11 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
                 # 2. 驗證與補齊 12 欄位
                 try:
                     parsed_data = json.loads(clean_json)
-                    CORE_COLS = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
+                     = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 
                                  'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 
                                  'memory_hook', 'phonetic']
                     
-                    for col in CORE_COLS:
+                    for col in :
                         if col not in parsed_data:
                             parsed_data[col] = "無"
                     
@@ -678,8 +672,6 @@ def page_etymon_lab():
     """
     st.title("🔬 批量解碼實驗室")
     st.caption("請在下方輸入多個主題（每行一個，或用逗號分隔），系統將自動進行批量跨領域拆解。")
-    
-    CORE_COLS = ['word', 'category', 'roots', 'breakdown', 'definition', 'meaning', 'native_vibe', 'example', 'synonym_nuance', 'usage_warning', 'memory_hook', 'phonetic']
     
     # 領域清單 (保持不變)
     FIXED_CATEGORIES = ["英語辭源", "語言邏輯", "物理科學", "神經科學", "量子力學", "歷史文明", "職場政治", "餐飲文化", "社交禮儀"]
