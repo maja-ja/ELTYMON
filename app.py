@@ -236,8 +236,7 @@ def fix_content(text):
         else:
              processed_lines.append(line + "  ") # 強制換行
     
-    return "\n".join(processed_lines)
-@st.cache_data(show_spinner=False, ttl=3600)  # 快取 1 小時，避免重複打 API
+    return "\n".join(processed_lines) # 快取 1 小時，避免重複打 API
 def generate_audio_base64(text):
     """
     將 gTTS 生成邏輯獨立出來並加上快取
