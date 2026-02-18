@@ -1,130 +1,218 @@
 import streamlit as st
 from graphviz import Digraph
 
-# 設定頁面寬度為寬廣模式
-st.set_page_config(layout="wide")
+# --- 1. 頁面設定與 CSS 優化 (保持緊湊) ---
+st.set_page_config(layout="wide", page_title="理性決策輔助器")
 
-def generate_flow_chart(current_node, history):
-    """
-    current_node: 目前停留的節點 ID
-    history: 所有走過的節點 ID 列表
-    """
+st.markdown("""
+    <style>
+        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+        h1 { font-size: 1.5rem !important; margin-bottom: 0.5rem !important; }
+        h3 { font-size: 1.1rem !important; margin-top: 0rem !important; }
+        p { font-size: 0.95rem; margin-bottom: 0.5rem; }
+        .stButton button { width: 100%; border-radius: 6px; height: 3.2em; font-weight: bold; }
+        /* 調整輸入框樣式 */
+        .stTextInput > div > div > input { font-size: 1.1rem; text-align: center; }
+    </style>
+""", unsafe_allow_html=True)
+
+# --- 2. 狀態管理 ---
+if 'history' not in st.session_state:
+    st.session_state.history = ["start"]
+if 'current_node' not in st.session_state:
+    st.session_state.current_node = "start"
+if 'topic' not in st.session_state:
+    st.session_state.topic = ""
+
+# --- 3. 繪圖邏輯 (極致緊湊版) ---
+def generate_decision_map(history, topic):
     dot = Digraph()
-    dot.attr(rankdir='TB', bgcolor='transparent')
+    # ranksep=0.2 (層距), nodesep=0.1 (節點距) -> 極限壓縮
+    dot.attr(rankdir='TB', ranksep='0.25', nodesep='0.15', margin='0.05', bgcolor='transparent')
     
-    # 定義節點 (ID, 顯示標籤)
+    # 節點預設樣式
+    node_attr = {
+        'shape': 'box', 'style': 'rounded,filled', 'fontsize': '9', 
+        'fontname': 'Sans-Serif', 'height': '0.35', 'width': '1.2'
+    }
+    edge_attr = {'fontsize': '7', 'fontcolor': '#666666', 'penwidth': '0.8', 'arrowsize': '0.5'}
+
+    # 定義通用節點 (根據輸入主題顯示簡稱)
+    t_name = topic[:4]+".." if len(topic)>4 else topic if topic else "此事件"
+    
     nodes = {
-        "start": "開始決策",
-        "money": "家裡有礦？",
-        "talent": "天賦異稟？",
-        "dream": "大膽追夢",
-        "office": "穩定公職",
-        "tech": "電資醫牙",
-        "gap": "重考/轉行"
+        "start": "決策起點",
+        "risk": "風險承受\n(輸得起嗎?)",
+        "value": "價值判斷\n(想要vs需要)",
+        "time": "時間維度\n(長期效益?)",
+        "regret": "遺憾最小化\n(不做會後悔?)",
+        
+        # 結果節點
+        "stop_risk": "🛑 立刻停止\n(風險過高)",
+        "stop_want": "🛑 冷靜期\n(只是慾望)",
+        "do_it_now": "✅ 立即執行\n(剛需/急迫)",
+        "do_it_plan": "📅 規劃執行\n(長期高回報)",
+        "drop_it": "🗑️ 放棄\n(無效益)"
     }
 
-    # 定義連線 (起點, 終點, 條件標籤)
+    # 定義路徑邏輯
     edges = [
-        ("start", "money", ""),
-        ("money", "dream", "有"),
-        ("money", "talent", "無"),
-        ("talent", "tech", "有"),
-        ("talent", "office", "無"),
-        ("office", "gap", "不甘心"),
+        ("start", "risk", "開始分析"),
+        ("risk", "stop_risk", "輸不起/會死"),
+        ("risk", "value", "風險可控"),
+        
+        ("value", "do_it_now", "生存必需/急迫"),
+        ("value", "time", "非急迫/改善型"),
+        
+        ("time", "stop_want", "短期爽/長期損"),
+        ("time", "regret", "長期有益"),
+        
+        ("regret", "drop_it", "不做也沒差"),
+        ("regret", "do_it_plan", "不做會後悔")
     ]
 
-    # 繪製節點
-    for node_id, label in nodes.items():
-        # 如果是目前節點或歷史路徑，使用亮藍色，否則使用淡灰色
-        is_active = node_id in history
-        color = "#1E90FF" if is_active else "#D3D3D3"
-        font_color = "#FFFFFF" if is_active else "#A9A9A9"
-        border_color = "#1E90FF" if is_active else "#D3D3D3"
-        
-        dot.node(node_id, label, 
-                 color=border_color, 
-                 style="filled" if is_active else "outline", 
-                 fillcolor=color if is_active else "white",
-                 fontcolor=font_color, 
-                 shape="rect", 
-                 style_attr="rounded,filled")
+    # 繪製
+    for n_id, label in nodes.items():
+        is_active = n_id in history
+        # 樣式邏輯
+        if "stop" in n_id or "drop" in n_id:
+            bg = "#E74C3C" if is_active else "#FADBD8" # 紅色系
+        elif "do_it" in n_id:
+            bg = "#27AE60" if is_active else "#D4EFDF" # 綠色系
+        else:
+            bg = "#3498DB" if is_active else "#EBF5FB" # 藍色系
+            
+        fc = "#FFFFFF" if is_active else "#566573"
+        dot.node(n_id, label, fillcolor=bg, fontcolor=fc, color=bg, **node_attr)
 
-    # 繪製連線
     for src, dst, label in edges:
-        # 連線要亮起的條件：起點與終點都在歷史紀錄中
-        is_path_active = src in history and dst in history
-        path_color = "#1E90FF" if is_path_active else "#E0E0E0"
-        path_width = "2.5" if is_path_active else "1.0"
-        
-        dot.edge(src, dst, label=label, 
-                 color=path_color, 
-                 penwidth=path_width, 
-                 fontcolor=path_color)
+        is_path = src in history and dst in history
+        ec = "#2C3E50" if is_path else "#D7DBDD"
+        ew = "1.5" if is_path else "0.8"
+        dot.edge(src, dst, label=label, color=ec, penwidth=ew, **edge_attr)
 
     return dot
 
-# --- 初始化狀態 ---
-if 'history' not in st.session_state:
-    st.session_state.history = ["start"]
-if 'current' not in st.session_state:
-    st.session_state.current = "start"
+# --- 4. 介面佈局 ---
+left_col, right_col = st.columns([1.1, 1.9], gap="small")
 
-# --- UI 佈局 ---
-st.title("🚀 自我輔助決策系統 v2.0")
-st.markdown("---")
-
-# 建立左右兩欄，比例可以調整，這裡設為 1:1 或自定義
-left_col, right_col = st.columns([1, 1])
-
-# --- 左側：互動問題區 ---
 with left_col:
-    st.subheader("📝 決策問題")
-    curr = st.session_state.current
+    st.title("⚖️ 決策輔助器")
+    
+    # 步驟 0: 輸入主題
+    if st.session_state.current_node == "start":
+        st.info("請輸入你正在猶豫的事情：")
+        topic_input = st.text_input("例如：買重機、離職創業、跟前任復合", value=st.session_state.topic)
+        
+        if st.button("開始分析流程 ➡️", type="primary"):
+            if topic_input.strip():
+                st.session_state.topic = topic_input
+                st.session_state.current_node = "risk"
+                st.session_state.history.append("risk")
+                st.rerun()
+            else:
+                st.warning("請先輸入主題")
 
-    if curr == "start":
-        st.info("點擊下方按鈕開始你的現實面評估。")
-        if st.button("準備好了，開始吧！"):
-            st.session_state.current = "money"
-            st.session_state.history.append("money")
-            st.rerun()
+    # 步驟 1: 風險評估
+    elif st.session_state.current_node == "risk":
+        st.subheader("1. 致命風險檢查")
+        st.write(f"關於「**{st.session_state.topic}**」，如果結果是**最壞的情況**（如錢全賠光、關係決裂、浪費一年），你的生活會崩潰嗎？")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("😱 會崩潰/無法承擔", type="secondary"):
+                st.session_state.history.append("stop_risk")
+                st.session_state.current_node = "stop_risk"
+                st.rerun()
+        with c2:
+            if st.button("💪 有退路/可以承受", type="primary"):
+                st.session_state.history.append("value")
+                st.session_state.current_node = "value"
+                st.rerun()
 
-    elif curr == "money":
-        st.write("### 核心問題：家裡有礦嗎？")
-        st.write("這裡指的礦是：失敗了有人墊背、不必背房貸、家產夠你燒三年。")
-        col_a, col_b = st.columns(2)
-        if col_a.button("我有礦 (投胎高手)"):
-            st.session_state.current = "dream"
-            st.session_state.history.append("dream")
-            st.rerun()
-        if col_b.button("我沒礦 (白手起家)"):
-            st.session_state.current = "talent"
-            st.session_state.history.append("talent")
-            st.rerun()
+    # 步驟 2: 價值與急迫性
+    elif st.session_state.current_node == "value":
+        st.subheader("2. 需求本質")
+        st.write(f"這件事對你的本質是什麼？是「生存必須」還是「為了快樂/成長」？")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔥 火燒眉毛/不做會死", type="primary"): # 導向立即執行
+                st.session_state.history.append("do_it_now")
+                st.session_state.current_node = "do_it_now"
+                st.rerun()
+        with c2:
+            if st.button("✨ 改善生活/想要擁有", type="secondary"): # 導向長遠評估
+                st.session_state.history.append("time")
+                st.session_state.current_node = "time"
+                st.rerun()
 
-    elif curr == "talent":
-        st.write("### 現實問題：你真的有天賦嗎？")
-        st.write("在該領域，你是否能在不眠不休的情況下依然贏過 90% 的人？")
-        if st.button("是的，我是天選之人"):
-            st.session_state.current = "tech"
-            st.session_state.history.append("tech")
-            st.rerun()
-        if st.button("我只是比較努力的凡人"):
-            st.session_state.current = "office"
-            st.session_state.history.append("office")
-            st.rerun()
+    # 步驟 3: 時間維度 (ROI)
+    elif st.session_state.current_node == "time":
+        st.subheader("3. 時間複利效應")
+        st.write("想像 **3 年後** 回頭看這件事：")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📉 只有短期爽感", type="secondary"): # 例如衝動消費
+                st.session_state.history.append("stop_want")
+                st.session_state.current_node = "stop_want"
+                st.rerun()
+        with c2:
+            if st.button("📈 具備長期價值", type="primary"): # 例如學習、投資
+                st.session_state.history.append("regret")
+                st.session_state.current_node = "regret"
+                st.rerun()
 
-    elif curr in ["dream", "tech", "office"]:
-        st.success(f"🎉 決策完成！建議路徑：{curr}")
-        if st.button("重新評估"):
+    # 步驟 4: 遺憾最小化框架
+    elif st.session_state.current_node == "regret":
+        st.subheader("4. 遺憾最小化")
+        st.write(f"如果你現在**放棄**不做「{st.session_state.topic}」，當你 80 歲回想起來，你會感到後悔嗎？")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🤔 其實沒差/會忘記", type="secondary"):
+                st.session_state.history.append("drop_it")
+                st.session_state.current_node = "drop_it"
+                st.rerun()
+        with c2:
+            if st.button("😣 絕對會後悔", type="primary"):
+                st.session_state.history.append("do_it_plan")
+                st.session_state.current_node = "do_it_plan"
+                st.rerun()
+
+    # 結果頁面
+    else:
+        node = st.session_state.current_node
+        res_title = {
+            "stop_risk": "⛔ 禁止執行",
+            "stop_want": "🧊 建議進入冷靜期",
+            "do_it_now": "⚡ 必須立即行動",
+            "do_it_plan": "🗓️ 這是個好決策，開始規劃",
+            "drop_it": "👋 果斷放棄吧"
+        }
+        res_desc = {
+            "stop_risk": "生存高於一切。當最壞情況無法承受時，潛在的回報再高都沒有意義。",
+            "stop_want": "這看起來更像是「消費」而非「投資」。建議延遲決策，放入購物車一個月後再看。",
+            "do_it_now": "這是剛需或急迫問題，猶豫的時間成本已經超過了執行成本。Do it now.",
+            "do_it_plan": "這件事風險可控且具備長期價值，不做的遺憾成本太高。不需猶豫，只需擬定計畫。",
+            "drop_it": "這件事對你的人生長河來說無足輕重。把注意力轉移到更高回報的事情上吧。"
+        }
+        
+        st.success(f"### 結論：{res_title.get(node, '結束')}")
+        st.write(res_desc.get(node, ""))
+        
+        if st.button("🔄 重新分析其他事件"):
             st.session_state.history = ["start"]
-            st.session_state.current = "start"
+            st.session_state.current_node = "start"
+            st.session_state.topic = ""
             st.rerun()
 
-# --- 右側：動態路線圖 ---
+# --- 5. 右側圖表區 ---
 with right_col:
-    st.subheader("🗺️ 即時決策路徑")
-    chart = generate_flow_chart(st.session_state.current, st.session_state.history)
-    st.graphviz_chart(chart, use_container_width=True)
-
-# 側邊欄重置
-st.sidebar.button("重置所有進度", on_click=lambda: st.session_state.clear())
+    # 如果有輸入主題，圖表標題會跟著變
+    chart_title = f"決策路徑：{st.session_state.topic}" if st.session_state.topic else "決策路徑預覽"
+    st.caption(f"📍 {chart_title}")
+    
+    # 這裡傳入 topic 讓圖表節點文字能動態微調(選用)
+    st.graphviz_chart(generate_decision_map(st.session_state.history, st.session_state.topic), use_container_width=True)
