@@ -27,27 +27,22 @@ if 'topic' not in st.session_state:
 # --- 3. 繪圖邏輯 (極致緊湊版) ---
 def generate_decision_map(history, topic):
     dot = Digraph()
-    # ranksep=0.2 (層距), nodesep=0.1 (節點距) -> 極限壓縮
     dot.attr(rankdir='TB', ranksep='0.25', nodesep='0.15', margin='0.05', bgcolor='transparent')
     
-    # 節點預設樣式
     node_attr = {
         'shape': 'box', 'style': 'rounded,filled', 'fontsize': '9', 
         'fontname': 'Sans-Serif', 'height': '0.35', 'width': '1.2'
     }
-    edge_attr = {'fontsize': '7', 'fontcolor': '#666666', 'penwidth': '0.8', 'arrowsize': '0.5'}
-
-    # 定義通用節點 (根據輸入主題顯示簡稱)
-    t_name = topic[:4]+".." if len(topic)>4 else topic if topic else "此事件"
     
+    # 修正點：這裡移除了 'penwidth'，因為後面會動態設定它
+    edge_attr = {'fontsize': '7', 'fontcolor': '#666666', 'arrowsize': '0.5'}
+
     nodes = {
         "start": "決策起點",
         "risk": "風險承受\n(輸得起嗎?)",
         "value": "價值判斷\n(想要vs需要)",
         "time": "時間維度\n(長期效益?)",
         "regret": "遺憾最小化\n(不做會後悔?)",
-        
-        # 結果節點
         "stop_risk": "🛑 立刻停止\n(風險過高)",
         "stop_want": "🛑 冷靜期\n(只是慾望)",
         "do_it_now": "✅ 立即執行\n(剛需/急迫)",
@@ -55,32 +50,26 @@ def generate_decision_map(history, topic):
         "drop_it": "🗑️ 放棄\n(無效益)"
     }
 
-    # 定義路徑邏輯
     edges = [
         ("start", "risk", "開始分析"),
         ("risk", "stop_risk", "輸不起/會死"),
         ("risk", "value", "風險可控"),
-        
         ("value", "do_it_now", "生存必需/急迫"),
         ("value", "time", "非急迫/改善型"),
-        
         ("time", "stop_want", "短期爽/長期損"),
         ("time", "regret", "長期有益"),
-        
         ("regret", "drop_it", "不做也沒差"),
         ("regret", "do_it_plan", "不做會後悔")
     ]
 
-    # 繪製
     for n_id, label in nodes.items():
         is_active = n_id in history
-        # 樣式邏輯
         if "stop" in n_id or "drop" in n_id:
-            bg = "#E74C3C" if is_active else "#FADBD8" # 紅色系
+            bg = "#E74C3C" if is_active else "#FADBD8"
         elif "do_it" in n_id:
-            bg = "#27AE60" if is_active else "#D4EFDF" # 綠色系
+            bg = "#27AE60" if is_active else "#D4EFDF"
         else:
-            bg = "#3498DB" if is_active else "#EBF5FB" # 藍色系
+            bg = "#3498DB" if is_active else "#EBF5FB"
             
         fc = "#FFFFFF" if is_active else "#566573"
         dot.node(n_id, label, fillcolor=bg, fontcolor=fc, color=bg, **node_attr)
@@ -89,10 +78,11 @@ def generate_decision_map(history, topic):
         is_path = src in history and dst in history
         ec = "#2C3E50" if is_path else "#D7DBDD"
         ew = "1.5" if is_path else "0.8"
+        
+        # 修正點：penwidth 只在這裡傳入一次，不會與 **edge_attr 衝突
         dot.edge(src, dst, label=label, color=ec, penwidth=ew, **edge_attr)
 
     return dot
-
 # --- 4. 介面佈局 ---
 left_col, right_col = st.columns([1.1, 1.9], gap="small")
 
