@@ -1605,7 +1605,9 @@ def main():
     # 3. 側邊欄 (Sidebar)：權限與贊助
     # ==========================================
     with st.sidebar:
+        # 加上名字（感謝那位網友），建立你的個人品牌槓桿
         st.title("🏫 AI 教育工作站")
+        st.caption("Built by [你的名字] | 18歲自學實驗專案")
         
         # --- 🔐 管理員入口 ---
         with st.sidebar.expander("🔐 管理員登入"):
@@ -1620,31 +1622,52 @@ def main():
 
         st.markdown("---")
         
-        # --- 💖 贊助支持 (修復版：使用 HTML 連結) ---
-        st.markdown("### 💖 支持本站營運")
+        # --- 💖 贊助支持 (禮品卡專用版) ---
+        st.markdown("### 💖 支持電費與 AI 算力")
         
-        # 這裡直接使用 HTML，不呼叫外部函式，確保 100% 穩定顯示
+        st.info("⚠️ 因銀行與支付平台限制，目前僅接受禮品卡贊助。")
+        
         st.markdown(f"""
-            <div class="sponsor-container">
-                <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal">
-                    <span style="font-weight:bold; font-style: italic;">P</span> PayPal 贊助(目前只有這個)
-                </a>
-                <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay">
-                    💳 綠界贊助 (台灣)
-                </a>
-                <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc">
-                    <img src="https://cdn.buymeacoffee.com/buttons/bmc-new-btn-logo.svg" class="btn-icon">
-                    Buy Me a Coffee
-                </a>
-            </div>
+            <style>
+                .hardcore-btn {{
+                    display: block;
+                    width: 100%;
+                    padding: 10px;
+                    margin: 10px 0;
+                    text-align: center;
+                    background-color: #f0f2f6;
+                    border: 2px solid #ff4b4b;
+                    border-radius: 10px;
+                    text-decoration: none;
+                    color: #31333F !important;
+                    font-weight: bold;
+                    transition: all 0.3s;
+                }}
+                .hardcore-btn:hover {{
+                    background-color: #ff4b4b;
+                    color: white !important;
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(255, 75, 75, 0.2);
+                }}
+            </style>
+            
+            <a href="https://forms.gle/PNQpFFyEAVUdf8jj6" target="_blank" class="hardcore-btn">
+                🎁 贊助禮品卡 (Steam/Amazon/超商)
+            </a>
         """, unsafe_allow_html=True)
         
-        st.caption("講義下載完全免費。您的支持將用於支付 AI 算力支出，感謝支持！")
+        with st.expander("為什麼只收禮品卡？"):
+            st.write("""
+                1. 學生身分申請金流太麻煩。
+                2. PayPal 手續費太高且限制多。
+                3. 禮品卡最直接，我可以用來買書或付伺服器費。
+                **注意：請確認序號有效，感謝您的投食！**
+            """)
         
         st.markdown("---")
         auth_status = "🔴 管理員" if st.session_state.is_admin else "🟢 公開模式"
-        st.caption(f"v5.0 Pro Integrated | {auth_status}")
-
+        st.caption(f"v5.0 Pro | {auth_status}")
+        st.caption("© 2026 [你的名字]. All rights reserved.")
     # ==========================================
     # 4. 頂部模組導航 (手機版優化)
     # ==========================================
