@@ -1,8 +1,8 @@
 import streamlit as st
 from graphviz import Digraph
 
-# --- 1. 頁面設定與 CSS 優化 (保持緊湊) ---
-st.set_page_config(layout="wide", page_title="理性決策輔助器")
+# --- 1. 頁面設定 ---
+st.set_page_config(layout="wide", page_title="全方位決策過濾器")
 
 st.markdown("""
     <style>
@@ -11,7 +11,6 @@ st.markdown("""
         h3 { font-size: 1.1rem !important; margin-top: 0rem !important; }
         p { font-size: 0.95rem; margin-bottom: 0.5rem; }
         .stButton button { width: 100%; border-radius: 6px; height: 3.2em; font-weight: bold; }
-        /* 調整輸入框樣式 */
         .stTextInput > div > div > input { font-size: 1.1rem; text-align: center; }
     </style>
 """, unsafe_allow_html=True)
@@ -24,185 +23,212 @@ if 'current_node' not in st.session_state:
 if 'topic' not in st.session_state:
     st.session_state.topic = ""
 
-# --- 3. 繪圖邏輯 (極致緊湊版) ---
+# --- 3. 繪圖邏輯 (升級版) ---
 def generate_decision_map(history, topic):
     dot = Digraph()
-    dot.attr(rankdir='TB', ranksep='0.25', nodesep='0.15', margin='0.05', bgcolor='transparent')
+    # 保持緊湊
+    dot.attr(rankdir='TB', ranksep='0.22', nodesep='0.12', margin='0.05', bgcolor='transparent')
     
     node_attr = {
         'shape': 'box', 'style': 'rounded,filled', 'fontsize': '9', 
-        'fontname': 'Sans-Serif', 'height': '0.35', 'width': '1.2'
+        'fontname': 'Sans-Serif', 'height': '0.35', 'width': '1.3'
     }
-    
-    # 修正點：這裡移除了 'penwidth'，因為後面會動態設定它
+    # 移除重複的 penwidth
     edge_attr = {'fontsize': '7', 'fontcolor': '#666666', 'arrowsize': '0.5'}
 
+    # 定義節點 (新增了 Alignment, Reversibility, Friction)
     nodes = {
         "start": "決策起點",
-        "risk": "風險承受\n(輸得起嗎?)",
-        "value": "價值判斷\n(想要vs需要)",
-        "time": "時間維度\n(長期效益?)",
-        "regret": "遺憾最小化\n(不做會後悔?)",
-        "stop_risk": "🛑 立刻停止\n(風險過高)",
-        "stop_want": "🛑 冷靜期\n(只是慾望)",
-        "do_it_now": "✅ 立即執行\n(剛需/急迫)",
-        "do_it_plan": "📅 規劃執行\n(長期高回報)",
-        "drop_it": "🗑️ 放棄\n(無效益)"
+        "risk": "1.生存風險\n(輸得起嗎?)",
+        "align": "2.願景一致\n(符合人設?)",
+        "reverse": "3.可逆性\n(能反悔嗎?)",
+        "friction": "4.能量阻力\n(心累嗎?)",
+        "regret": "5.遺憾檢核\n(臨終後悔?)",
+        
+        # 負向結果
+        "stop_risk": "🛑 禁止\n(致命風險)",
+        "stop_align": "🗑️ 放棄\n(偏離目標)",
+        "stop_friction": "💤 委外/延後\n(阻力過大)",
+        "drop_it": "👋 放下\n(無遺憾)",
+        
+        # 正向結果
+        "do_experiment": "🧪 低成本試錯\n(小規模嘗試)",
+        "do_system": "⚙️ 建立系統\n(長期抗戰)",
+        "do_it_now": "⚡ 立即執行\n(順流而下)",
+        "do_heavy": "🏋️ 咬牙執行\n(痛苦但值得)"
     }
 
+    # 定義路徑邏輯
     edges = [
-        ("start", "risk", "開始分析"),
-        ("risk", "stop_risk", "輸不起/會死"),
-        ("risk", "value", "風險可控"),
-        ("value", "do_it_now", "生存必需/急迫"),
-        ("value", "time", "非急迫/改善型"),
-        ("time", "stop_want", "短期爽/長期損"),
-        ("time", "regret", "長期有益"),
-        ("regret", "drop_it", "不做也沒差"),
-        ("regret", "do_it_plan", "不做會後悔")
+        # Start -> Risk
+        ("start", "risk", "開始"),
+        ("risk", "stop_risk", "無法承擔"),
+        ("risk", "align", "風險可控"),
+        
+        # Risk -> Alignment
+        ("align", "stop_align", "不符合目標"),
+        ("align", "reverse", "符合願景"),
+        
+        # Alignment -> Reversibility (Bezos Rule)
+        ("reverse", "do_experiment", "可逆(雙向門)"),
+        ("reverse", "friction", "不可逆(單向門)"),
+        
+        # Reversibility -> Friction (Energy)
+        ("friction", "do_it_now", "順手/低阻力"),
+        ("friction", "regret", "高阻力/困難"),
+        
+        # Friction -> Regret
+        ("regret", "stop_friction", "不做也還好"),
+        ("regret", "do_heavy", "不做會後悔")
     ]
 
+    # 繪製節點
     for n_id, label in nodes.items():
         is_active = n_id in history
+        
+        # 顏色邏輯
         if "stop" in n_id or "drop" in n_id:
-            bg = "#E74C3C" if is_active else "#FADBD8"
-        elif "do_it" in n_id:
-            bg = "#27AE60" if is_active else "#D4EFDF"
+            bg = "#E74C3C" if is_active else "#FADBD8" # 紅
+        elif "do_" in n_id:
+            bg = "#27AE60" if is_active else "#D4EFDF" # 綠
         else:
-            bg = "#3498DB" if is_active else "#EBF5FB"
+            bg = "#3498DB" if is_active else "#EBF5FB" # 藍
             
         fc = "#FFFFFF" if is_active else "#566573"
         dot.node(n_id, label, fillcolor=bg, fontcolor=fc, color=bg, **node_attr)
 
+    # 繪製邊線
     for src, dst, label in edges:
         is_path = src in history and dst in history
         ec = "#2C3E50" if is_path else "#D7DBDD"
         ew = "1.5" if is_path else "0.8"
-        
-        # 修正點：penwidth 只在這裡傳入一次，不會與 **edge_attr 衝突
         dot.edge(src, dst, label=label, color=ec, penwidth=ew, **edge_attr)
 
     return dot
-# --- 4. 介面佈局 ---
+
+# --- 4. 介面邏輯 ---
 left_col, right_col = st.columns([1.1, 1.9], gap="small")
 
 with left_col:
-    st.title("⚖️ 決策輔助器")
+    st.title("⚖️ 高維度決策儀表板")
     
-    # 步驟 0: 輸入主題
+    # --- Step 0: 輸入 ---
     if st.session_state.current_node == "start":
-        st.info("請輸入你正在猶豫的事情：")
-        topic_input = st.text_input("例如：買重機、離職創業、跟前任復合", value=st.session_state.topic)
-        
-        if st.button("開始分析流程 ➡️", type="primary"):
+        st.info("輸入讓你糾結的決策：")
+        topic_input = st.text_input("例如：轉職軟體工程師、買特斯拉、分手", value=st.session_state.topic)
+        if st.button("啟動多重過濾分析 ➡️", type="primary"):
             if topic_input.strip():
                 st.session_state.topic = topic_input
                 st.session_state.current_node = "risk"
                 st.session_state.history.append("risk")
                 st.rerun()
             else:
-                st.warning("請先輸入主題")
+                st.warning("請輸入主題")
 
-    # 步驟 1: 風險評估
+    # --- Step 1: 風險 (Risk) ---
     elif st.session_state.current_node == "risk":
-        st.subheader("1. 致命風險檢查")
-        st.write(f"關於「**{st.session_state.topic}**」，如果結果是**最壞的情況**（如錢全賠光、關係決裂、浪費一年），你的生活會崩潰嗎？")
-        
+        st.subheader("1. 生存邊界測試")
+        st.write(f"如果做「{st.session_state.topic}」失敗了，最壞的情況你能接受嗎？（例如：破產、身敗名裂）")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("😱 會崩潰/無法承擔", type="secondary"):
+            if st.button("💀 無法接受/會死", type="secondary"):
                 st.session_state.history.append("stop_risk")
                 st.session_state.current_node = "stop_risk"
                 st.rerun()
         with c2:
-            if st.button("💪 有退路/可以承受", type="primary"):
-                st.session_state.history.append("value")
-                st.session_state.current_node = "value"
+            if st.button("🛡️ 有退路/可承受", type="primary"):
+                st.session_state.history.append("align")
+                st.session_state.current_node = "align"
                 st.rerun()
 
-    # 步驟 2: 價值與急迫性
-    elif st.session_state.current_node == "value":
-        st.subheader("2. 需求本質")
-        st.write(f"這件事對你的本質是什麼？是「生存必須」還是「為了快樂/成長」？")
-        
+    # --- Step 2: 一致性 (Alignment) ---
+    elif st.session_state.current_node == "align":
+        st.subheader("2. 人生目標校準")
+        st.write(f"這件事與「你想要成為的人」或「你的長期目標」一致嗎？還是只是因為別人都在做？")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("🔥 火燒眉毛/不做會死", type="primary"): # 導向立即執行
+            if st.button("😒 只是跟風/誘惑", type="secondary"):
+                st.session_state.history.append("stop_align")
+                st.session_state.current_node = "stop_align"
+                st.rerun()
+        with c2:
+            if st.button("🎯 符合我的願景", type="primary"):
+                st.session_state.history.append("reverse")
+                st.session_state.current_node = "reverse"
+                st.rerun()
+
+    # --- Step 3: 可逆性 (Reversibility) ---
+    elif st.session_state.current_node == "reverse":
+        st.subheader("3. 雙向門 vs 單向門")
+        st.write(f"如果做了覺得不合適，能夠輕易撤退或修正嗎？(時間/金錢成本低)")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🚪 難以回頭 (單向門)", type="secondary"):
+                st.session_state.history.append("friction")
+                st.session_state.current_node = "friction"
+                st.rerun()
+        with c2:
+            if st.button("🔄 可以撤退 (雙向門)", type="primary"):
+                st.session_state.history.append("do_experiment")
+                st.session_state.current_node = "do_experiment"
+                st.rerun()
+
+    # --- Step 4: 摩擦力 (Friction) ---
+    elif st.session_state.current_node == "friction":
+        st.subheader("4. 執行能量阻力")
+        st.write(f"這件事做起來，你是感到「興奮順流」還是「痛苦且需要極大意志力」？")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🌊 順流/興奮", type="primary"):
                 st.session_state.history.append("do_it_now")
                 st.session_state.current_node = "do_it_now"
                 st.rerun()
         with c2:
-            if st.button("✨ 改善生活/想要擁有", type="secondary"): # 導向長遠評估
-                st.session_state.history.append("time")
-                st.session_state.current_node = "time"
-                st.rerun()
-
-    # 步驟 3: 時間維度 (ROI)
-    elif st.session_state.current_node == "time":
-        st.subheader("3. 時間複利效應")
-        st.write("想像 **3 年後** 回頭看這件事：")
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("📉 只有短期爽感", type="secondary"): # 例如衝動消費
-                st.session_state.history.append("stop_want")
-                st.session_state.current_node = "stop_want"
-                st.rerun()
-        with c2:
-            if st.button("📈 具備長期價值", type="primary"): # 例如學習、投資
+            if st.button("🧗 痛苦/高門檻", type="secondary"):
                 st.session_state.history.append("regret")
                 st.session_state.current_node = "regret"
                 st.rerun()
 
-    # 步驟 4: 遺憾最小化框架
+    # --- Step 5: 遺憾 (Regret) ---
     elif st.session_state.current_node == "regret":
-        st.subheader("4. 遺憾最小化")
-        st.write(f"如果你現在**放棄**不做「{st.session_state.topic}」，當你 80 歲回想起來，你會感到後悔嗎？")
-        
+        st.subheader("5. 終局遺憾模擬")
+        st.write("這件事很痛苦且不可逆。但如果不做，你會在臨終前感到深深的遺憾嗎？")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("🤔 其實沒差/會忘記", type="secondary"):
-                st.session_state.history.append("drop_it")
-                st.session_state.current_node = "drop_it"
+            if st.button("💨 不做也沒差", type="secondary"):
+                st.session_state.history.append("stop_friction")
+                st.session_state.current_node = "stop_friction"
                 st.rerun()
         with c2:
-            if st.button("😣 絕對會後悔", type="primary"):
-                st.session_state.history.append("do_it_plan")
-                st.session_state.current_node = "do_it_plan"
+            if st.button("💔 絕對會後悔", type="primary"):
+                st.session_state.history.append("do_heavy")
+                st.session_state.current_node = "do_heavy"
                 st.rerun()
 
-    # 結果頁面
+    # --- 結果頁面 ---
     else:
         node = st.session_state.current_node
-        res_title = {
-            "stop_risk": "⛔ 禁止執行",
-            "stop_want": "🧊 建議進入冷靜期",
-            "do_it_now": "⚡ 必須立即行動",
-            "do_it_plan": "🗓️ 這是個好決策，開始規劃",
-            "drop_it": "👋 果斷放棄吧"
-        }
-        res_desc = {
-            "stop_risk": "生存高於一切。當最壞情況無法承受時，潛在的回報再高都沒有意義。",
-            "stop_want": "這看起來更像是「消費」而非「投資」。建議延遲決策，放入購物車一個月後再看。",
-            "do_it_now": "這是剛需或急迫問題，猶豫的時間成本已經超過了執行成本。Do it now.",
-            "do_it_plan": "這件事風險可控且具備長期價值，不做的遺憾成本太高。不需猶豫，只需擬定計畫。",
-            "drop_it": "這件事對你的人生長河來說無足輕重。把注意力轉移到更高回報的事情上吧。"
+        res_map = {
+            "stop_risk": ("⛔ 風險過高", "不要為了採蜂蜜而把手伸進熊嘴裡。先建立安全網再說。"),
+            "stop_align": ("🗑️ 雜訊過濾", "這不是你要的人生。專注力很貴，不要浪費在不符合願景的事情上。"),
+            "stop_friction": ("💤 戰略性放棄", "這件事既痛苦又非必要。或許可以花錢外包，或者直接刪除這個選項。"),
+            "do_experiment": ("🧪 快速試錯 (MVP)", "既然失敗成本低，想再多都是浪費時間。先做再說，不行就撤。"),
+            "do_it_now": ("⚡ 天選之選", "符合目標、風險可控且你充滿熱情。這是你的「甜蜜點」，立刻行動！"),
+            "do_heavy": ("🏋️ 英雄之旅", "這是一條艱難的路，但這是你的天命。做好長期抗戰的準備，制定嚴格的紀律。")
         }
         
-        st.success(f"### 結論：{res_title.get(node, '結束')}")
-        st.write(res_desc.get(node, ""))
+        title, desc = res_map.get(node, ("結束", ""))
+        st.success(f"### 結論：{title}")
+        st.write(desc)
         
-        if st.button("🔄 重新分析其他事件"):
+        if st.button("🔄 分析下一個決策"):
             st.session_state.history = ["start"]
             st.session_state.current_node = "start"
             st.session_state.topic = ""
             st.rerun()
 
-# --- 5. 右側圖表區 ---
+# --- 5. 右側圖表 ---
 with right_col:
-    # 如果有輸入主題，圖表標題會跟著變
-    chart_title = f"決策路徑：{st.session_state.topic}" if st.session_state.topic else "決策路徑預覽"
+    chart_title = f"決策路徑：{st.session_state.topic}" if st.session_state.topic else "多維度過濾模型"
     st.caption(f"📍 {chart_title}")
-    
-    # 這裡傳入 topic 讓圖表節點文字能動態微調(選用)
     st.graphviz_chart(generate_decision_map(st.session_state.history, st.session_state.topic), use_container_width=True)
