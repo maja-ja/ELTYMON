@@ -1,6 +1,3 @@
-這是一個為您的 `streamlit` 應用程式量身打造的 `README.md` 文件。我已經根據您提供的程式碼邏輯，整理了功能介紹、安裝步驟、必要的 Secret 設定（這部分對您的程式運行至關重要）以及使用說明。
-
-```markdown
 # 🏫 AI 教育工作站 (AI Educational Workstation)
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://streamlit.io)
@@ -38,8 +35,6 @@
 ### 2. 安裝依賴套件
 ```bash
 pip install streamlit pandas gTTS google-generativeai st-gsheets-connection Pillow markdown
-
-```
 
 ### 3. 設定 Secrets (關鍵步驟)
 
