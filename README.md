@@ -1,4 +1,4 @@
-# 🏫 AI 教育工作站 (AI Educational Workstation)
+# 🏫 AI 教育工作站 (AI Educational Workstation)(app.py)
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://streamlit.io)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -133,13 +133,3 @@ streamlit run app.py
 
 **Built with ❤️ using Streamlit & Gemini**
 
-```
-
-### 如何使用：
-1.  將上述內容複製。
-2.  在您的專案根目錄下建立一個名為 `README.md` 的檔案。
-3.  將內容貼上並儲存。
-
-這份文件清楚地解釋了如何設定 `secrets.toml`，這對於 Streamlit 應用程式來說是最容易出錯的地方，同時也概括了您的兩大功能模組。
-
-```
