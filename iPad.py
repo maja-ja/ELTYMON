@@ -59,16 +59,25 @@ except:
     GEMINI_FREE_KEYS =[]
 def get_gspread_client():
     try:
-        # 從 Streamlit.io 的 Secrets 讀取我們即將貼上的 JSON 字串
+        # 1. 從 Secrets 讀取 JSON 字串
         creds_json = st.secrets["GCP_CREDENTIALS_JSON"]
+        
+        # 2. 轉成 Python 字典
         creds_dict = json.loads(creds_json)
         
-        # 使用字典方式登入，而不是讀取實體檔案
+        # ======================================================
+        # 🚑【關鍵修復】這裡就是解決 Unable to load PEM file 的救命丹
+        # 強制把字串裡的 "\\n" (文字) 替換成真正的 "\n" (換行)
+        # ======================================================
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+        
+        # 3. 使用修正後的字典登入
         gc = gspread.service_account_from_dict(creds_dict) 
         
-        # 替換成您的 Google Sheet 網址
-        sh = gc.open_by_url("YOUR_GOOGLE_SHEET_URL_HERE")
+        # 4. 連接試算表
+        sh = gc.open_by_url("https://docs.google.com/spreadsheets/d/1qyHWIWq3albA8czV_ZZ4ofXjP02D3rz2R9YVC4E4Fz4/edit")
         return sh.sheet1
+        
     except Exception as e:
         st.error(f"Google Sheets 連線錯誤：{e}")
         return None
