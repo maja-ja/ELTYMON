@@ -139,7 +139,7 @@ def process_image_with_gemini(image_file):
         try:
             # 配置當前的 API Key
             genai.configure(api_key=current_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             # 發送請求
             response = model.generate_content([prompt, img])
