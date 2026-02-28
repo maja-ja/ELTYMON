@@ -20,7 +20,7 @@ st.set_page_config(
 st.markdown("""
 <style>
     /* 調整全局字體與行距，提升閱讀舒適度 */
-    html, body,[class*="css"] {
+    html, body, [class*="css"] {
         font-size: 18px !important;
         line-height: 1.8 !important;
     }
@@ -61,23 +61,26 @@ st.markdown("""
 
 
 # ==========================================
-# 2. 認證與 API 設定區塊 (請填入您的金鑰)
+# 2. 認證與 API 設定區塊 (多金鑰管理)
 # ==========================================
 # [API 設定指引]
-# 1. 將您的 Gemini API Key 放入 Streamlit Secrets 或直接替換下方字串
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY_HERE")
-genai.configure(api_key=GEMINI_API_KEY)
+# 取得所有的免費金鑰列表 (請在 .streamlit/secrets.toml 中設定)
+try:
+    GEMINI_FREE_KEYS = st.secrets.get("GEMINI_FREE_KEYS",[])
+except:
+    GEMINI_FREE_KEYS =[]
 
-# 2. Google Sheets API 設定 (需準備 service_account.json)
-# 由於 gspread 需要認證，此處寫好標準邏輯，若無設定檔案則預設為展示模式
+if not GEMINI_FREE_KEYS:
+    st.warning("⚠️ 尚未設定 Gemini API 金鑰，請在 .streamlit/secrets.toml 中設定 `GEMINI_FREE_KEYS` 陣列。")
+
+# [Google Sheets 設定指引]
+# 需準備 credentials.json 放入專案目錄
 def get_gspread_client():
     try:
-        # 請確保工作目錄下有 Google Cloud 服務帳號的 credentials.json
         gc = gspread.service_account(filename="credentials.json") 
         # 請替換為您的 Google Sheet 網址或名稱
         sh = gc.open_by_url("YOUR_GOOGLE_SHEET_URL_HERE")
-        worksheet = sh.sheet1
-        return worksheet
+        return sh.sheet1
     except Exception as e:
         return None
 
@@ -87,25 +90,28 @@ worksheet = get_gspread_client()
 # ==========================================
 # 3. 狀態管理 (Session State)
 # ==========================================
-# 初始化應用程式需要記住的變數，防止畫面重整時資料遺失
 if 'ai_generated_content' not in st.session_state:
     st.session_state.ai_generated_content = ""
 if 'current_image' not in st.session_state:
     st.session_state.current_image = None
 if 'mock_db' not in st.session_state:
-    # 作為尚未接上 Google Sheets 時的暫存資料庫
     st.session_state.mock_db = pd.DataFrame(columns=["日期戳記", "講義標題", "原始圖片網址", "AI整理內容"])
+if 'api_key_index' not in st.session_state:
+    # 記憶當前正常使用的 API 金鑰索引
+    st.session_state.api_key_index = 0
 
 
 # ==========================================
 # 4. 核心功能函數
 # ==========================================
 def process_image_with_gemini(image_file):
-    """呼叫 Gemini API 解析圖片並產生結構化 Markdown"""
+    """呼叫 Gemini API，並在遇到限制時自動切換備用金鑰"""
+    if not GEMINI_FREE_KEYS:
+        raise Exception("未設定任何 Gemini API 金鑰，請檢查 secrets.toml")
+
     img = Image.open(image_file)
-    model = genai.GenerativeModel('gemini-1.5-flash')
     
-    #[給 Gemini 的講義結構化提示詞]
+    # [給 Gemini 的講義結構化提示詞]
     prompt = """
     你是一個專業的教育筆記整理助手。請分析這張講義/筆記圖片的內容，並使用結構化的 Markdown 格式輸出。
     請遵循以下排版規則以利在 iPad 螢幕上閱讀：
@@ -122,21 +128,46 @@ def process_image_with_gemini(image_file):
     (萃取講義中的專有名詞，並以「**關鍵字**：解釋」的方式列出)
     """
     
-    response = model.generate_content([prompt, img])
-    return response.text
+    total_keys = len(GEMINI_FREE_KEYS)
+    start_index = st.session_state.api_key_index
+    
+    # 輪詢嘗試所有的金鑰
+    for offset in range(total_keys):
+        current_index = (start_index + offset) % total_keys
+        current_key = GEMINI_FREE_KEYS[current_index]
+        
+        try:
+            # 配置當前的 API Key
+            genai.configure(api_key=current_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            # 發送請求
+            response = model.generate_content([prompt, img])
+            
+            # 若成功，將當前成功的索引存回 session_state，下次優先使用這把
+            if current_index != start_index:
+                st.toast(f"✅ 成功切換至金鑰 {current_index + 1}", icon="🔑")
+            st.session_state.api_key_index = current_index
+            return response.text
+            
+        except Exception as e:
+            error_msg = str(e)
+            # 在介面右下角提示切換狀態
+            st.toast(f"⚠️ 金鑰 {current_index + 1} 達到限制或失效，嘗試下一把...", icon="🔄")
+            
+            # 如果是最後一把金鑰也失敗了，就把錯誤拋出
+            if offset == total_keys - 1:
+                raise Exception(f"所有 {total_keys} 把 API 金鑰皆已達到限制或發生異常。最後錯誤：{error_msg}")
 
 def save_to_collection(title, content):
-    """將資料存入 Google Sheets (或暫存 DB)"""
+    """將資料存入 Google Sheets (若無設定則寫入暫存 DB)"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 圖片網址需將圖片上傳至雲端硬碟/Imgur後獲取，此處以預設文字代替
     img_url = "尚未綁定圖床 URL" 
-    
     new_record =[timestamp, title, img_url, content]
     
     if worksheet:
         worksheet.append_row(new_record)
     else:
-        # Fallback 寫入暫存 DB (Session State)
         new_df = pd.DataFrame([new_record], columns=st.session_state.mock_db.columns)
         st.session_state.mock_db = pd.concat([st.session_state.mock_db, new_df], ignore_index=True)
 
@@ -159,13 +190,13 @@ with st.sidebar:
         df_history = st.session_state.mock_db
 
     # 建立選單：第一項固定為新增功能
-    options =["➕ 新增講義 (拍照/上傳)"]
+    options = ["➕ 新增講義 (拍照/上傳)"]
     if not df_history.empty:
-        # 將標題與日期結合成選單顯示字串
         history_list = df_history.apply(lambda row: f"{row['講義標題']} ({row['日期戳記']})", axis=1).tolist()
-        options.extend(history_list)
+        # 反轉列表讓最新的在最上面
+        options.extend(history_list[::-1])
     
-    # iPad 友善的大型選擇列 (selectbox 在 iPad 上點擊體驗佳)
+    # iPad 友善的大型選擇列
     selected_option = st.selectbox("選擇操作或瀏覽歷史講義：", options)
 
 
@@ -186,7 +217,6 @@ if selected_option == "➕ 新增講義 (拍照/上傳)":
         with col2:
             upload_img = st.file_uploader("📂 或上傳照片", type=['jpg', 'jpeg', 'png'])
         
-        # 決定當前使用的圖片來源
         current_img = camera_img if camera_img else upload_img
         
         # 檢查是否更換了圖片，若更換則清空上次生成的內容
@@ -197,12 +227,12 @@ if selected_option == "➕ 新增講義 (拍照/上傳)":
         # 確認按鈕
         if current_img:
             if st.button("🚀 開始 AI 邏輯排版", type="primary"):
-                with st.spinner("Gemini 正在為您智慧排版中..."):
+                with st.spinner("Gemini 正在為您智慧排版中... (若金鑰達上限將自動切換)"):
                     try:
                         result = process_image_with_gemini(current_img)
                         st.session_state.ai_generated_content = result
                     except Exception as e:
-                        st.error(f"AI 生成失敗，請檢查 API 金鑰設定。錯誤訊息: {e}")
+                        st.error(f"AI 生成失敗。錯誤訊息: {e}")
         
         st.write("---")
         
@@ -210,7 +240,6 @@ if selected_option == "➕ 新增講義 (拍照/上傳)":
         if st.session_state.ai_generated_content:
             st.markdown("### 💡 AI 結構化整理結果")
             
-            # 建立一個容器來顯示 Markdown，給予視覺上的區隔
             with st.container():
                 st.markdown(st.session_state.ai_generated_content)
             
@@ -225,7 +254,7 @@ if selected_option == "➕ 新增講義 (拍照/上傳)":
                 save_to_collection(doc_title, st.session_state.ai_generated_content)
                 st.success(f"✅ 《{doc_title}》已成功存入您的智慧館藏！")
                 
-                # 存檔後清除當前狀態，準備下一次上傳
+                # 存檔後清除當前狀態
                 st.session_state.ai_generated_content = ""
                 st.session_state.current_image = None
                 
@@ -233,20 +262,17 @@ else:
     # 歷史講義閱讀模式
     st.button("📖 閱讀模式 (歷史館藏)")
     
-    # 解析選單中選擇的講義
+    # 解析選單中選擇的講義 (去掉最後括號內的日期時間)
     selected_title = selected_option.rsplit(" (", 1)[0]
     
-    # 從歷史資料庫尋找內容
     history_row = df_history[df_history['講義標題'] == selected_title]
     
     if not history_row.empty:
         content = history_row.iloc[0]['AI整理內容']
         date_stamp = history_row.iloc[0]['日期戳記']
         
-        # 顯示標題與時間戳記
         st.markdown(f"<h1>{selected_title}</h1>", unsafe_allow_html=True)
         st.caption(f"🗓️ 歸檔時間：{date_stamp}")
         st.write("---")
         
-        # 顯示排版過的 Markdown 講義內容
         st.markdown(content)
