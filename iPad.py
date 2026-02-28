@@ -59,7 +59,7 @@ except:
 
 def get_gspread_client():
     gc = gspread.service_account(filename="credentials.json") 
-    sh = gc.open_by_url("YOUR_GOOGLE_SHEET_URL_HERE")
+    sh = gc.open_by_url("https://docs.google.com/spreadsheets/d/1fyGma34kn3t7uvBArurnQmSiH3UFwGsYFb-Ygv3_rD0/edit?gid=0#gid=0")
     return sh.sheet1
 
 worksheet = get_gspread_client()
