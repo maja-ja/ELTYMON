@@ -57,11 +57,21 @@ try:
     GEMINI_FREE_KEYS = st.secrets.get("GEMINI_FREE_KEYS",[])
 except:
     GEMINI_FREE_KEYS =[]
-
 def get_gspread_client():
-    gc = gspread.service_account(filename="credentials.json") 
-    sh = gc.open_by_url("https://docs.google.com/spreadsheets/d/1fyGma34kn3t7uvBArurnQmSiH3UFwGsYFb-Ygv3_rD0/edit?gid=0#gid=0")
-    return sh.sheet1
+    try:
+        # 從 Streamlit.io 的 Secrets 讀取我們即將貼上的 JSON 字串
+        creds_json = st.secrets["GCP_CREDENTIALS_JSON"]
+        creds_dict = json.loads(creds_json)
+        
+        # 使用字典方式登入，而不是讀取實體檔案
+        gc = gspread.service_account_from_dict(creds_dict) 
+        
+        # 替換成您的 Google Sheet 網址
+        sh = gc.open_by_url("YOUR_GOOGLE_SHEET_URL_HERE")
+        return sh.sheet1
+    except Exception as e:
+        st.error(f"Google Sheets 連線錯誤：{e}")
+        return None
 
 worksheet = get_gspread_client()
 
