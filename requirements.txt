@@ -11,3 +11,4 @@ markdown
 PyPDF2
 graphviz
 gspread
+supabase
