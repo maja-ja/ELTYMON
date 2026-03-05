@@ -131,7 +131,7 @@ def inject_custom_css():
                 .stTabs [data-baseweb="tab-list"] {
                     gap: 10px !important;
                 }
-                .stTabs [data-baseweb="tab"] {
+                .stTabs[data-baseweb="tab"] {
                     padding: 8px 12px !important;
                     font-size: 14px !important;
                 }
@@ -160,20 +160,20 @@ def get_gemini_keys():
     raw_keys = st.secrets.get("GEMINI_FREE_KEYS") or st.secrets.get("GEMINI_API_KEY")
     
     if not raw_keys:
-        return []
+        return[]
 
     # 2. 統一格式化為 List
     if isinstance(raw_keys, str):
         # 處理像是 "key1,key2,key3" 或 "[key1, key2]" 的字串格式
         if "," in raw_keys:
             # 移除可能存在的括號並依逗號分割
-            keys = [k.strip().replace('"', '').replace("'", "") for k in raw_keys.strip("[]").split(",")]
+            keys =[k.strip().replace('"', '').replace("'", "") for k in raw_keys.strip("[]").split(",")]
         else:
-            keys = [raw_keys]
+            keys =[raw_keys]
     elif isinstance(raw_keys, list):
         keys = raw_keys
     else:
-        return []
+        return[]
 
     # 3. 過濾空值並打亂順序
     valid_keys = [k for k in keys if k and isinstance(k, str)]
@@ -196,7 +196,7 @@ def fix_content(text):
     text = str(text).strip()
     
     # 檢查無效內容 (大小寫不敏感)
-    if text.lower() in ["無", "nan", "", "null", "none"]:
+    if text.lower() in["無", "nan", "", "null", "none"]:
         return ""
     
     # 2. 處理 JSON 雙重轉義 (將 \\n 變為 \n)
@@ -222,7 +222,7 @@ def fix_content(text):
     # 但避免破壞已經是 Markdown 格式的換行 (如列表或代碼塊)
     lines = text.split('\n')
     # 如果該行不是列表項 (- 或 *) 或標題 (#)，則在行尾加上兩個空白以強制換行
-    processed_lines = []
+    processed_lines =[]
     for line in lines:
         line = line.strip() # 去除行內多餘空白
         if not line: 
@@ -426,7 +426,7 @@ def log_user_intent(label):
         print(f"⚠️ Metrics logging failed for '{label}': {e}")
 
 # 定義 12 核心欄位 (與試算表完全一致)
-CORE_COLS = [
+CORE_COLS =[
 'word', 'category', 'roots', 'breakdown', 'definition', 
     'meaning', 'native_vibe', 'example', 'synonym_nuance', 
     'usage_warning', 'memory_hook', 'phonetic'
@@ -434,7 +434,7 @@ CORE_COLS = [
 
 @st.cache_data(ttl=600)
 def load_db():
-    CORE_COLS = [
+    CORE_COLS =[
 'word', 'category', 'roots', 'breakdown', 'definition', 
     'meaning', 'native_vibe', 'example', 'synonym_nuance', 
     'usage_warning', 'memory_hook', 'phonetic'
@@ -606,7 +606,7 @@ def ai_decode_and_save(input_text, primary_cat, aux_cats=[]):
                 try:
                     parsed_data = json.loads(clean_json, strict=False)
                     
-                    CORE_COLS = [
+                    CORE_COLS =[
                         'word', 'category', 'roots', 'breakdown', 'definition', 
                         'meaning', 'native_vibe', 'example', 'synonym_nuance', 
                         'usage_warning', 'memory_hook', 'phonetic'
@@ -643,7 +643,6 @@ def show_encyclopedia_card(row):
     - 專為新的導航堆疊邏輯設計，由父頁面管理返回。
     - 12 核心欄位精準排版，去 AI 腔調。
     - LaTeX 深度優化，防止紅字。
-    - 整合 PayPal/綠界/BMC 贊助按鈕。
     - 一鍵生成專業講義。
     """
     # --- 1. 變數提取與安全清洗 ---
@@ -757,16 +756,13 @@ def show_encyclopedia_card(row):
             st.session_state.app_mode = "📄 講義排版"
             st.rerun()
 
-    # --- 9. 💖 贊助支持 (HTML 連結版) ---
+    # --- 9. 💖 贊助支持 (元大銀行版) ---
     st.write("---")
-    st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們持續開發：")
-    st.markdown(f"""
-        <div class="sponsor-container" style="flex-direction: row; flex-wrap: wrap; gap: 10px;">
-            <a href="https://www.paypal.com/ncp/payment/8HTS3P48X3YM2" target="_blank" class="sponsor-btn btn-paypal" style="flex: 1; min-width: 120px;">PayPal</a>
-            <a href="https://p.ecpay.com.tw/YOUR_LINK" target="_blank" class="sponsor-btn btn-ecpay" style="flex: 1; min-width: 120px;">綠界贊助</a>
-            <a href="https://www.buymeacoffee.com/YOUR_ID" target="_blank" class="sponsor-btn btn-bmc" style="flex: 1; min-width: 120px;">BMC</a>
-        </div>
-    """, unsafe_allow_html=True)
+    st.caption("💡 覺得這個解碼對你有幫助嗎？支持我們維持伺服器運作：")
+    with st.expander("☕ 贊助開發者 (元大銀行轉帳)"):
+        st.markdown("感謝你的支持！你的贊助將 100% 用於支付 AI API 與伺服器費用。")
+        st.markdown("**🏦 銀行：元大銀行 (806)**")
+        st.code("20102710511667", language="text")
 def page_etymon_lab():
     """
     🔬 跨領域批量解碼實驗室
@@ -776,7 +772,7 @@ def page_etymon_lab():
     st.caption("輸入多個主題並選擇領域視角，系統將進行深度邏輯拆解並自動同步至雲端 Sheet2。")
 
     # 1. 定義 12 核心欄位 (嚴格對齊 Sheet2 順序)
-    CORE_COLS = [
+    CORE_COLS =[
         'word', 'category', 'roots', 'breakdown', 'definition', 
         'meaning', 'native_vibe', 'example', 'synonym_nuance', 
         'usage_warning', 'memory_hook', 'phonetic'
@@ -784,11 +780,11 @@ def page_etymon_lab():
 
     # 2. 專業領域清單
     CATEGORIES = {
-        "語言與邏輯": ["英語辭源", "語言邏輯", "符號學", "修辭學"],
-        "科學與技術": ["物理科學", "生物醫學", "神經科學", "量子力學", "人工智慧", "數學邏輯"],
-        "人文與社會": ["歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "古希臘神話", "考古發現"],
-        "商業與職場": ["商業商戰", "金融投資", "產品設計", "數位行銷", "職場政治", "管理學", "賽局理論"],
-        "生活與藝術": ["餐飲文化", "社交禮儀", "藝術美學", "影視文學", "運動健身", "流行文化", "心理療癒"]
+        "語言與邏輯":["英語辭源", "語言邏輯", "符號學", "修辭學"],
+        "科學與技術":["物理科學", "生物醫學", "神經科學", "量子力學", "人工智慧", "數學邏輯"],
+        "人文與社會":["歷史文明", "政治法律", "社會心理", "哲學宗教", "軍事戰略", "古希臘神話", "考古發現"],
+        "商業與職場":["商業商戰", "金融投資", "產品設計", "數位行銷", "職場政治", "管理學", "賽局理論"],
+        "生活與藝術":["餐飲文化", "社交禮儀", "藝術美學", "影視文學", "運動健身", "流行文化", "心理療癒"]
     }
     FLAT_CATEGORIES = [item for sublist in CATEGORIES.values() for item in sublist]
 
@@ -843,7 +839,7 @@ def page_etymon_lab():
     # --- 執行批量解碼 ---
     if st.button("🚀 啟動批量深度解碼", type="primary", use_container_width=True):
         # 1. 處理輸入清單 (支援換行、英文逗號、中文逗號)
-        input_list = [w.strip() for w in re.split(r'[\n,，]', raw_input) if w.strip()]
+        input_list =[w.strip() for w in re.split(r'[\n,，]', raw_input) if w.strip()]
         
         if not input_list:
             st.warning("請先輸入或生成主題清單。")
@@ -861,7 +857,7 @@ def page_etymon_lab():
             existing_data = pd.DataFrame(columns=CORE_COLS)
 
         # 3. 批量處理迴圈
-        new_records = []
+        new_records =[]
         total = len(input_list)
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -1385,7 +1381,7 @@ def generate_printable_html(title, text_content, img_b64, img_width_percent, aut
             <div class="footer">
                 <p>本講義由 AI 教育工作站自動生成，僅供教學參考使用。</p>
                 <div class="footer-links">
-                    💖 支援我們持續開發：PayPal / 綠界贊助 (ECPay) / Buy Me a Coffee
+                    💖 支援我們持續開發：歡迎透過元大銀行 (806) 20102710511667 隨喜贊助
                 </div>
             </div>
         </div>
@@ -1622,46 +1618,25 @@ def main():
 
         st.markdown("---")
         
-        # --- 💖 贊助支持 (禮品卡專用版) ---
+        # --- 💖 贊助支持 (元大銀行版) ---
         st.markdown("### 💖 支持電費與 AI 算力")
         
-        st.info("⚠️ 因銀行與支付平台限制，目前僅接受禮品卡贊助。")
+        st.caption("如果你覺得這個工具對你有幫助，歡迎隨喜贊助，支持我維持伺服器運作！")
         
-        st.markdown(f"""
-            <style>
-                .hardcore-btn {{
-                    display: block;
-                    width: 100%;
-                    padding: 10px;
-                    margin: 10px 0;
-                    text-align: center;
-                    background-color: #f0f2f6;
-                    border: 2px solid #ff4b4b;
-                    border-radius: 10px;
-                    text-decoration: none;
-                    color: #31333F !important;
-                    font-weight: bold;
-                    transition: all 0.3s;
-                }}
-                .hardcore-btn:hover {{
-                    background-color: #ff4b4b;
-                    color: white !important;
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(255, 75, 75, 0.2);
-                }}
-            </style>
-            
-            <a href="https://forms.gle/PNQpFFyEAVUdf8jj6" target="_blank" class="hardcore-btn">
-                🎁 贊助禮品卡 (Steam/Amazon/超商)
-            </a>
+        st.markdown("""
+        <div style="border: 2px solid #1E3A8A; padding: 15px; border-radius: 10px; background-color: #F8FAFC; text-align: center; margin-bottom: 10px;">
+            <div style="font-size: 12px; color: #64748B; font-weight: 900; letter-spacing: 1px; margin-bottom: 5px;">BANK TRANSFER</div>
+            <div style="font-size: 18px; color: #1E293B; font-weight: 900;">元大銀行 (806)</div>
+        </div>
         """, unsafe_allow_html=True)
         
-        with st.expander("為什麼只收禮品卡？"):
+        st.code("20102710511667", language="text")
+        
+        with st.expander("為什麼使用銀行轉帳？"):
             st.write("""
-                1. 學生身分申請金流太麻煩。
-                2. PayPal 手續費太高且限制多。
-                3. 禮品卡最直接，我可以用來買書或付伺服器費。
-                **注意：請確認序號有效，感謝您的投食！**
+                1. 學生身分申請第三方金流手續繁瑣。
+                2. 平台抽成高，直接轉帳能 **100%** 用於支付 API 與伺服器費用。
+                **感謝你的投食與支持！**
             """)
         
         st.markdown("---")
@@ -1700,7 +1675,7 @@ def main():
         df = load_db()
         
         # --- 子分頁導航 (使用橫向 radio 模擬 Tab 效果) ---
-        sub_menu = ["🏠 首頁概覽", "📖 學習搜尋"]
+        sub_menu =["🏠 首頁概覽", "📖 學習搜尋"]
         
         selected_sub = st.radio(
             "功能選單",
