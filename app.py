@@ -1603,7 +1603,7 @@ def main():
     with st.sidebar:
         # 加上名字（感謝那位網友），建立你的個人品牌槓桿
         st.title("🏫 AI 教育工作站")
-        st.caption("Built by [你的名字] | 18歲自學實驗專案")
+        st.caption("Built by kadowsella | 18歲自學實驗專案")
         
         # --- 🔐 管理員入口 ---
         with st.sidebar.expander("🔐 管理員登入"):
